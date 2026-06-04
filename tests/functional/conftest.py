@@ -5,6 +5,7 @@ admin user, an access token, and an empty repository, then yields the
 connection details. It skips (rather than fails) when Docker is unavailable.
 """
 
+import secrets
 import shutil
 import subprocess
 import time
@@ -15,9 +16,15 @@ import pytest
 GITEA_IMAGE = "gitea/gitea:1.22"
 CONTAINER_NAME = "soliplex-concierge-gitea-test"
 ADMIN_USER = "concierge"
-ADMIN_PASSWORD = "Concierge-12345"
 ADMIN_EMAIL = "concierge@example.com"
 REPO_NAME = "about-soliplex"
+
+
+def _make_admin_password():
+    # Random per-run, no literal secret in source. The fixed suffix
+    # guarantees the upper/lower/digit/symbol classes some Gitea password
+    # policies require.
+    return f"{secrets.token_urlsafe(16)}Aa1!"
 
 
 @pytest.fixture(scope="module")
@@ -82,6 +89,7 @@ def gitea_server():
         pytest.skip(f"could not start gitea container: {exc.stderr}")
 
     try:
+        admin_password = _make_admin_password()
         port_line = (
             _docker("port", CONTAINER_NAME, "3000")
             .stdout.strip()
@@ -104,7 +112,7 @@ def gitea_server():
             "--username",
             ADMIN_USER,
             "--password",
-            ADMIN_PASSWORD,
+            admin_password,
             "--email",
             ADMIN_EMAIL,
             "--admin",
@@ -113,7 +121,7 @@ def gitea_server():
 
         token_resp = httpx.post(
             f"{base_url}/api/v1/users/{ADMIN_USER}/tokens",
-            auth=(ADMIN_USER, ADMIN_PASSWORD),
+            auth=(ADMIN_USER, admin_password),
             json={
                 "name": "concierge-test",
                 "scopes": ["write:repository", "write:issue"],
@@ -127,7 +135,7 @@ def gitea_server():
         # token is reserved for the tool under test (issue creation).
         repo_resp = httpx.post(
             f"{base_url}/api/v1/user/repos",
-            auth=(ADMIN_USER, ADMIN_PASSWORD),
+            auth=(ADMIN_USER, admin_password),
             json={"name": REPO_NAME, "auto_init": True, "private": False},
             timeout=10,
         )
