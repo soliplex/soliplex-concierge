@@ -19,13 +19,17 @@ tools:
   - tool_name: "soliplex.tools.get_current_user"
   - tool_name: "soliplex.tools.current_run_info"
 
-  # Tells the agent which Gitea repository to file room requests against.
-  # Edit 'owner' / 'repo' to point at your installation's tracking repo.
-  # Register the config class via the installation's 'meta.tool_configs'
-  # (see example/installation-snippet.yaml).
-  - tool_name: "soliplex_concierge.tools.gitea.get_gitea_issue_target"
+  # Files room requests as Gitea issues via the Gitea REST API. Edit
+  # 'owner' / 'repo' to point at your installation's tracking repo. The
+  # Gitea base URL and access token are read at runtime from the
+  # installation environment / secrets named below (see
+  # example/installation-snippet.yaml). Register the config class via the
+  # installation's 'meta.tool_configs'.
+  - tool_name: "soliplex_concierge.tools.gitea.create_gitea_issue"
     owner: "your-gitea-owner"
     repo: "soliplex-requests"
+    host_env_var: "GITEA_HOST"
+    token_secret_name: "GITEA_ACCESS_TOKEN"
 
 skills:
   # The detailed concierge behavior lives in the 'soliplex-concierge'
@@ -36,17 +40,5 @@ skills:
   skill_configs:
     - kind: "haiku.rag.skills.rag"
       rag_lancedb_stem: "rag"
-
-mcp_client_toolsets:
-
-  gitea:
-    kind: "stdio"
-    command: "gitea-mcp"
-    args:
-      - "-t"
-      - "stdio"
-    env:
-      GITEA_HOST: "env:GITEA_HOST"
-      GITEA_ACCESS_TOKEN: "secret:GITEA_ACCESS_TOKEN"
 
 allow_mcp: false

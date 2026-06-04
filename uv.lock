@@ -2901,6 +2901,7 @@ name = "soliplex-concierge"
 version = "0.2.dev0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim" },
     { name = "soliplex" },
@@ -2919,6 +2920,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", specifier = ">=1.100,<2.0" },
     { name = "soliplex" },

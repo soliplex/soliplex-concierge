@@ -53,6 +53,14 @@ jobs:
       - name: Run unit tests with coverage
         run: uv run py.test -s -n auto ${{ matrix.pytest-args }}
 
+      # Functional tests spin up a throwaway Gitea container (Docker is
+      # available on GitHub-hosted runners). They share a module-scoped
+      # container fixture, so run them serially (no '-n'). Run on a single
+      # Python only -- they don't exercise version-specific behavior.
+      - name: Run functional tests
+        if: matrix.python-version == '3.13'
+        run: uv run py.test -s --no-cov -m needs_docker tests/functional/
+
       - name: Notify Slack on failure
         if: failure()
         uses: slackapi/slack-github-action@v2.1.0

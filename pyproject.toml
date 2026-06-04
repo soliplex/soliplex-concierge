@@ -17,6 +17,7 @@ dependencies = [
     "soliplex",
     "pydantic",
     "pydantic-ai-slim >= 1.100, < 2.0",
+    "httpx",
 ]
 
 [dependency-groups]
@@ -37,11 +38,14 @@ namespaces = true  # PEP 420: discover packages without empty __init__.py
 [tool.pytest.ini_options]
 pythonpath = [".", "tests/unit"]
 python_files = "test_*.py"
+# 'tests/functional' is skipped by default; run it explicitly (with
+# '--no-cov'), e.g. 'uv run py.test --no-cov tests/functional'.
 testpaths = ["tests/unit"]
 addopts = "--cov=soliplex_concierge --cov=tests/unit --cov-branch --cov-fail-under=100"
 filterwarnings = [
 ]
 markers = [
+    "needs_docker: functional test requiring a working Docker daemon",
 ]
 
 [tool.coverage.report]

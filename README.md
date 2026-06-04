@@ -35,18 +35,20 @@ Components:
    - add this package's `skill/` directory to `filesystem_skills_paths` and
      enable the `soliplex-concierge` filesystem skill, and
    - declare the `GITEA_HOST` environment variable and `GITEA_ACCESS_TOKEN`
-     secret used by the room's `gitea` MCP toolset.
+     secret that the `create_gitea_issue` tool reads to call the Gitea REST
+     API (no MCP server or external binary is required).
 
 3. Copy [`example/rooms/about_soliplex/`](example/rooms/about_soliplex) into
    your installation's `rooms/` directory, editing the `owner` / `repo` on
-   the `get_gitea_issue_target` tool to point at your tracking repository.
+   the `create_gitea_issue` tool to point at your tracking repository.
 
 4. Set `GITEA_HOST` and `GITEA_ACCESS_TOKEN` (see the `.env` lines at the
    bottom of the installation snippet).
 
 ## Status
 
-The issue-filing concierge (the `about_soliplex` room, its `gitea` tool, and
-the agent skill) is implemented. The scripts that *act on* approved requests
+The issue-filing concierge (the `about_soliplex` room, its `create_gitea_issue`
+tool, and the agent skill) is implemented. The scripts that *act on* approved
+requests
 — actually creating rooms and granting room access — are a planned
 follow-up.
