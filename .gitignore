@@ -12,10 +12,11 @@
 # misc
 tmp/
 
-# Skill build artifacts:
-# 'scripts/build_skill.py' generates files here
+# Build artifacts:
+# 'uv build' (see .github/workflows/pypi.yaml) generates these
 # CI publishes from here
 /dist/
+/build/
 
 # Zensical docs build output (`zensical build`)
 /site/
