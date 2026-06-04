@@ -1,0 +1,52 @@
+id: "about_soliplex"
+name: "About Soliplex"
+description: >-
+  Ask questions about Soliplex, request a new room, or request access to a
+  private room.
+
+suggestions:
+  - "What is Soliplex and what can I do here?"
+  - "How do I request a new room?"
+  - "How do I request access to a private room?"
+  - "Which rooms are available to me?"
+
+agent:
+  template_id: "default_chat"
+  system_prompt: "./prompt.txt"
+
+tools:
+  - tool_name: "soliplex.tools.get_current_datetime"
+  - tool_name: "soliplex.tools.get_current_user"
+  - tool_name: "soliplex.tools.current_run_info"
+
+  # Tells the agent which Gitea repository to file room requests against.
+  # Edit 'owner' / 'repo' to point at your installation's tracking repo.
+  # Register the config class via the installation's 'meta.tool_configs'
+  # (see example/installation-snippet.yaml).
+  - tool_name: "soliplex_concierge.tools.gitea.get_gitea_issue_target"
+    owner: "your-gitea-owner"
+    repo: "soliplex-requests"
+
+skills:
+  # The detailed concierge behavior lives in the 'soliplex-concierge'
+  # filesystem skill shipped by this package; wire its directory into the
+  # installation's 'filesystem_skills_paths' (see installation-snippet.yaml).
+  installation_skill_names:
+    - "soliplex-concierge"
+  skill_configs:
+    - kind: "haiku.rag.skills.rag"
+      rag_lancedb_stem: "rag"
+
+mcp_client_toolsets:
+
+  gitea:
+    kind: "stdio"
+    command: "gitea-mcp"
+    args:
+      - "-t"
+      - "stdio"
+    env:
+      GITEA_HOST: "env:GITEA_HOST"
+      GITEA_ACCESS_TOKEN: "secret:GITEA_ACCESS_TOKEN"
+
+allow_mcp: false

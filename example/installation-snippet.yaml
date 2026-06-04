@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# soliplex-concierge: installation wiring
+# ---------------------------------------------------------------------------
+# This is NOT a standalone installation. It shows the entries you must merge
+# into your existing 'installation.yaml' to enable the 'about_soliplex' room
+# shipped under 'example/rooms/about_soliplex/'.
+#
+# After merging, copy 'example/rooms/about_soliplex/' into your installation's
+# 'rooms/' directory and set the GITEA_HOST / GITEA_ACCESS_TOKEN values (see
+# the '.env' lines at the bottom).
+# ---------------------------------------------------------------------------
+
+meta:
+  # Register the extension's tool-config class so a room may reference the
+  # tool by its 'tool_name' ('soliplex_concierge.tools.gitea.
+  # get_gitea_issue_target'). No edit to Soliplex core is required.
+  tool_configs:
+    - "soliplex_concierge.config.GiteaIssueTargetToolConfig"
+
+# Point Soliplex at the package's 'skill/' directory so the
+# 'soliplex-concierge' filesystem skill is discovered. Adjust the path to
+# wherever 'soliplex-concierge' is checked out / installed.
+filesystem_skills_paths:
+  - "/path/to/soliplex-concierge/skill"
+
+skill_configs:
+  - skill_name: "soliplex-concierge"
+    kind: "filesystem"
+
+# The Gitea MCP server reads GITEA_HOST from the environment and
+# GITEA_ACCESS_TOKEN from secrets (see the room's 'gitea' toolset).
+environment:
+  - "GITEA_HOST"
+
+secrets:
+  - "GITEA_ACCESS_TOKEN"
+
+# ---------------------------------------------------------------------------
+# Matching '.env' entries
+# ---------------------------------------------------------------------------
+#   # Base URL of your Gitea instance (read by 'gitea-mcp' itself). The target
+#   # repository (owner / repo) is configured on the room's
+#   # 'get_gitea_issue_target' tool, not here.
+#   GITEA_HOST=https://gitea.example.com
+#
+#   # Access token for the Gitea MCP server.
+#   # Create from: <your-gitea-host>/user/settings/applications
+#   GITEA_ACCESS_TOKEN=...
+# ---------------------------------------------------------------------------
