@@ -1,0 +1,32 @@
+#Python
+*.pyc
+.coverage
+*.egg-info
+
+# Dotenv
+.env
+
+# direnv
+.direnv
+
+# misc
+tmp/
+
+# Skill build artifacts:
+# 'scripts/build_skill.py' generates files here
+# CI publishes from here
+/dist/
+
+# Zensical docs build output (`zensical build`)
+/site/
+
+#logs
+info.log
+
+# osx
+.DS_Store
+._*
+
+# data and conf directories (for testing)
+data/
+conf/
