@@ -49,17 +49,21 @@ prints a warning (unpinned installs are prone to version skew between the stack
 and your wiring), while `--version latest` opts into the newest release without
 the warning.
 
-The room bundles a `haiku.rag.skills.rag` skill, which needs a RAG LanceDB to
-exist. By default the script wires it to the stack's existing
-`rag/db/*.lancedb` (preferring `haiku.rag`, the template ingester's default),
-falling back to `haiku.rag` when none is present yet; override with
-`--rag-stem <name>` to point at a specific database.
+The about-room answers Soliplex questions from the `soliplex-docs` skill (the
+full Soliplex documentation), so no RAG database is required. To *also* answer
+from a RAG database — e.g. this installation's own ingested content — uncomment
+the `skill_configs` block in the installed room's `room_config.yaml`, pointing
+`rag_lancedb_stem` at a database under `rag/db/` (the
+[`soliplex-template`](https://github.com/soliplex/soliplex-template) skill can
+generate and ingest one).
 
-The room template is bundled beside the script (under `assets/`); the
-`soliplex-concierge-room` skill copied into the stack is **downloaded from its
-published release** by default (the `room-skill-latest` pointer, sha256
-verified). Pin a specific build with `--room-skill-version <tag>`, or install a
-local copy (offline / development) with `--room-skill-dir <dir>`.
+The room template is bundled beside the script (under `assets/`); the two
+filesystem skills copied into the stack are **downloaded from their published
+releases** by default, sha256 verified — `soliplex-concierge-room` (the
+`room-skill-latest` pointer) and `soliplex-docs` (the `docs-latest` pointer,
+from `soliplex/soliplex`). Pin a build with `--room-skill-version <tag>` /
+`--docs-skill-version <tag>`, or install a local copy (offline / development)
+with `--room-skill-dir <dir>` / `--docs-skill-dir <dir>`.
 
 Other flags: `--gitea-host` / `--gitea-token` (fill the Gitea values instead of
 placeholders), `--force` (overwrite an existing room/skill), and `--dry-run`
