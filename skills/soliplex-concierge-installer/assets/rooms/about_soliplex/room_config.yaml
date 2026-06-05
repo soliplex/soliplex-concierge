@@ -23,7 +23,7 @@ tools:
   # 'owner' / 'repo' to point at your installation's tracking repo. The
   # Gitea base URL and access token are read at runtime from the
   # installation environment / secrets named below (see
-  # example/installation-snippet.yaml). Register the config class via the
+  # installation-snippet.yaml). Register the config class via the
   # installation's 'meta.tool_configs'.
   - tool_name: "soliplex_concierge.tools.gitea.create_gitea_issue"
     owner: "your-gitea-owner"
