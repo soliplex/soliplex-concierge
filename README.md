@@ -13,9 +13,12 @@ Components:
   both the issue creation tasks and the scripts which actually perform
   the requested updates.
 
-- The [agent skill](skill/) contains a
-  [skill definition](https://agentskills.io) which allows an agent to
-  perform these tasks.
+- The [agent skills](skills/) contain
+  [skill definitions](https://agentskills.io) which allow an agent to
+  perform these tasks: `soliplex-concierge-installer` (wire the extension
+  into a stack), `soliplex-concierge-room` (the in-room request formatter,
+  copied into the stack), and `soliplex-concierge-admin` (act on and resolve
+  filed requests).
 
 ## Install & wire up
 
@@ -73,8 +76,9 @@ non-generated installation.
 
    - register the tool-config class via `meta.tool_configs` (Soliplex
      resolves the tool by its dotted `tool_name`; no core edit is needed),
-   - add this package's `skill/` directory to `filesystem_skills_paths` and
-     enable the `soliplex-concierge` filesystem skill, and
+   - add this package's `skills/soliplex-concierge-room` directory to
+     `filesystem_skills_paths` and enable the `soliplex-concierge-room`
+     filesystem skill, and
    - declare the `GITEA_HOST` environment variable and `GITEA_ACCESS_TOKEN`
      secret that the `create_gitea_issue` tool reads to call the Gitea REST
      API (no MCP server or external binary is required).
@@ -89,7 +93,9 @@ non-generated installation.
 ## Status
 
 The issue-filing concierge (the `about_soliplex` room, its `create_gitea_issue`
-tool, and the agent skill) is implemented. The scripts that *act on* approved
-requests
-— actually creating rooms and granting room access — are a planned
-follow-up.
+tool, and the `soliplex-concierge-room` skill) is implemented, as is the
+`soliplex-concierge-admin` skill, whose scripts read, comment on, and close
+(resolve) the filed request issues. The actual provisioning those requests ask
+for — creating rooms and granting access — is driven through the
+`soliplex-template` skill (see the admin skill's workflow); turnkey automation of
+that step is a planned follow-up.

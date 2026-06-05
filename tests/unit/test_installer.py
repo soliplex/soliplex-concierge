@@ -6,7 +6,7 @@ import pytest
 
 from soliplex_concierge import installer
 
-# The extension checkout (provides example/ + skill/): installer.py lives at
+# The extension checkout (provides example/ + skills/): installer.py lives at
 # 'src/soliplex_concierge/installer.py', so its parents[2] is the repo root.
 REPO_ROOT = pathlib.Path(installer.__file__).resolve().parents[2]
 
