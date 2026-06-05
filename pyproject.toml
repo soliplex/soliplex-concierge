@@ -20,9 +20,22 @@ dependencies = [
     "httpx",
 ]
 
+[project.optional-dependencies]
+# Extras for the 'soliplex-concierge-apply' console script, which wires this
+# extension into a generated stack. Kept out of the core deps so the server
+# runtime install stays lean: 'pip install soliplex-concierge[apply]'.
+apply = [
+    "ruamel.yaml",
+]
+
+[project.scripts]
+# Apply the extension to an existing soliplex-template-generated stack.
+soliplex-concierge-apply = "soliplex_concierge.installer:main"
+
 [dependency-groups]
 dev = [
     "anyio >= 4.12.1, < 4.13",
+    "ruamel.yaml",
     "coverage >= 7.13.5, < 7.14",
     "pytest >= 9.0.2, < 9.1",
     "pytest-cov >= 7.0.0, < 7.1",
