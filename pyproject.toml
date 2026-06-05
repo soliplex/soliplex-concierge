@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "soliplex-concierge"
-version = "0.4"
+version = "0.4.1"
 description = "Soliplex extension for LLM-driven room access / creation requests."
 authors = [{ name = "Enfold", email = "info@enfoldsystems.net" }]
 readme = "README.md"
