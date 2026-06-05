@@ -3,9 +3,9 @@
 # ---------------------------------------------------------------------------
 # This is NOT a standalone installation. It shows the entries you must merge
 # into your existing 'installation.yaml' to enable the 'about_soliplex' room
-# shipped under 'example/rooms/about_soliplex/'.
+# shipped beside this file under 'rooms/about_soliplex/'.
 #
-# After merging, copy 'example/rooms/about_soliplex/' into your installation's
+# After merging, copy 'rooms/about_soliplex/' into your installation's
 # 'rooms/' directory and set the GITEA_HOST / GITEA_ACCESS_TOKEN values (see
 # the '.env' lines at the bottom).
 # ---------------------------------------------------------------------------

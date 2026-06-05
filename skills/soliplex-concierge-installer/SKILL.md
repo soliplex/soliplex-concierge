@@ -1,23 +1,26 @@
 ---
 name: soliplex-concierge-installer
 description: |
-    Wire the `soliplex-concierge` extension into a target Soliplex stack:
-    install the package and run the `soliplex-concierge-apply` console script,
-    which creates the `about-<project>` room (hosting the `create_gitea_issue`
-    tool and the `soliplex-concierge-room` skill) and merges the required
-    `installation.yaml` entries. Use when a user wants to add room-request /
-    Gitea-issue filing to an existing soliplex-template-generated stack.
+    Wire the `soliplex-concierge` extension into a target Soliplex stack by
+    running this skill's bundled `scripts/apply.py` (via `uv run`, no install
+    needed). It creates the `about-<project>` room (hosting the
+    `create_gitea_issue` tool and the `soliplex-concierge-room` skill) and
+    merges the required `installation.yaml` entries. Use when a user wants to
+    add room-request / Gitea-issue filing to an existing
+    soliplex-template-generated stack.
 license: MIT
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # Soliplex concierge installer
 
 You run in an external coding agent to add the **soliplex-concierge** extension
-to a Soliplex deployment. The work is done by the `soliplex-concierge-apply`
-console script (shipped by the `soliplex-concierge` PyPI package); your job is to
-confirm the prerequisites, run it correctly, and verify the result.
+to a Soliplex deployment. The work is done by this skill's bundled
+`scripts/apply.py`, run with `uv run` (which provisions its one dependency,
+`ruamel.yaml`, from the script's PEP 723 header — no `pip install` needed). The
+room template it installs ships beside the script under `assets/`; your job is
+to confirm the prerequisites, run it correctly, and verify the result.
 
 This skill is meant to be used alongside two sibling skills:
 
@@ -28,32 +31,32 @@ This skill is meant to be used alongside two sibling skills:
 
 ## Prerequisites
 
-1. A `soliplex-template`-generated Docker Compose stack (the script edits
+1. `uv` on the PATH (used to run the bundled script with its dependency).
+2. A `soliplex-template`-generated Docker Compose stack (the script edits
    `backend/pyproject.toml`, `backend/Dockerfile`, `backend/environment/`, and
    `.env`). If there is no stack, generate one with the `soliplex-template` skill.
-2. A Gitea repository to file room requests against, and an access token with
+3. A Gitea repository to file room requests against, and an access token with
    permission to create issues in it.
+4. The `soliplex-concierge-room` skill tree to install into the stack. When you
+   run this script from a source checkout it is found automatically beside this
+   skill (`skills/soliplex-concierge-room`); otherwise fetch that skill and pass
+   its directory with `--room-skill-dir` (see the flag below).
 
 ## Steps
 
-1. Install the package with the `apply` extra (it adds `ruamel.yaml`, used only
-   by the installer):
+Run the bundled script from this skill's directory with `uv run`.
+
+1. **Dry-run first** to preview every change without writing:
 
    ```sh
-   pip install "soliplex-concierge[apply]"
-   ```
-
-2. **Dry-run first** to preview every change without writing:
-
-   ```sh
-   soliplex-concierge-apply --stack-dir /path/to/stack \
+   uv run scripts/apply.py --stack-dir /path/to/stack \
        --owner <gitea-owner> --repo <gitea-repo> --dry-run
    ```
 
-3. Apply for real once the dry-run looks right:
+2. Apply for real once the dry-run looks right:
 
    ```sh
-   soliplex-concierge-apply --stack-dir /path/to/stack \
+   uv run scripts/apply.py --stack-dir /path/to/stack \
        --owner <gitea-owner> --repo <gitea-repo> --version <X.Y>
    ```
 
@@ -63,9 +66,12 @@ This skill is meant to be used alongside two sibling skills:
 - `--owner` / `--repo` — Gitea owner and repository for filed issues.
 - `--gitea-host` / `--gitea-token` — fill real `.env` values instead of the
   `GITEA_HOST` / `GITEA_ACCESS_TOKEN` placeholders.
-- `--version <X.Y>` — pin the `soliplex-concierge` dependency. Omitting it
-  installs unpinned and prints a version-skew warning; `--version latest` opts
-  into the newest release without the warning.
+- `--version <X.Y>` — pin the `soliplex-concierge` dependency added to the
+  stack. Omitting it leaves the dependency unpinned and prints a version-skew
+  warning; `--version latest` opts into the newest release without the warning.
+- `--room-skill-dir` — directory of the `soliplex-concierge-room` skill to
+  install (default: the checkout sibling `skills/soliplex-concierge-room`;
+  required when running from an unpacked release bundle).
 - `--room-id` — room id to create (default: `about_<compose-project-name>`).
 - `--rag-stem` — RAG LanceDB stem to wire into the room's `haiku.rag.skills.rag`
   skill (default: the stack's existing `rag/db/*.lancedb`, else `haiku.rag`).
@@ -88,8 +94,8 @@ overwrite the copied room/skill).
 
 ## Verify
 
-- The script echoes the `soliplex-concierge` version it installed — check it
-  matches what you intended (and any `--version` pin).
+- The script prints a per-target summary (`added` / `unchanged`); confirm the
+  room, skill, and `installation.yaml` entries are accounted for.
 - Confirm `backend/environment/skills/soliplex-concierge-room/SKILL.md` exists
   and `installation.yaml` lists `skill_name: "soliplex-concierge-room"`.
 - Set real `GITEA_HOST` / `GITEA_ACCESS_TOKEN` in `.env`, then

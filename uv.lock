@@ -2916,11 +2916,6 @@ dependencies = [
     { name = "soliplex" },
 ]
 
-[package.optional-dependencies]
-apply = [
-    { name = "ruamel-yaml" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "anyio" },
@@ -2939,10 +2934,8 @@ requires-dist = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", specifier = ">=1.100,<2.0" },
-    { name = "ruamel-yaml", marker = "extra == 'apply'" },
     { name = "soliplex" },
 ]
-provides-extras = ["apply"]
 
 [package.metadata.requires-dev]
 dev = [

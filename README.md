@@ -26,26 +26,28 @@ Components:
 
 If your installation is a
 [`soliplex-template`](https://github.com/soliplex/soliplex-template)-generated
-Docker Compose stack, the `soliplex-concierge-apply` console script performs
-all of the wiring below for you, idempotently:
+Docker Compose stack, the `soliplex-concierge-installer` skill's bundled
+`scripts/apply.py` performs all of the wiring below for you, idempotently. Run
+it with `uv`, which provisions its one dependency (`ruamel.yaml`) from the
+script's PEP 723 header — no install step needed:
 
 ```sh
-pip install -e ".[apply]"        # the 'apply' extra adds ruamel.yaml
-soliplex-concierge-apply --stack-dir /path/to/your/stack
+uv run skills/soliplex-concierge-installer/scripts/apply.py \
+    --stack-dir /path/to/your/stack --owner <gitea-owner> --repo <gitea-repo>
 ```
 
 It adds the dependency to `backend/pyproject.toml` *and* the `backend/Dockerfile`
 `uv add` block (the generated Dockerfile ignores the pyproject deps, so both are
 needed), merges the five `installation.yaml` entries, installs the room and the
-filesystem skill, and appends the `.env` placeholders. The room is installed as
-`about_<compose-project-name>` by default; override with `--room-id`.
+`soliplex-concierge-room` filesystem skill, and appends the `.env` placeholders.
+The room is installed as `about_<compose-project-name>` by default; override
+with `--room-id`.
 
-Pass `--version <X.Y>` to pin the dependency (e.g. `--version 0.2`); omitting
-it leaves the dependency unpinned and prints a warning (unpinned installs are
-prone to version skew between the stack and your wiring), while
-`--version latest` opts into the newest release without the warning. After it
-finishes, the script echoes the `soliplex-concierge` version installed in the
-environment it ran from, so you can spot a mismatch.
+Pass `--version <X.Y>` to pin the `soliplex-concierge` dependency added to the
+stack (e.g. `--version 0.4`); omitting it leaves the dependency unpinned and
+prints a warning (unpinned installs are prone to version skew between the stack
+and your wiring), while `--version latest` opts into the newest release without
+the warning.
 
 The room bundles a `haiku.rag.skills.rag` skill, which needs a RAG LanceDB to
 exist. By default the script wires it to the stack's existing
@@ -53,10 +55,15 @@ exist. By default the script wires it to the stack's existing
 falling back to `haiku.rag` when none is present yet; override with
 `--rag-stem <name>` to point at a specific database.
 
-Other flags: `--owner` / `--repo` / `--gitea-host` / `--gitea-token` (fill the
-Gitea values instead of placeholders), `--force` (overwrite an existing
-room/skill), and `--dry-run` (report the changes without writing). Afterwards,
-set real Gitea values and `docker compose build backend && docker compose up -d`.
+The room template is bundled beside the script (under `assets/`); the
+`soliplex-concierge-room` skill copied into the stack is taken from this
+checkout (`skills/soliplex-concierge-room`). From a published installer-skill
+bundle, pass `--room-skill-dir` to point at that skill.
+
+Other flags: `--gitea-host` / `--gitea-token` (fill the Gitea values instead of
+placeholders), `--force` (overwrite an existing room/skill), and `--dry-run`
+(report the changes without writing). Afterwards, set real Gitea values and
+`docker compose build backend && docker compose up -d`.
 
 ### Manual wiring
 
@@ -71,8 +78,9 @@ non-generated installation.
    ```
 
 2. Merge the entries from
-   [`example/installation-snippet.yaml`](example/installation-snippet.yaml)
-   into your `installation.yaml`. They:
+   [`installation-snippet.yaml`](skills/soliplex-concierge-installer/assets/installation-snippet.yaml)
+   (bundled in the installer skill's `assets/`) into your `installation.yaml`.
+   They:
 
    - register the tool-config class via `meta.tool_configs` (Soliplex
      resolves the tool by its dotted `tool_name`; no core edit is needed),
@@ -83,8 +91,9 @@ non-generated installation.
      secret that the `create_gitea_issue` tool reads to call the Gitea REST
      API (no MCP server or external binary is required).
 
-3. Copy [`example/rooms/about_soliplex/`](example/rooms/about_soliplex) into
-   your installation's `rooms/` directory, editing the `owner` / `repo` on
+3. Copy
+   [`rooms/about_soliplex/`](skills/soliplex-concierge-installer/assets/rooms/about_soliplex)
+   into your installation's `rooms/` directory, editing the `owner` / `repo` on
    the `create_gitea_issue` tool to point at your tracking repository.
 
 4. Set `GITEA_HOST` and `GITEA_ACCESS_TOKEN` (see the `.env` lines at the

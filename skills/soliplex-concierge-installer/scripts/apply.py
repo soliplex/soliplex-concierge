@@ -1,8 +1,15 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["ruamel.yaml"]
+# ///
 """Apply the 'soliplex-concierge' extension to a generated Soliplex stack.
 
-This module backs the 'soliplex-concierge-apply' console script. It wires the
-extension into an existing 'soliplex-template'-generated installation, making
-the same six idempotent changes a human would otherwise make by hand:
+This script is bundled in the 'soliplex-concierge-installer' skill and run via
+'uv run scripts/apply.py' (uv provisions the 'ruamel.yaml' dependency from the
+PEP 723 header above). It wires the extension into an existing
+'soliplex-template'-generated installation, making the same six idempotent
+changes a human would otherwise make by hand:
 
 1. add 'soliplex-concierge' to 'backend/pyproject.toml' dependencies,
 2. add it to the 'backend/Dockerfile' 'uv add' block (the generated Dockerfile
@@ -14,8 +21,10 @@ the same six idempotent changes a human would otherwise make by hand:
 5. copy the 'soliplex-concierge-room' filesystem skill under 'skills/', and
 6. add GITEA_HOST / GITEA_ACCESS_TOKEN placeholders to '.env'.
 
-The wiring encoded here mirrors 'example/installation-snippet.yaml' (the
-human-readable reference); keep the two in sync.
+The room template lives beside this script in the bundled 'assets/' directory
+(resolved relative to __file__); the wiring encoded here mirrors
+'assets/installation-snippet.yaml' (the human-readable reference) -- keep the
+two in sync.
 
 The edits are expressed as pure '(text|obj) -> (new, action)' functions so they
 are individually testable and '--dry-run' is just "compute, do not write".
@@ -31,7 +40,6 @@ import re
 import shutil
 import sys
 import tomllib
-from importlib import metadata as _metadata
 
 from ruamel.yaml import YAML
 
@@ -45,6 +53,18 @@ GITEA_HOST = "GITEA_HOST"
 GITEA_TOKEN_SECRET = "GITEA_ACCESS_TOKEN"
 ASSET_ROOM = "about_soliplex"
 RAG_SKILL_KIND = "haiku.rag.skills.rag"
+
+# Bundled assets ship beside this script under '<skill>/assets/' (this file is
+# '<skill>/scripts/apply.py'); resolve them relative to __file__ so apply.py
+# works from an unpacked release bundle with no checkout.
+ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
+
+# The room skill is NOT bundled (it is its own published artifact). In a
+# checkout it sits beside this skill ('skills/soliplex-concierge-room'); in an
+# unpacked release bundle it is absent (issue #20 will fetch it at runtime).
+ROOM_SKILL_SIBLING = (
+    pathlib.Path(__file__).resolve().parents[2] / "soliplex-concierge-room"
+)
 
 DEFAULT_GITEA_HOST = "https://gitea.example.com"
 DEFAULT_GITEA_TOKEN = "replace-me"
@@ -86,9 +106,24 @@ class InstallerError(Exception):
     @classmethod
     def assets_missing(cls, assets: pathlib.Path) -> InstallerError:
         return cls(
-            f"no extension assets under {assets}: expected 'example/' and "
-            f"'skills/{SKILL_NAME}/' (run from a checkout or pass "
-            "--assets-dir)"
+            f"bundled assets not found under {assets}: expected "
+            f"'rooms/{ASSET_ROOM}/' beside this script (is the skill bundle "
+            "intact?)"
+        )
+
+    @classmethod
+    def room_skill_missing(cls, where: pathlib.Path) -> InstallerError:
+        return cls(
+            f"the '{SKILL_NAME}' skill is not bundled and was not found at "
+            f"{where}: pass --room-skill-dir pointing at a checkout's "
+            f"'skills/{SKILL_NAME}' (runtime download is tracked in #20)"
+        )
+
+    @classmethod
+    def bad_room_skill(cls, path: pathlib.Path) -> InstallerError:
+        return cls(
+            f"--room-skill-dir {path} is not a skill directory "
+            "(no SKILL.md found)"
         )
 
     @classmethod
@@ -157,28 +192,34 @@ def resolve_stack(stack_dir: str) -> pathlib.Path:
     return stack
 
 
-def resolve_assets(override: str | None) -> pathlib.Path:
-    """Locate the extension's 'example/' + 'skills/' asset directories.
+def resolve_assets() -> pathlib.Path:
+    """Return the bundled 'assets/' dir (room template + snippet).
 
-    Defaults to the repository root (this file lives at
-    'src/soliplex_concierge/installer.py'); '--assets-dir' overrides it.
+    The assets ship beside this script under '<skill>/assets/' (see ASSETS);
+    this is a self-check that the skill bundle is intact.
+    """
+    if not (ASSETS / "rooms" / ASSET_ROOM).is_dir():
+        raise InstallerError.assets_missing(ASSETS)
+    return ASSETS
+
+
+def resolve_room_skill(override: str | None) -> pathlib.Path:
+    """Locate the 'soliplex-concierge-room' skill tree to install.
+
+    With '--room-skill-dir', use that directory (it must contain a SKILL.md).
+    Otherwise fall back to the checkout sibling
+    'skills/soliplex-concierge-room' -- present when running apply.py from a
+    checkout, absent from an unpacked release bundle. Issue #20 will replace
+    the fallback with a release download.
     """
     if override is not None:
-        assets = pathlib.Path(override).resolve()
-    else:
-        assets = pathlib.Path(__file__).resolve().parents[2]
-    room_skill = assets / "skills" / SKILL_NAME
-    if not (assets / "example").is_dir() or not room_skill.is_dir():
-        raise InstallerError.assets_missing(assets)
-    return assets
-
-
-def installed_version() -> str | None:
-    """Installed 'soliplex-concierge' version in this environment, if any."""
-    try:
-        return _metadata.version(DIST)
-    except _metadata.PackageNotFoundError:
-        return None
+        path = pathlib.Path(override).resolve()
+        if not (path / "SKILL.md").is_file():
+            raise InstallerError.bad_room_skill(path)
+        return path
+    if not (ROOM_SKILL_SIBLING / "SKILL.md").is_file():
+        raise InstallerError.room_skill_missing(ROOM_SKILL_SIBLING)
+    return ROOM_SKILL_SIBLING
 
 
 def compose_project_name(stack: pathlib.Path) -> str:
@@ -453,22 +494,22 @@ def install_room(
         return UNCHANGED
     if opts.dry_run:
         return ADDED
-    src = assets / "example" / "rooms" / ASSET_ROOM
+    src = assets / "rooms" / ASSET_ROOM
     shutil.copytree(src, dst, dirs_exist_ok=True)
     _patch_room_config(dst / "room_config.yaml", opts)
     return ADDED
 
 
 def install_skill(
-    assets: pathlib.Path, stack: pathlib.Path, opts: Options
+    room_skill: pathlib.Path, stack: pathlib.Path, opts: Options
 ) -> str:
-    """Copy the whole skill tree (SKILL.md + assets/) into 'skills/'."""
+    """Copy the whole room skill tree (SKILL.md + assets/) into 'skills/'."""
     dst = stack / "backend" / "environment" / "skills" / SKILL_NAME
     if dst.exists() and not opts.force:
         return UNCHANGED
     if opts.dry_run:
         return ADDED
-    shutil.copytree(assets / "skills" / SKILL_NAME, dst, dirs_exist_ok=True)
+    shutil.copytree(room_skill, dst, dirs_exist_ok=True)
     return ADDED
 
 
@@ -483,7 +524,10 @@ def _write_if(
 
 
 def apply(
-    stack: pathlib.Path, assets: pathlib.Path, opts: Options
+    stack: pathlib.Path,
+    assets: pathlib.Path,
+    room_skill: pathlib.Path,
+    opts: Options,
 ) -> dict[str, str]:
     """Apply every change idempotently; return per-target actions."""
     results: dict[str, str] = {}
@@ -505,7 +549,7 @@ def apply(
     _write_if(inst, new, ADDED if changed else UNCHANGED, opts.dry_run)
 
     results[f"rooms/{opts.room_id}"] = install_room(assets, stack, opts)
-    results[f"skills/{SKILL_NAME}"] = install_skill(assets, stack, opts)
+    results[f"skills/{SKILL_NAME}"] = install_skill(room_skill, stack, opts)
 
     env = stack / ".env"
     new, action = update_env(
@@ -547,9 +591,13 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--assets-dir",
+        "--room-skill-dir",
         default=None,
-        help="override the extension checkout providing example/ and skills/",
+        help=(
+            "path to the 'soliplex-concierge-room' skill to install (default: "
+            "the checkout sibling 'skills/soliplex-concierge-room'; required "
+            "when running from an unpacked release bundle -- see issue #20)"
+        ),
     )
     parser.add_argument(
         "--version",
@@ -630,7 +678,8 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         stack = resolve_stack(args.stack_dir)
-        assets = resolve_assets(args.assets_dir)
+        assets = resolve_assets()
+        room_skill = resolve_room_skill(args.room_skill_dir)
         opts = Options(
             room_id=args.room_id or default_room_id(stack),
             rag_stem=resolve_rag_stem(stack, args.rag_stem),
@@ -643,17 +692,12 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
         )
         _warn_missing_owner_repo(opts.owner, opts.repo)
-        results = apply(stack, assets, opts)
+        results = apply(stack, assets, room_skill, opts)
     except InstallerError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     else:
         _print_summary(results, opts, stack, args.dry_run)
-        version = installed_version()
-        print(
-            "installed soliplex-concierge version: "
-            f"{version or 'not installed'}"
-        )
         return 0
 
 
