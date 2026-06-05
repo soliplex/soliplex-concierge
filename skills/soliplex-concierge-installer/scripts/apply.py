@@ -33,13 +33,22 @@ are individually testable and '--dry-run' is just "compute, do not write".
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
+import hashlib
 import io
+import json
+import os
 import pathlib
 import re
 import shutil
 import sys
+import tarfile
+import tempfile
 import tomllib
+import urllib.error as urllib_error
+import urllib.parse as urllib_parse
+import urllib.request as urllib_request
 
 from ruamel.yaml import YAML
 
@@ -59,12 +68,21 @@ RAG_SKILL_KIND = "haiku.rag.skills.rag"
 # works from an unpacked release bundle with no checkout.
 ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 
-# The room skill is NOT bundled (it is its own published artifact). In a
-# checkout it sits beside this skill ('skills/soliplex-concierge-room'); in an
-# unpacked release bundle it is absent (issue #20 will fetch it at runtime).
-ROOM_SKILL_SIBLING = (
-    pathlib.Path(__file__).resolve().parents[2] / "soliplex-concierge-room"
-)
+# The room skill is NOT bundled (it is its own published artifact); by default
+# it is downloaded from its GitHub release -- the 'room-skill-latest' pointer
+# (whose 'latest.json' names the immutable build + sha256), or an explicit tag
+# via '--room-skill-version'. '--room-skill-dir' installs a local copy instead.
+# This mirrors skills/soliplex-concierge-room/scripts/skill_versions.py; the
+# shared logic is slated to move to the planned 'soliplex-skills' library.
+ROOM_OWNER = "soliplex"
+ROOM_REPO = "soliplex-concierge"
+ROOM_ASSET_TARBALL = "soliplex-concierge-room-skill.tar.gz"
+ROOM_POINTER_TAG = "room-skill-latest"
+ROOM_POINTER_MANIFEST = "latest.json"
+_ROOM_DL = f"https://github.com/{ROOM_OWNER}/{ROOM_REPO}/releases/download"
+# Schemes _get will open: https for GitHub, file:// for local/testing tarballs.
+_ALLOWED_SCHEMES = frozenset({"https", "file"})
+_USER_AGENT = "soliplex-concierge-installer"
 
 DEFAULT_GITEA_HOST = "https://gitea.example.com"
 DEFAULT_GITEA_TOKEN = "replace-me"
@@ -112,11 +130,42 @@ class InstallerError(Exception):
         )
 
     @classmethod
-    def room_skill_missing(cls, where: pathlib.Path) -> InstallerError:
+    def _room_skill_download(cls, reason: str) -> InstallerError:
         return cls(
-            f"the '{SKILL_NAME}' skill is not bundled and was not found at "
-            f"{where}: pass --room-skill-dir pointing at a checkout's "
-            f"'skills/{SKILL_NAME}' (runtime download is tracked in #20)"
+            f"could not download the '{SKILL_NAME}' skill ({reason}); pass "
+            "--room-skill-dir to install from a local copy instead"
+        )
+
+    @classmethod
+    def room_skill_bad_scheme(cls, url: str) -> InstallerError:
+        return cls._room_skill_download(f"unsupported URL {url!r}")
+
+    @classmethod
+    def room_skill_http(cls, url: str, code: int) -> InstallerError:
+        return cls._room_skill_download(f"HTTP {code}: {url}")
+
+    @classmethod
+    def room_skill_unreachable(
+        cls, url: str, reason: object
+    ) -> InstallerError:
+        return cls._room_skill_download(f"{reason}: {url}")
+
+    @classmethod
+    def room_skill_bad_manifest(cls, url: str) -> InstallerError:
+        return cls._room_skill_download(f"invalid manifest at {url}")
+
+    @classmethod
+    def room_skill_checksum(
+        cls, tag: str, expected: str, actual: str
+    ) -> InstallerError:
+        return cls._room_skill_download(
+            f"checksum mismatch for {tag}: expected {expected}, got {actual}"
+        )
+
+    @classmethod
+    def room_skill_no_skill_md(cls, tag: str) -> InstallerError:
+        return cls(
+            f"the downloaded '{SKILL_NAME}' archive ({tag}) has no SKILL.md"
         )
 
     @classmethod
@@ -203,23 +252,123 @@ def resolve_assets() -> pathlib.Path:
     return ASSETS
 
 
-def resolve_room_skill(override: str | None) -> pathlib.Path:
+def _room_skill_installed(stack: pathlib.Path) -> bool:
+    dst = stack / "backend" / "environment" / "skills" / SKILL_NAME
+    return dst.exists()
+
+
+def resolve_room_skill(
+    override: str | None,
+    version: str | None,
+    opts: Options,
+    stack: pathlib.Path,
+    ctx: contextlib.ExitStack,
+) -> pathlib.Path | None:
     """Locate the 'soliplex-concierge-room' skill tree to install.
 
     With '--room-skill-dir', use that directory (it must contain a SKILL.md).
-    Otherwise fall back to the checkout sibling
-    'skills/soliplex-concierge-room' -- present when running apply.py from a
-    checkout, absent from an unpacked release bundle. Issue #20 will replace
-    the fallback with a release download.
+    Otherwise download the published release (default: the 'room-skill-latest'
+    pointer; or the '--room-skill-version' tag) into a temp dir owned by 'ctx'.
+
+    Returns None when no install will happen anyway -- a dry run, or the skill
+    is already present and '--force' was not given -- so neither the network
+    nor a temp dir is touched in those cases.
     """
     if override is not None:
         path = pathlib.Path(override).resolve()
         if not (path / "SKILL.md").is_file():
             raise InstallerError.bad_room_skill(path)
         return path
-    if not (ROOM_SKILL_SIBLING / "SKILL.md").is_file():
-        raise InstallerError.room_skill_missing(ROOM_SKILL_SIBLING)
-    return ROOM_SKILL_SIBLING
+    if opts.dry_run or (_room_skill_installed(stack) and not opts.force):
+        return None
+    dest = pathlib.Path(ctx.enter_context(tempfile.TemporaryDirectory()))
+    return download_room_skill(version, dest)
+
+
+# --- room-skill download (mirrors soliplex-concierge-room's skill_versions) --
+#
+# Stdlib only. Network access to GitHub is needed; set GITHUB_TOKEN / GH_TOKEN
+# to raise the API rate limit. The shared logic is slated to move to the
+# planned 'soliplex-skills' library.
+
+
+def _token() -> str | None:
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+
+
+def _get(url: str, *, accept: str = "application/octet-stream") -> bytes:
+    """Fetch 'url' (https or file://); map failures to InstallerError."""
+    scheme = urllib_parse.urlsplit(url).scheme
+    if scheme not in _ALLOWED_SCHEMES:
+        raise InstallerError.room_skill_bad_scheme(url)
+    request = urllib_request.Request(url)
+    request.add_header("User-Agent", _USER_AGENT)
+    request.add_header("Accept", accept)
+    token = _token()
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+    try:
+        # Scheme allowlist above bounds this to https/file (S310 mitigated).
+        with urllib_request.urlopen(request) as response:  # noqa: S310
+            return response.read()
+    except urllib_error.HTTPError as exc:
+        raise InstallerError.room_skill_http(url, exc.code) from exc
+    except urllib_error.URLError as exc:
+        raise InstallerError.room_skill_unreachable(url, exc.reason) from exc
+
+
+def _sha256(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(65536), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _read_room_pointer() -> dict:
+    """Return the 'room-skill-latest' pointer manifest (latest.json)."""
+    url = f"{_ROOM_DL}/{ROOM_POINTER_TAG}/{ROOM_POINTER_MANIFEST}"
+    try:
+        return json.loads(_get(url))
+    except json.JSONDecodeError as exc:
+        raise InstallerError.room_skill_bad_manifest(url) from exc
+
+
+def _resolve_room_target(version: str | None) -> tuple[str, str, str | None]:
+    """Resolve to (tag, asset_url, sha256), expanding the default pointer.
+
+    'version is None' reads the 'room-skill-latest' pointer (verified sha256);
+    an explicit tag builds the asset URL by name (no sha256 to verify).
+    """
+    if version is None:
+        pointer = _read_room_pointer()
+        return (
+            pointer.get("tag", ROOM_POINTER_TAG),
+            pointer["asset_url"],
+            pointer.get("sha256"),
+        )
+    return version, f"{_ROOM_DL}/{version}/{ROOM_ASSET_TARBALL}", None
+
+
+def download_room_skill(
+    version: str | None, dest: pathlib.Path
+) -> pathlib.Path:
+    """Download + extract the room skill into 'dest'; return its skill root."""
+    tag, asset_url, sha256 = _resolve_room_target(version)
+    tarball = dest / ROOM_ASSET_TARBALL
+    tarball.write_bytes(_get(asset_url))
+    if sha256:
+        actual = _sha256(tarball)
+        if actual != sha256:
+            raise InstallerError.room_skill_checksum(tag, sha256, actual)
+    extract = dest / "extract"
+    extract.mkdir()
+    with tarfile.open(tarball) as archive:
+        archive.extractall(extract, filter="data")
+    matches = list(extract.glob("*/SKILL.md"))
+    if not matches:
+        raise InstallerError.room_skill_no_skill_md(tag)
+    return matches[0].parent
 
 
 def compose_project_name(stack: pathlib.Path) -> str:
@@ -501,9 +650,13 @@ def install_room(
 
 
 def install_skill(
-    room_skill: pathlib.Path, stack: pathlib.Path, opts: Options
+    room_skill: pathlib.Path | None, stack: pathlib.Path, opts: Options
 ) -> str:
-    """Copy the whole room skill tree (SKILL.md + assets/) into 'skills/'."""
+    """Copy the whole room skill tree (SKILL.md + assets/) into 'skills/'.
+
+    'room_skill' is None only when no copy will happen (dry run, or already
+    installed without --force) -- the guards below return before using it.
+    """
     dst = stack / "backend" / "environment" / "skills" / SKILL_NAME
     if dst.exists() and not opts.force:
         return UNCHANGED
@@ -526,7 +679,7 @@ def _write_if(
 def apply(
     stack: pathlib.Path,
     assets: pathlib.Path,
-    room_skill: pathlib.Path,
+    room_skill: pathlib.Path | None,
     opts: Options,
 ) -> dict[str, str]:
     """Apply every change idempotently; return per-target actions."""
@@ -591,12 +744,20 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--room-skill-version",
+        default=None,
+        help=(
+            "published 'soliplex-concierge-room' tag to install (default: the "
+            "'room-skill-latest' pointer); e.g. a rolling build or 'v0.4'"
+        ),
+    )
+    parser.add_argument(
         "--room-skill-dir",
         default=None,
         help=(
-            "path to the 'soliplex-concierge-room' skill to install (default: "
-            "the checkout sibling 'skills/soliplex-concierge-room'; required "
-            "when running from an unpacked release bundle -- see issue #20)"
+            "install the 'soliplex-concierge-room' skill from this local "
+            "directory instead of downloading a published release "
+            "(offline / development)"
         ),
     )
     parser.add_argument(
@@ -679,7 +840,6 @@ def main(argv: list[str] | None = None) -> int:
     try:
         stack = resolve_stack(args.stack_dir)
         assets = resolve_assets()
-        room_skill = resolve_room_skill(args.room_skill_dir)
         opts = Options(
             room_id=args.room_id or default_room_id(stack),
             rag_stem=resolve_rag_stem(stack, args.rag_stem),
@@ -692,7 +852,13 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
         )
         _warn_missing_owner_repo(opts.owner, opts.repo)
-        results = apply(stack, assets, room_skill, opts)
+        # The room skill may be downloaded into a temp dir; keep it alive until
+        # apply() (install_skill) has copied it into the stack.
+        with contextlib.ExitStack() as ctx:
+            room_skill = resolve_room_skill(
+                args.room_skill_dir, args.room_skill_version, opts, stack, ctx
+            )
+            results = apply(stack, assets, room_skill, opts)
     except InstallerError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
