@@ -690,6 +690,22 @@ def test_pin_for_version_latest_no_warning(capsys):
     assert "warning" not in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "owner,repo",
+    [(None, None), ("acme", None), (None, "reqs")],
+)
+def test_warn_missing_owner_repo_warns(capsys, owner, repo):
+    installer._warn_missing_owner_repo(owner, repo)
+
+    assert "warning" in capsys.readouterr().err
+
+
+def test_warn_missing_owner_repo_silent_when_both_set(capsys):
+    installer._warn_missing_owner_repo("acme", "reqs")
+
+    assert "warning" not in capsys.readouterr().err
+
+
 def test_installed_version_present():
     result = installer.installed_version()
 
@@ -735,6 +751,10 @@ def test_main_version_latest_no_warning(stack, capsys):
             str(REPO_ROOT),
             "--version",
             "latest",
+            "--owner",
+            "acme",
+            "--repo",
+            "reqs",
         ]
     )
 
