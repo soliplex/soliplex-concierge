@@ -28,8 +28,8 @@ tools:
   - tool_name: "soliplex_concierge.tools.gitea.create_gitea_issue"
     owner: "your-gitea-owner"
     repo: "soliplex-requests"
-    host_env_var: "GITEA_HOST"
-    token_secret_name: "GITEA_ACCESS_TOKEN"
+    host: "env:GITEA_HOST"
+    token: "secret:GITEA_ACCESS_TOKEN"
 
 skills:
   # The detailed concierge behavior lives in the 'soliplex-concierge'

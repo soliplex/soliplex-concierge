@@ -41,10 +41,9 @@ async def create_gitea_issue(
         CreatedGiteaIssue: the 'number', 'url', and 'title' of the new issue.
     """
     tool_config = ctx.deps.tool_configs[config.CGI_TOOL_KIND]
-    installation = ctx.deps.the_installation
 
-    host = installation.get_environment(tool_config.host_env_var)
-    token = installation.get_secret(tool_config.token_secret_name)
+    host = tool_config.host
+    token = tool_config.token
     url = (
         f"{host.rstrip('/')}"
         f"/api/v1/repos/{tool_config.owner}/{tool_config.repo}/issues"

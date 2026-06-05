@@ -16,10 +16,7 @@ USER = {
 
 @pytest.fixture
 def the_installation():
-    the_installation = mock.create_autospec(installation.Installation)
-    the_installation.get_environment.return_value = "https://gitea.example.com"
-    the_installation.get_secret.return_value = "tok-abc123"
-    return the_installation
+    return mock.create_autospec(installation.Installation)
 
 
 @pytest.fixture
@@ -27,8 +24,8 @@ def ctx(the_installation):
     tool_config = mock.Mock(
         owner="acme",
         repo="widgets",
-        host_env_var="GITEA_HOST",
-        token_secret_name="GITEA_ACCESS_TOKEN",
+        host="https://gitea.example.com",
+        token="tok-abc123",
     )
     deps = agents.AgentDependencies(
         the_installation=the_installation,
@@ -51,7 +48,7 @@ def _patch_async_client(response):
 
 
 @pytest.mark.anyio
-async def test_create_gitea_issue(ctx, the_installation):
+async def test_create_gitea_issue(ctx):
     response = mock.Mock()
     response.raise_for_status = mock.Mock()
     response.json.return_value = {
@@ -72,8 +69,6 @@ async def test_create_gitea_issue(ctx, the_installation):
     assert found.number == 7
     assert found.url == "https://gitea.example.com/acme/widgets/issues/7"
     assert found.title == "New room request: marketing"
-    the_installation.get_environment.assert_called_once_with("GITEA_HOST")
-    the_installation.get_secret.assert_called_once_with("GITEA_ACCESS_TOKEN")
     client.post.assert_awaited_once_with(
         "https://gitea.example.com/api/v1/repos/acme/widgets/issues",
         headers={"Authorization": "token tok-abc123"},

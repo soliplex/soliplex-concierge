@@ -27,10 +27,11 @@ skill_configs:
   - skill_name: "soliplex-concierge"
     kind: "filesystem"
 
-# The 'create_gitea_issue' tool reads the Gitea base URL from the GITEA_HOST
-# environment variable and the access token from the GITEA_ACCESS_TOKEN
-# secret, then calls the Gitea REST API directly (no MCP server / external
-# binary required).
+# The 'create_gitea_issue' tool's 'host'/'token' config values are Soliplex
+# interpolation strings ("env:GITEA_HOST" / "secret:GITEA_ACCESS_TOKEN"), so it
+# reads the Gitea base URL from the GITEA_HOST environment variable and the
+# access token from the GITEA_ACCESS_TOKEN secret, then calls the Gitea REST API
+# directly (no MCP server / external binary required).
 environment:
   - "GITEA_HOST"
 
