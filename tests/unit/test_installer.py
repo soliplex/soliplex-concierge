@@ -196,7 +196,7 @@ def test_add_pyproject_dep_unchanged():
 
 
 def test_add_pyproject_dep_empty_array_indent():
-    text = '[project]\ndependencies = [\n]\n'
+    text = "[project]\ndependencies = [\n]\n"
 
     new_text, action = installer.add_pyproject_dep(text)
 
@@ -349,7 +349,8 @@ def test_merge_installation_appends_to_existing_tool_configs():
 )
 def test_merge_installation_missing_section(anchor, section):
     text = "\n".join(
-        line for line in _INSTALLATION.splitlines()
+        line
+        for line in _INSTALLATION.splitlines()
         if not line.startswith(anchor)
     )
 
@@ -376,7 +377,8 @@ def test_patch_room_config(temp_dir, owner, repo):
     data = _load(cfg)
     assert data["id"] == "about_acme"
     rag = next(
-        s for s in data["skills"]["skill_configs"]
+        s
+        for s in data["skills"]["skill_configs"]
         if s.get("kind") == installer.RAG_SKILL_KIND
     )
     assert rag["rag_lancedb_stem"] == "hr"
@@ -386,9 +388,7 @@ def test_patch_room_config(temp_dir, owner, repo):
     assert tool["owner"] == (
         owner if owner is not None else "your-gitea-owner"
     )
-    assert tool["repo"] == (
-        repo if repo is not None else "soliplex-requests"
-    )
+    assert tool["repo"] == (repo if repo is not None else "soliplex-requests")
 
 
 # --- rag stem detection / resolution --------------------------------------
@@ -503,8 +503,12 @@ def test_install_skill_added(stack):
     action = installer.install_skill(REPO_ROOT, stack, _opts())
 
     skill = (
-        stack / "backend" / "environment" / "skills"
-        / installer.SKILL_NAME / "SKILL.md"
+        stack
+        / "backend"
+        / "environment"
+        / "skills"
+        / installer.SKILL_NAME
+        / "SKILL.md"
     )
     assert action == installer.ADDED
     assert skill.is_file()
@@ -526,8 +530,12 @@ def test_install_skill_dry_run(stack):
     action = installer.install_skill(REPO_ROOT, stack, _opts(dry_run=True))
 
     skill = (
-        stack / "backend" / "environment" / "skills"
-        / installer.SKILL_NAME / "SKILL.md"
+        stack
+        / "backend"
+        / "environment"
+        / "skills"
+        / installer.SKILL_NAME
+        / "SKILL.md"
     )
     assert action == installer.ADDED
     assert not skill.exists()
@@ -561,7 +569,10 @@ def test_main_applies(stack, capsys):
     inst = _load(backend / "environment" / "installation.yaml")
     assert installer.GITEA_HOST in inst["environment"]
     assert (
-        backend / "environment" / "rooms" / "about_concierge-test"
+        backend
+        / "environment"
+        / "rooms"
+        / "about_concierge-test"
         / "room_config.yaml"
     ).is_file()
     assert (
@@ -574,8 +585,10 @@ def test_main_applies(stack, capsys):
 def test_main_dry_run(stack, capsys):
     rc = installer.main(
         [
-            "--stack-dir", str(stack),
-            "--assets-dir", str(REPO_ROOT),
+            "--stack-dir",
+            str(stack),
+            "--assets-dir",
+            str(REPO_ROOT),
             "--dry-run",
         ]
     )
@@ -602,9 +615,12 @@ def test_main_idempotent(stack):
 def test_main_room_id_override(stack):
     rc = installer.main(
         [
-            "--stack-dir", str(stack),
-            "--assets-dir", str(REPO_ROOT),
-            "--room-id", "custom_room",
+            "--stack-dir",
+            str(stack),
+            "--assets-dir",
+            str(REPO_ROOT),
+            "--room-id",
+            "custom_room",
         ]
     )
 
@@ -617,17 +633,25 @@ def test_main_room_id_override(stack):
 def test_main_with_owner_repo(stack, capsys):
     rc = installer.main(
         [
-            "--stack-dir", str(stack),
-            "--assets-dir", str(REPO_ROOT),
-            "--owner", "acme",
-            "--repo", "reqs",
+            "--stack-dir",
+            str(stack),
+            "--assets-dir",
+            str(REPO_ROOT),
+            "--owner",
+            "acme",
+            "--repo",
+            "reqs",
         ]
     )
 
     assert rc == 0
     cfg = _load(
-        stack / "backend" / "environment" / "rooms"
-        / "about_concierge-test" / "room_config.yaml"
+        stack
+        / "backend"
+        / "environment"
+        / "rooms"
+        / "about_concierge-test"
+        / "room_config.yaml"
     )
     tool = next(
         t for t in cfg["tools"] if t.get("tool_name") == installer.GITEA_TOOL
@@ -686,43 +710,54 @@ def test_installed_version_absent(monkeypatch):
 def test_main_version_pins(stack):
     rc = installer.main(
         [
-            "--stack-dir", str(stack),
-            "--assets-dir", str(REPO_ROOT),
-            "--version", "0.2",
+            "--stack-dir",
+            str(stack),
+            "--assets-dir",
+            str(REPO_ROOT),
+            "--version",
+            "0.2",
         ]
     )
 
     backend = stack / "backend"
     assert rc == 0
-    assert '"soliplex-concierge == 0.2"' in (
-        backend / "pyproject.toml"
-    ).read_text()
+    assert (
+        '"soliplex-concierge == 0.2"'
+        in (backend / "pyproject.toml").read_text()
+    )
     assert "soliplex-concierge==0.2" in (backend / "Dockerfile").read_text()
 
 
 def test_main_version_latest_no_warning(stack, capsys):
     rc = installer.main(
         [
-            "--stack-dir", str(stack),
-            "--assets-dir", str(REPO_ROOT),
-            "--version", "latest",
+            "--stack-dir",
+            str(stack),
+            "--assets-dir",
+            str(REPO_ROOT),
+            "--version",
+            "latest",
         ]
     )
 
     out = capsys.readouterr()
     assert rc == 0
     assert "warning" not in out.err
-    assert '"soliplex-concierge",' in (
-        stack / "backend" / "pyproject.toml"
-    ).read_text()
+    assert (
+        '"soliplex-concierge",'
+        in (stack / "backend" / "pyproject.toml").read_text()
+    )
 
 
 def test_main_echoes_installed_version(stack, capsys):
     rc = installer.main(
         [
-            "--stack-dir", str(stack),
-            "--assets-dir", str(REPO_ROOT),
-            "--version", "latest",
+            "--stack-dir",
+            str(stack),
+            "--assets-dir",
+            str(REPO_ROOT),
+            "--version",
+            "latest",
         ]
     )
 
@@ -732,11 +767,16 @@ def test_main_echoes_installed_version(stack, capsys):
 
 def _room_rag_stem(stack, room_id="about_concierge-test"):
     cfg = _load(
-        stack / "backend" / "environment" / "rooms" / room_id
+        stack
+        / "backend"
+        / "environment"
+        / "rooms"
+        / room_id
         / "room_config.yaml"
     )
     rag = next(
-        s for s in cfg["skills"]["skill_configs"]
+        s
+        for s in cfg["skills"]["skill_configs"]
         if s.get("kind") == installer.RAG_SKILL_KIND
     )
     return rag["rag_lancedb_stem"]
@@ -745,9 +785,12 @@ def _room_rag_stem(stack, room_id="about_concierge-test"):
 def test_main_rag_stem_defaults_to_haiku(stack):
     rc = installer.main(
         [
-            "--stack-dir", str(stack),
-            "--assets-dir", str(REPO_ROOT),
-            "--version", "latest",
+            "--stack-dir",
+            str(stack),
+            "--assets-dir",
+            str(REPO_ROOT),
+            "--version",
+            "latest",
         ]
     )
 
@@ -758,10 +801,14 @@ def test_main_rag_stem_defaults_to_haiku(stack):
 def test_main_rag_stem_override(stack):
     rc = installer.main(
         [
-            "--stack-dir", str(stack),
-            "--assets-dir", str(REPO_ROOT),
-            "--version", "latest",
-            "--rag-stem", "custom",
+            "--stack-dir",
+            str(stack),
+            "--assets-dir",
+            str(REPO_ROOT),
+            "--version",
+            "latest",
+            "--rag-stem",
+            "custom",
         ]
     )
 
@@ -774,9 +821,12 @@ def test_main_echoes_not_installed(stack, capsys, monkeypatch):
 
     installer.main(
         [
-            "--stack-dir", str(stack),
-            "--assets-dir", str(REPO_ROOT),
-            "--version", "latest",
+            "--stack-dir",
+            str(stack),
+            "--assets-dir",
+            str(REPO_ROOT),
+            "--version",
+            "latest",
         ]
     )
 

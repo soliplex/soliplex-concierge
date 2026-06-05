@@ -228,9 +228,7 @@ def _entry_indent(lines: list[str], open_idx: int) -> str:
     return "    "
 
 
-def add_pyproject_dep(
-    text: str, pin: str | None = None
-) -> tuple[str, str]:
+def add_pyproject_dep(text: str, pin: str | None = None) -> tuple[str, str]:
     """Add 'soliplex-concierge' to the '[project] dependencies' array."""
     data = tomllib.loads(text)
     deps = data.get("project", {}).get("dependencies", [])
@@ -251,9 +249,7 @@ def add_pyproject_dep(
     return "".join(lines), ADDED
 
 
-def add_dockerfile_dep(
-    text: str, pin: str | None = None
-) -> tuple[str, str]:
+def add_dockerfile_dep(text: str, pin: str | None = None) -> tuple[str, str]:
     """Add 'soliplex-concierge' to the Dockerfile 'uv add' block."""
     if DIST in text:
         return text, UNCHANGED
@@ -385,25 +381,35 @@ def merge_installation(text: str, room_id: str) -> tuple[str, dict[str, str]]:
     """Add the five extension entries to installation.yaml text, surgically."""
     lines = text.splitlines(keepends=True)
     entry = f"./rooms/{room_id}"
-    room_probe = re.compile(
-        r'-\s*["\']?' + re.escape(entry) + r'["\']?\s*$'
-    )
+    room_probe = re.compile(r'-\s*["\']?' + re.escape(entry) + r'["\']?\s*$')
     results = {
         "installation: meta.tool_configs": _add_meta_tool_config(lines),
         "installation: environment": _add_list_entry(
-            lines, _ENVIRONMENT_RE, _HAS_GITEA_HOST, _GITEA_HOST_BLOCK,
+            lines,
+            _ENVIRONMENT_RE,
+            _HAS_GITEA_HOST,
+            _GITEA_HOST_BLOCK,
             "environment",
         ),
         "installation: secrets": _add_list_entry(
-            lines, _SECRETS_RE, _HAS_GITEA_SECRET, _GITEA_SECRET_BLOCK,
+            lines,
+            _SECRETS_RE,
+            _HAS_GITEA_SECRET,
+            _GITEA_SECRET_BLOCK,
             "secrets",
         ),
         "installation: skill_configs": _add_list_entry(
-            lines, _SKILL_CONFIGS_RE, _HAS_SKILL, _SKILL_BLOCK,
+            lines,
+            _SKILL_CONFIGS_RE,
+            _HAS_SKILL,
+            _SKILL_BLOCK,
             "skill_configs",
         ),
         "installation: room_paths": _add_list_entry(
-            lines, _ROOM_PATHS_RE, room_probe, [f'  - "{entry}"\n'],
+            lines,
+            _ROOM_PATHS_RE,
+            room_probe,
+            [f'  - "{entry}"\n'],
             "room_paths",
         ),
     }
