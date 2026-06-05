@@ -56,9 +56,10 @@ falling back to `haiku.rag` when none is present yet; override with
 `--rag-stem <name>` to point at a specific database.
 
 The room template is bundled beside the script (under `assets/`); the
-`soliplex-concierge-room` skill copied into the stack is taken from this
-checkout (`skills/soliplex-concierge-room`). From a published installer-skill
-bundle, pass `--room-skill-dir` to point at that skill.
+`soliplex-concierge-room` skill copied into the stack is **downloaded from its
+published release** by default (the `room-skill-latest` pointer, sha256
+verified). Pin a specific build with `--room-skill-version <tag>`, or install a
+local copy (offline / development) with `--room-skill-dir <dir>`.
 
 Other flags: `--gitea-host` / `--gitea-token` (fill the Gitea values instead of
 placeholders), `--force` (overwrite an existing room/skill), and `--dry-run`

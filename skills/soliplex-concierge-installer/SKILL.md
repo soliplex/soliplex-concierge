@@ -10,7 +10,7 @@ description: |
     soliplex-template-generated stack.
 license: MIT
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
 ---
 
 # Soliplex concierge installer
@@ -37,10 +37,11 @@ This skill is meant to be used alongside two sibling skills:
    `.env`). If there is no stack, generate one with the `soliplex-template` skill.
 3. A Gitea repository to file room requests against, and an access token with
    permission to create issues in it.
-4. The `soliplex-concierge-room` skill tree to install into the stack. When you
-   run this script from a source checkout it is found automatically beside this
-   skill (`skills/soliplex-concierge-room`); otherwise fetch that skill and pass
-   its directory with `--room-skill-dir` (see the flag below).
+4. Network access to GitHub: the `soliplex-concierge-room` skill is downloaded
+   from its published release by default (the `room-skill-latest` pointer, or a
+   tag via `--room-skill-version`). To install offline or from a local copy
+   instead, use `--room-skill-dir` (see the flags below). Set `GITHUB_TOKEN` /
+   `GH_TOKEN` to raise the GitHub rate limit if needed.
 
 ## Steps
 
@@ -69,9 +70,11 @@ Run the bundled script from this skill's directory with `uv run`.
 - `--version <X.Y>` — pin the `soliplex-concierge` dependency added to the
   stack. Omitting it leaves the dependency unpinned and prints a version-skew
   warning; `--version latest` opts into the newest release without the warning.
-- `--room-skill-dir` — directory of the `soliplex-concierge-room` skill to
-  install (default: the checkout sibling `skills/soliplex-concierge-room`;
-  required when running from an unpacked release bundle).
+- `--room-skill-version <tag>` — published `soliplex-concierge-room` tag to
+  install (default: the `room-skill-latest` pointer); e.g. a rolling build or
+  `v0.4`.
+- `--room-skill-dir <dir>` — install the `soliplex-concierge-room` skill from a
+  local directory instead of downloading (offline / development).
 - `--room-id` — room id to create (default: `about_<compose-project-name>`).
 - `--rag-stem` — RAG LanceDB stem to wire into the room's `haiku.rag.skills.rag`
   skill (default: the stack's existing `rag/db/*.lancedb`, else `haiku.rag`).
