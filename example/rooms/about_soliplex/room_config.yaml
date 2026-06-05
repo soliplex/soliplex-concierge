@@ -32,11 +32,11 @@ tools:
     token: "secret:GITEA_ACCESS_TOKEN"
 
 skills:
-  # The detailed concierge behavior lives in the 'soliplex-concierge'
+  # The detailed concierge behavior lives in the 'soliplex-concierge-room'
   # filesystem skill shipped by this package; wire its directory into the
   # installation's 'filesystem_skills_paths' (see installation-snippet.yaml).
   installation_skill_names:
-    - "soliplex-concierge"
+    - "soliplex-concierge-room"
   skill_configs:
     - kind: "haiku.rag.skills.rag"
       rag_lancedb_stem: "rag"

@@ -1,5 +1,5 @@
 ---
-name: soliplex-concierge
+name: soliplex-concierge-room
 description: |
     Format a Soliplex room request into a ready-to-file tracking issue. Use
     for a NEW room request, or a request for ACCESS to an existing private
@@ -7,7 +7,7 @@ description: |
     it with the create_gitea_issue tool.
 license: MIT
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
 ---
 
 # Soliplex room-request concierge
@@ -38,13 +38,14 @@ fill it in:
    `Room access request: <room>`.
 5. Return your result in **exactly** this shape and nothing else:
 
-   ```
+   ```text
    TITLE: <the one-line title>
 
    <the filled-in template body, in Markdown>
    ```
 
-   The first line must begin with `TITLE: ` followed by the title; after one
+   The first line must begin with `TITLE:` and a space, followed by the title;
+   after one
    blank line comes the issue body. Do not wrap the result in code fences and
    do not add any commentary -- the calling agent parses this output directly
    to file the issue.

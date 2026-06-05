@@ -18,7 +18,7 @@ review. When a user makes a room request:
          skills it should provide.
        - Access request: which room, and why they need access.
 
-  2. Delegate the formatting to the "soliplex-concierge" skill via the
+  2. Delegate the formatting to the "soliplex-concierge-room" skill via the
      'execute_skill' tool. The skill runs in isolation, so put ALL the details
      you gathered into the request you pass it. The skill returns an issue
      draft: a first line beginning 'TITLE: ' followed, after a blank line, by

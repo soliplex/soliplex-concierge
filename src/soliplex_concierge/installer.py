@@ -11,7 +11,7 @@ the same six idempotent changes a human would otherwise make by hand:
    (meta.tool_configs, environment, secrets, skill_configs, room_paths),
 4. copy the 'about_soliplex' room template into 'rooms/<room_id>/' (renaming
    it -- directory, 'id:' and the room_paths entry -- to '<room_id>'),
-5. copy the 'soliplex-concierge' filesystem skill under 'skills/', and
+5. copy the 'soliplex-concierge-room' filesystem skill under 'skills/', and
 6. add GITEA_HOST / GITEA_ACCESS_TOKEN placeholders to '.env'.
 
 The wiring encoded here mirrors 'example/installation-snippet.yaml' (the
@@ -40,7 +40,7 @@ from ruamel.yaml import YAML
 DIST = "soliplex-concierge"
 TOOL_CONFIG = "soliplex_concierge.config.CreateGiteaIssueToolConfig"
 GITEA_TOOL = "soliplex_concierge.tools.gitea.create_gitea_issue"
-SKILL_NAME = "soliplex-concierge"
+SKILL_NAME = "soliplex-concierge-room"
 GITEA_HOST = "GITEA_HOST"
 GITEA_TOKEN_SECRET = "GITEA_ACCESS_TOKEN"
 ASSET_ROOM = "about_soliplex"
@@ -87,7 +87,8 @@ class InstallerError(Exception):
     def assets_missing(cls, assets: pathlib.Path) -> InstallerError:
         return cls(
             f"no extension assets under {assets}: expected 'example/' and "
-            "'skill/' (run from a checkout or pass --assets-dir)"
+            f"'skills/{SKILL_NAME}/' (run from a checkout or pass "
+            "--assets-dir)"
         )
 
     @classmethod
@@ -157,7 +158,7 @@ def resolve_stack(stack_dir: str) -> pathlib.Path:
 
 
 def resolve_assets(override: str | None) -> pathlib.Path:
-    """Locate the extension's 'example/' + 'skill/' asset directories.
+    """Locate the extension's 'example/' + 'skills/' asset directories.
 
     Defaults to the repository root (this file lives at
     'src/soliplex_concierge/installer.py'); '--assets-dir' overrides it.
@@ -166,7 +167,8 @@ def resolve_assets(override: str | None) -> pathlib.Path:
         assets = pathlib.Path(override).resolve()
     else:
         assets = pathlib.Path(__file__).resolve().parents[2]
-    if not (assets / "example").is_dir() or not (assets / "skill").is_dir():
+    room_skill = assets / "skills" / SKILL_NAME
+    if not (assets / "example").is_dir() or not room_skill.is_dir():
         raise InstallerError.assets_missing(assets)
     return assets
 
@@ -466,7 +468,7 @@ def install_skill(
         return UNCHANGED
     if opts.dry_run:
         return ADDED
-    shutil.copytree(assets / "skill", dst, dirs_exist_ok=True)
+    shutil.copytree(assets / "skills" / SKILL_NAME, dst, dirs_exist_ok=True)
     return ADDED
 
 
@@ -547,7 +549,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--assets-dir",
         default=None,
-        help="override the extension checkout providing example/ and skill/",
+        help="override the extension checkout providing example/ and skills/",
     )
     parser.add_argument(
         "--version",
