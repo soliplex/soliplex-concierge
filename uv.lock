@@ -2931,6 +2931,7 @@ dev = [
     { name = "pytest-xdist" },
     { name = "ruamel-yaml" },
     { name = "ruff" },
+    { name = "skills-ref" },
 ]
 
 [package.metadata]
@@ -2953,6 +2954,7 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.8.0,<3.9" },
     { name = "ruamel-yaml" },
     { name = "ruff", specifier = ">=0.15.6,<0.16" },
+    { name = "skills-ref" },
 ]
 
 [[package]]

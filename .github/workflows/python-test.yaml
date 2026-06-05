@@ -7,6 +7,8 @@ on:
     paths:
       - 'pyproject.toml'
       - 'src/soliplex_concierge/**'
+      - 'skills/**'
+      - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/python-test.yaml'
       - 'uv.lock'
@@ -16,6 +18,8 @@ on:
     paths:
       - 'pyproject.toml'
       - 'src/soliplex_concierge/**'
+      - 'skills/**'
+      - 'scripts/**'
       - 'tests/**'
       - '.github/workflows/python-test.yaml'
       - 'uv.lock'

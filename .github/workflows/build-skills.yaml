@@ -1,0 +1,192 @@
+name: Build & publish soliplex-concierge skills
+
+# Assembles the three soliplex-concierge filesystem Agent Skills
+# (https://agentskills.io/) from skills/ and publishes each one independently.
+# The skills are plain Markdown + a little bundled Python, so this runs in well
+# under a minute per skill.
+#
+# Publishing has two modes (per skill):
+#
+# * On a software release ('release: published'): each skill snapshot is
+#   attached to that release, pinned to the released version.
+# * On skill changes to main (and manual dispatch): an immutable rolling build
+#   '<prefix>-YYYY.MM.DD-<sha>' is published, the '<prefix>-latest' pointer is
+#   updated to it, and old rolling builds are pruned.
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - 'skills/**'
+      - 'scripts/build_skills.py'
+      - '.github/workflows/build-skills.yaml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: soliplex-concierge-installer
+            prefix: installer-skill
+            tarball: soliplex-concierge-installer-skill.tar.gz
+            zip: soliplex-concierge-installer-skill.zip
+          - name: soliplex-concierge-room
+            prefix: room-skill
+            tarball: soliplex-concierge-room-skill.tar.gz
+            zip: soliplex-concierge-room-skill.zip
+          - name: soliplex-concierge-admin
+            prefix: admin-skill
+            tarball: soliplex-concierge-admin-skill.tar.gz
+            zip: soliplex-concierge-admin-skill.zip
+    # Legs publish disjoint tags, so they do not race each other; this only
+    # serializes re-runs of the same skill (rolling pointer / prune step).
+    concurrency:
+      group: build-skills-${{ matrix.prefix }}
+      cancel-in-progress: false
+    env:
+      DIST: dist
+      SKILL_DIR: ${{ matrix.name }}
+      ASSET_TARBALL: ${{ matrix.tarball }}
+      ASSET_ZIP: ${{ matrix.zip }}
+      POINTER_TAG: ${{ matrix.prefix }}-latest
+      KEEP_ROLLING: "10"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: "pyproject.toml"
+
+      # The 'dev' group provides 'skills-ref' (the agentskills validator) used
+      # by build_skills.py.
+      - name: Install dependencies
+        run: uv sync --frozen --group dev
+
+      - name: Build & validate skill
+        run: >
+          uv run --group dev python scripts/build_skills.py
+          --skill "$SKILL_DIR" --commit "${{ github.sha }}"
+
+      # All release assets are written under dist/ (gitignored) alongside the
+      # assembled skill directory.
+      - name: Package skill
+        run: |
+          tar czf "$DIST/$ASSET_TARBALL" -C "$DIST" "$SKILL_DIR"
+          (cd "$DIST" && zip -qr "$ASSET_ZIP" "$SKILL_DIR")
+
+      - name: Compute build identity
+        run: |
+          {
+            echo "SHORT_SHA=${GITHUB_SHA::7}"
+            echo "GEN_DATE=$(date -u +%Y-%m-%d)"
+            echo "ROLLING_TAG=${{ matrix.prefix }}-$(date -u +%Y.%m.%d)-${GITHUB_SHA::7}"
+            echo "SHA256=$(sha256sum "$DIST/$ASSET_TARBALL" | cut -d' ' -f1)"
+          } >> "$GITHUB_ENV"
+
+      # version.json identifies a published build so consumers can detect drift
+      # and verify the download. Written for whichever tag we publish.
+      - name: Write version manifest
+        env:
+          TARGET_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || env.ROLLING_TAG }}
+        run: |
+          jq -n \
+            --arg tag "$TARGET_TAG" \
+            --arg commit "$SHORT_SHA" \
+            --arg generated "$GEN_DATE" \
+            --arg sha256 "$SHA256" \
+            --arg url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TARGET_TAG}/${ASSET_TARBALL}" \
+            '{tag:$tag, source_commit:$commit, generated:$generated, sha256:$sha256, asset_url:$url}' \
+            > "$DIST/version.json"
+          cat "$DIST/version.json"
+
+      # --- Software-release mode -------------------------------------------
+      - name: Attach skill to software release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: >
+          gh release upload "$TAG"
+          "$DIST/$ASSET_TARBALL" "$DIST/$ASSET_ZIP" "$DIST/version.json" --clobber
+
+      # --- Rolling mode ----------------------------------------------------
+      - name: Publish immutable rolling build
+        if: github.event_name != 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$ROLLING_TAG" >/dev/null 2>&1 || \
+            gh release create "$ROLLING_TAG" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "$SKILL_DIR $ROLLING_TAG" \
+              --notes "Rolling $SKILL_DIR Agent Skill built from ${GITHUB_SHA}."
+          gh release upload "$ROLLING_TAG" \
+            "$DIST/$ASSET_TARBALL" "$DIST/$ASSET_ZIP" "$DIST/version.json" --clobber
+
+      - name: Update 'latest' pointer
+        if: github.event_name != 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$POINTER_TAG" >/dev/null 2>&1 || \
+            gh release create "$POINTER_TAG" \
+              --prerelease \
+              --title "$SKILL_DIR (latest)" \
+              --notes "Rolling pointer to the newest $SKILL_DIR Agent Skill build."
+          # latest.json points at the immutable build; the tarball/zip are
+          # re-hosted here too so the pointer URL is a one-request download.
+          cp "$DIST/version.json" "$DIST/latest.json"
+          gh release upload "$POINTER_TAG" \
+            "$DIST/latest.json" "$DIST/$ASSET_TARBALL" "$DIST/$ASSET_ZIP" --clobber
+
+      - name: Prune old rolling builds
+        if: github.event_name != 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release list --limit 200 --json tagName --jq '.[].tagName' \
+            | grep -E '^${{ matrix.prefix }}-[0-9]{4}\.' \
+            | sort -r \
+            | tail -n +$((KEEP_ROLLING + 1)) \
+            | while read -r tag; do
+                echo "Pruning $tag"
+                gh release delete "$tag" --cleanup-tag --yes
+              done
+
+      - name: Upload workflow artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            dist/${{ matrix.tarball }}
+            dist/${{ matrix.zip }}
+            dist/version.json
+          retention-days: 7
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_NOTIFY_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "channel": "#soliplex",
+              "username": "soliplex-concierge",
+              "text": ":x: ${{ github.workflow }} (${{ matrix.name }}) failed:\nhttps://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "icon_emoji": ":ghost:"
+            }
