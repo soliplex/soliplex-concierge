@@ -2783,6 +2783,15 @@ wheels = [
 ]
 
 [[package]]
+name = "ruamel-yaml"
+version = "0.19.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/3b/ebda527b56beb90cb7652cb1c7e4f91f48649fbcd8d2eb2fb6e77cd3329b/ruamel_yaml-0.19.1.tar.gz", hash = "sha256:53eb66cd27849eff968ebf8f0bf61f46cdac2da1d1f3576dd4ccee9b25c31993", size = 142709, upload-time = "2026-01-02T16:50:31.84Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/0c/51f6841f1d84f404f92463fc2b1ba0da357ca1e3db6b7fbda26956c3b82a/ruamel_yaml-0.19.1-py3-none-any.whl", hash = "sha256:27592957fedf6e0b62f281e96effd28043345e0e66001f97683aa9a40c667c93", size = 118102, upload-time = "2026-01-02T16:50:29.201Z" },
+]
+
+[[package]]
 name = "ruff"
 version = "0.15.15"
 source = { registry = "https://pypi.org/simple" }
@@ -2907,6 +2916,11 @@ dependencies = [
     { name = "soliplex" },
 ]
 
+[package.optional-dependencies]
+apply = [
+    { name = "ruamel-yaml" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "anyio" },
@@ -2915,6 +2929,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
+    { name = "ruamel-yaml" },
     { name = "ruff" },
 ]
 
@@ -2923,8 +2938,10 @@ requires-dist = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", specifier = ">=1.100,<2.0" },
+    { name = "ruamel-yaml", marker = "extra == 'apply'" },
     { name = "soliplex" },
 ]
+provides-extras = ["apply"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2934,6 +2951,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.3.0,<1.4" },
     { name = "pytest-cov", specifier = ">=7.0.0,<7.1" },
     { name = "pytest-xdist", specifier = ">=3.8.0,<3.9" },
+    { name = "ruamel-yaml" },
     { name = "ruff", specifier = ">=0.15.6,<0.16" },
 ]
 

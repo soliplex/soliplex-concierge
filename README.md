@@ -19,6 +19,47 @@ Components:
 
 ## Install & wire up
 
+### Generated stacks: one-shot apply
+
+If your installation is a
+[`soliplex-template`](https://github.com/soliplex/soliplex-template)-generated
+Docker Compose stack, the `soliplex-concierge-apply` console script performs
+all of the wiring below for you, idempotently:
+
+```sh
+pip install -e ".[apply]"        # the 'apply' extra adds ruamel.yaml
+soliplex-concierge-apply --stack-dir /path/to/your/stack
+```
+
+It adds the dependency to `backend/pyproject.toml` *and* the `backend/Dockerfile`
+`uv add` block (the generated Dockerfile ignores the pyproject deps, so both are
+needed), merges the five `installation.yaml` entries, installs the room and the
+filesystem skill, and appends the `.env` placeholders. The room is installed as
+`about_<compose-project-name>` by default; override with `--room-id`.
+
+Pass `--version <X.Y>` to pin the dependency (e.g. `--version 0.2`); omitting
+it leaves the dependency unpinned and prints a warning (unpinned installs are
+prone to version skew between the stack and your wiring), while
+`--version latest` opts into the newest release without the warning. After it
+finishes, the script echoes the `soliplex-concierge` version installed in the
+environment it ran from, so you can spot a mismatch.
+
+The room bundles a `haiku.rag.skills.rag` skill, which needs a RAG LanceDB to
+exist. By default the script wires it to the stack's existing
+`rag/db/*.lancedb` (preferring `haiku.rag`, the template ingester's default),
+falling back to `haiku.rag` when none is present yet; override with
+`--rag-stem <name>` to point at a specific database.
+
+Other flags: `--owner` / `--repo` / `--gitea-host` / `--gitea-token` (fill the
+Gitea values instead of placeholders), `--force` (overwrite an existing
+room/skill), and `--dry-run` (report the changes without writing). Afterwards,
+set real Gitea values and `docker compose build backend && docker compose up -d`.
+
+### Manual wiring
+
+The script above automates exactly these steps; do them by hand for a
+non-generated installation.
+
 1. Install this package into the environment that runs Soliplex (it depends
    on `soliplex`):
 
