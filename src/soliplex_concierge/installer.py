@@ -612,6 +612,18 @@ def _pin_for_version(version: str | None) -> str | None:
     return f"== {version}"
 
 
+def _warn_missing_owner_repo(owner: str | None, repo: str | None) -> None:
+    """Warn when --owner/--repo are omitted (the room keeps placeholders)."""
+    if owner is None or repo is None:
+        print(
+            "warning: --owner/--repo not given; the room keeps its "
+            "placeholder owner/repo, so create_gitea_issue cannot file "
+            "issues until you set them. Pass --owner and --repo, or edit "
+            "the room's room_config.yaml.",
+            file=sys.stderr,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
@@ -628,6 +640,7 @@ def main(argv: list[str] | None = None) -> int:
             force=args.force,
             dry_run=args.dry_run,
         )
+        _warn_missing_owner_repo(opts.owner, opts.repo)
         results = apply(stack, assets, opts)
     except InstallerError as exc:
         print(f"error: {exc}", file=sys.stderr)
