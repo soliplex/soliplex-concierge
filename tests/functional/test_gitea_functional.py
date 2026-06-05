@@ -19,12 +19,10 @@ async def test_create_gitea_issue_against_live_gitea(gitea_server):
     tool_config = mock.Mock(
         owner=gitea_server["owner"],
         repo=gitea_server["repo"],
-        host_env_var="GITEA_HOST",
-        token_secret_name="GITEA_ACCESS_TOKEN",
+        host=gitea_server["host"],
+        token=gitea_server["token"],
     )
     the_installation = mock.Mock()
-    the_installation.get_environment.return_value = gitea_server["host"]
-    the_installation.get_secret.return_value = gitea_server["token"]
     deps = agents.AgentDependencies(
         the_installation=the_installation,
         user=USER,
