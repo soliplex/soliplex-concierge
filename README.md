@@ -93,6 +93,9 @@ non-generated installation.
 ## Status
 
 The issue-filing concierge (the `about_soliplex` room, its `create_gitea_issue`
-tool, and the `soliplex-concierge-room` skill) is implemented. The scripts that
-*act on* approved requests — actually creating rooms and granting room access —
-are a planned follow-up.
+tool, and the `soliplex-concierge-room` skill) is implemented, as is the
+`soliplex-concierge-admin` skill, whose scripts read, comment on, and close
+(resolve) the filed request issues. The actual provisioning those requests ask
+for — creating rooms and granting access — is driven through the
+`soliplex-template` skill (see the admin skill's workflow); turnkey automation of
+that step is a planned follow-up.
