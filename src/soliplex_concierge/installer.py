@@ -460,16 +460,13 @@ def install_room(
 def install_skill(
     assets: pathlib.Path, stack: pathlib.Path, opts: Options
 ) -> str:
-    """Copy the filesystem skill under the stack's scanned 'skills/' path."""
-    dst = (
-        stack / "backend" / "environment" / "skills" / SKILL_NAME / "SKILL.md"
-    )
+    """Copy the whole skill tree (SKILL.md + assets/) into 'skills/'."""
+    dst = stack / "backend" / "environment" / "skills" / SKILL_NAME
     if dst.exists() and not opts.force:
         return UNCHANGED
     if opts.dry_run:
         return ADDED
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(assets / "skill" / "SKILL.md", dst)
+    shutil.copytree(assets / "skill", dst, dirs_exist_ok=True)
     return ADDED
 
 

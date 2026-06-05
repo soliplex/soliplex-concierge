@@ -502,16 +502,14 @@ def test_install_room_force(stack):
 def test_install_skill_added(stack):
     action = installer.install_skill(REPO_ROOT, stack, _opts())
 
-    skill = (
-        stack
-        / "backend"
-        / "environment"
-        / "skills"
-        / installer.SKILL_NAME
-        / "SKILL.md"
+    skill_dir = (
+        stack / "backend" / "environment" / "skills" / installer.SKILL_NAME
     )
     assert action == installer.ADDED
-    assert skill.is_file()
+    assert (skill_dir / "SKILL.md").is_file()
+    # the whole tree is copied, including the request templates
+    assert (skill_dir / "assets" / "room_creation_request.md").is_file()
+    assert (skill_dir / "assets" / "room_access_request.md").is_file()
 
 
 def test_install_skill_unchanged(stack):
