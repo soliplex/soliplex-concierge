@@ -3,11 +3,9 @@ import pathlib
 
 import pytest
 
-from soliplex_concierge import installer
-
 # build_skills.py lives at the repo root under scripts/, outside the package;
 # load it by path so we can unit-test its pure logic.
-REPO_ROOT = pathlib.Path(installer.__file__).resolve().parents[2]
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "build_skills.py"
 _spec = importlib.util.spec_from_file_location("build_skills", SCRIPT)
 build_skills = importlib.util.module_from_spec(_spec)

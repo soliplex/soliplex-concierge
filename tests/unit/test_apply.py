@@ -1,14 +1,24 @@
+import importlib.util
 import pathlib
 import shutil
-from importlib import metadata as _metadata
+import sys
 
 import pytest
 
-from soliplex_concierge import installer
+# apply.py is a bundled skill script (not an installed package), so load it by
+# path like the other skill-script tests. Its only third-party import
+# (ruamel.yaml) is provided by the dev dependency group. It is registered in
+# sys.modules before execution so its dataclasses resolve their own module.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_INSTALLER_SKILL = REPO_ROOT / "skills" / "soliplex-concierge-installer"
+_APPLY = _INSTALLER_SKILL / "scripts" / "apply.py"
+ASSETS = _INSTALLER_SKILL / "assets"
+ROOM_SKILL = REPO_ROOT / "skills" / "soliplex-concierge-room"
 
-# The extension checkout (provides example/ + skills/): installer.py lives at
-# 'src/soliplex_concierge/installer.py', so its parents[2] is the repo root.
-REPO_ROOT = pathlib.Path(installer.__file__).resolve().parents[2]
+_spec = importlib.util.spec_from_file_location("concierge_apply", _APPLY)
+apply = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = apply
+_spec.loader.exec_module(apply)
 
 _COMPOSE = "name: concierge-test\nservices: {}\n"
 
@@ -102,44 +112,69 @@ def stack(temp_dir) -> pathlib.Path:
 
 
 def _load(path: pathlib.Path):
-    return installer._yaml().load(path.read_text())
+    return apply._yaml().load(path.read_text())
 
 
 # --- resolve_stack --------------------------------------------------------
 
 
 def test_resolve_stack_ok(stack):
-    result = installer.resolve_stack(str(stack))
+    result = apply.resolve_stack(str(stack))
 
     assert result == stack
 
 
-@pytest.mark.parametrize("marker", installer.STACK_MARKERS)
+@pytest.mark.parametrize("marker", apply.STACK_MARKERS)
 def test_resolve_stack_missing_marker(stack, marker):
     (stack / marker).unlink()
 
-    with pytest.raises(installer.InstallerError, match=marker):
-        installer.resolve_stack(str(stack))
+    with pytest.raises(apply.InstallerError, match=marker):
+        apply.resolve_stack(str(stack))
 
 
 # --- resolve_assets -------------------------------------------------------
 
 
-def test_resolve_assets_default_is_repo_root():
-    result = installer.resolve_assets(None)
+def test_resolve_assets_default_is_bundle():
+    result = apply.resolve_assets()
 
-    assert result == REPO_ROOT
-
-
-def test_resolve_assets_override(tmp_path):
-    result = installer.resolve_assets(str(REPO_ROOT))
-
-    assert result == REPO_ROOT
+    assert result == ASSETS
 
 
-def test_resolve_assets_missing(temp_dir):
-    with pytest.raises(installer.InstallerError, match="assets"):
-        installer.resolve_assets(str(temp_dir))
+def test_resolve_assets_missing(temp_dir, monkeypatch):
+    monkeypatch.setattr(apply, "ASSETS", temp_dir)
+
+    with pytest.raises(apply.InstallerError, match="assets"):
+        apply.resolve_assets()
+
+
+# --- resolve_room_skill ---------------------------------------------------
+
+
+def test_resolve_room_skill_default_sibling():
+    result = apply.resolve_room_skill(None)
+
+    assert result == ROOM_SKILL
+
+
+def test_resolve_room_skill_override(tmp_path):
+    (tmp_path / "SKILL.md").write_text("x")
+
+    result = apply.resolve_room_skill(str(tmp_path))
+
+    assert result == tmp_path.resolve()
+
+
+def test_resolve_room_skill_override_missing(temp_dir):
+    with pytest.raises(apply.InstallerError, match="room-skill-dir"):
+        apply.resolve_room_skill(str(temp_dir))
+
+
+def test_resolve_room_skill_sibling_missing(temp_dir, monkeypatch):
+    monkeypatch.setattr(apply, "ROOM_SKILL_SIBLING", temp_dir / "nope")
+
+    with pytest.raises(apply.InstallerError, match="not bundled"):
+        apply.resolve_room_skill(None)
 
 
 # --- compose_project_name / default_room_id ------------------------------
@@ -156,13 +191,13 @@ def test_resolve_assets_missing(temp_dir):
 def test_compose_project_name(temp_dir, compose, expected):
     (temp_dir / "docker-compose.yml").write_text(compose)
 
-    result = installer.compose_project_name(temp_dir)
+    result = apply.compose_project_name(temp_dir)
 
     assert result == (expected if expected is not None else temp_dir.name)
 
 
 def test_default_room_id(stack):
-    result = installer.default_room_id(stack)
+    result = apply.default_room_id(stack)
 
     assert result == "about_concierge-test"
 
@@ -178,9 +213,9 @@ def test_default_room_id(stack):
     ],
 )
 def test_add_pyproject_dep_added(pin, expected):
-    new_text, action = installer.add_pyproject_dep(_PYPROJECT, pin)
+    new_text, action = apply.add_pyproject_dep(_PYPROJECT, pin)
 
-    assert action == installer.ADDED
+    assert action == apply.ADDED
     assert expected in new_text
 
 
@@ -189,26 +224,26 @@ def test_add_pyproject_dep_unchanged():
         '    "soliplex",\n', '    "soliplex",\n    "soliplex-concierge",\n'
     )
 
-    new_text, action = installer.add_pyproject_dep(text)
+    new_text, action = apply.add_pyproject_dep(text)
 
-    assert action == installer.UNCHANGED
+    assert action == apply.UNCHANGED
     assert new_text == text
 
 
 def test_add_pyproject_dep_empty_array_indent():
     text = "[project]\ndependencies = [\n]\n"
 
-    new_text, action = installer.add_pyproject_dep(text)
+    new_text, action = apply.add_pyproject_dep(text)
 
-    assert action == installer.ADDED
+    assert action == apply.ADDED
     assert '    "soliplex-concierge",\n' in new_text
 
 
 def test_add_pyproject_dep_bad():
     text = '[project]\ndependencies = ["soliplex"]\n'
 
-    with pytest.raises(installer.InstallerError, match="dependencies"):
-        installer.add_pyproject_dep(text)
+    with pytest.raises(apply.InstallerError, match="dependencies"):
+        apply.add_pyproject_dep(text)
 
 
 # --- add_dockerfile_dep ---------------------------------------------------
@@ -222,9 +257,9 @@ def test_add_pyproject_dep_bad():
     ],
 )
 def test_add_dockerfile_dep_added(pin, expected):
-    new_text, action = installer.add_dockerfile_dep(_DOCKERFILE, pin)
+    new_text, action = apply.add_dockerfile_dep(_DOCKERFILE, pin)
 
-    assert action == installer.ADDED
+    assert action == apply.ADDED
     assert expected in new_text
 
 
@@ -234,15 +269,15 @@ def test_add_dockerfile_dep_unchanged():
         "      soliplex \\\n      soliplex-concierge \\\n",
     )
 
-    new_text, action = installer.add_dockerfile_dep(text)
+    new_text, action = apply.add_dockerfile_dep(text)
 
-    assert action == installer.UNCHANGED
+    assert action == apply.UNCHANGED
     assert new_text == text
 
 
 def test_add_dockerfile_dep_bad():
-    with pytest.raises(installer.InstallerError, match="Dockerfile"):
-        installer.add_dockerfile_dep("RUN echo no uv add here\n")
+    with pytest.raises(apply.InstallerError, match="Dockerfile"):
+        apply.add_dockerfile_dep("RUN echo no uv add here\n")
 
 
 # --- update_env -----------------------------------------------------------
@@ -250,9 +285,9 @@ def test_add_dockerfile_dep_bad():
 
 @pytest.mark.parametrize("base", ["X=1\n", "X=1"])
 def test_update_env_added(base):
-    new_text, action = installer.update_env(base, "https://g", "tok")
+    new_text, action = apply.update_env(base, "https://g", "tok")
 
-    assert action == installer.ADDED
+    assert action == apply.ADDED
     assert "GITEA_HOST=https://g" in new_text
     assert "GITEA_ACCESS_TOKEN=tok" in new_text
 
@@ -260,9 +295,9 @@ def test_update_env_added(base):
 def test_update_env_unchanged():
     text = "GITEA_HOST=already\n"
 
-    new_text, action = installer.update_env(text, "https://g", "tok")
+    new_text, action = apply.update_env(text, "https://g", "tok")
 
-    assert action == installer.UNCHANGED
+    assert action == apply.UNCHANGED
     assert new_text == text
 
 
@@ -270,31 +305,30 @@ def test_update_env_unchanged():
 
 
 def _loads(text):
-    return installer._yaml().load(text)
+    return apply._yaml().load(text)
 
 
 def test_merge_installation_adds():
-    new_text, results = installer.merge_installation(
+    new_text, results = apply.merge_installation(
         _INSTALLATION, "about_concierge-test"
     )
 
-    assert set(results.values()) == {installer.ADDED}
+    assert set(results.values()) == {apply.ADDED}
     data = _loads(new_text)
-    assert installer.TOOL_CONFIG in data["meta"]["tool_configs"]
-    assert installer.GITEA_HOST in data["environment"]
+    assert apply.TOOL_CONFIG in data["meta"]["tool_configs"]
+    assert apply.GITEA_HOST in data["environment"]
     assert any(
-        s.get("secret_name") == installer.GITEA_TOKEN_SECRET
+        s.get("secret_name") == apply.GITEA_TOKEN_SECRET
         for s in data["secrets"]
     )
     assert any(
-        s.get("skill_name") == installer.SKILL_NAME
-        for s in data["skill_configs"]
+        s.get("skill_name") == apply.SKILL_NAME for s in data["skill_configs"]
     )
     assert "./rooms/about_concierge-test" in data["room_paths"]
 
 
 def test_merge_installation_leaves_other_sections_verbatim():
-    new_text, _ = installer.merge_installation(_INSTALLATION, "about_x")
+    new_text, _ = apply.merge_installation(_INSTALLATION, "about_x")
 
     # Unrelated sections are byte-identical -- no reindent, no reflow.
     assert '  - id: "default_chat"\n    model_name: "gemma4:26b"' in new_text
@@ -309,31 +343,31 @@ def test_merge_installation_leaves_other_sections_verbatim():
 
 
 def test_merge_installation_idempotent():
-    once, _ = installer.merge_installation(_INSTALLATION, "about_x")
+    once, _ = apply.merge_installation(_INSTALLATION, "about_x")
 
-    twice, results = installer.merge_installation(once, "about_x")
+    twice, results = apply.merge_installation(once, "about_x")
 
-    assert set(results.values()) == {installer.UNCHANGED}
+    assert set(results.values()) == {apply.UNCHANGED}
     assert twice == once
 
 
 def test_add_meta_tool_config_creates_when_meta_ends_file():
     lines = ["meta:\n", "  # only a comment\n"]
 
-    action = installer._add_meta_tool_config(lines)
+    action = apply._add_meta_tool_config(lines)
 
-    assert action == installer.ADDED
+    assert action == apply.ADDED
     assert "  tool_configs:\n" in lines
 
 
 def test_merge_installation_appends_to_existing_tool_configs():
-    new_text, results = installer.merge_installation(
+    new_text, results = apply.merge_installation(
         _INSTALLATION_META_TC, "about_x"
     )
 
     tcs = _loads(new_text)["meta"]["tool_configs"]
-    assert results["installation: meta.tool_configs"] == installer.ADDED
-    assert installer.TOOL_CONFIG in tcs
+    assert results["installation: meta.tool_configs"] == apply.ADDED
+    assert apply.TOOL_CONFIG in tcs
     assert "some.Existing.ToolConfig" in tcs
 
 
@@ -354,8 +388,8 @@ def test_merge_installation_missing_section(anchor, section):
         if not line.startswith(anchor)
     )
 
-    with pytest.raises(installer.InstallerError, match=section):
-        installer.merge_installation(text, "about_x")
+    with pytest.raises(apply.InstallerError, match=section):
+        apply.merge_installation(text, "about_x")
 
 
 # --- _patch_room_config ---------------------------------------------------
@@ -366,24 +400,24 @@ def test_merge_installation_missing_section(anchor, section):
     [(None, None), ("acme", "reqs"), ("acme", None), (None, "reqs")],
 )
 def test_patch_room_config(temp_dir, owner, repo):
-    src = REPO_ROOT / "example" / "rooms" / installer.ASSET_ROOM
+    src = ASSETS / "rooms" / apply.ASSET_ROOM
     room = temp_dir / "room"
     shutil.copytree(src, room)
     cfg = room / "room_config.yaml"
     opts = _opts(room_id="about_acme", owner=owner, repo=repo, rag_stem="hr")
 
-    installer._patch_room_config(cfg, opts)
+    apply._patch_room_config(cfg, opts)
 
     data = _load(cfg)
     assert data["id"] == "about_acme"
     rag = next(
         s
         for s in data["skills"]["skill_configs"]
-        if s.get("kind") == installer.RAG_SKILL_KIND
+        if s.get("kind") == apply.RAG_SKILL_KIND
     )
     assert rag["rag_lancedb_stem"] == "hr"
     tool = next(
-        t for t in data["tools"] if t.get("tool_name") == installer.GITEA_TOOL
+        t for t in data["tools"] if t.get("tool_name") == apply.GITEA_TOOL
     )
     assert tool["owner"] == (
         owner if owner is not None else "your-gitea-owner"
@@ -395,7 +429,7 @@ def test_patch_room_config(temp_dir, owner, repo):
 
 
 def test_detect_rag_stem_none(stack):
-    result = installer.detect_rag_stem(stack)
+    result = apply.detect_rag_stem(stack)
 
     assert result is None
 
@@ -403,7 +437,7 @@ def test_detect_rag_stem_none(stack):
 def test_detect_rag_stem_single(stack):
     (stack / "rag" / "db" / "mydb.lancedb").mkdir(parents=True)
 
-    result = installer.detect_rag_stem(stack)
+    result = apply.detect_rag_stem(stack)
 
     assert result == "mydb"
 
@@ -414,13 +448,13 @@ def test_detect_rag_stem_prefers_haiku(stack):
     (db / "other.lancedb").mkdir()
     (db / "haiku.rag.lancedb").mkdir()
 
-    result = installer.detect_rag_stem(stack)
+    result = apply.detect_rag_stem(stack)
 
     assert result == "haiku.rag"
 
 
 def test_resolve_rag_stem_override(stack):
-    result = installer.resolve_rag_stem(stack, "explicit")
+    result = apply.resolve_rag_stem(stack, "explicit")
 
     assert result == "explicit"
 
@@ -428,21 +462,21 @@ def test_resolve_rag_stem_override(stack):
 def test_resolve_rag_stem_detected(stack):
     (stack / "rag" / "db" / "found.lancedb").mkdir(parents=True)
 
-    result = installer.resolve_rag_stem(stack, None)
+    result = apply.resolve_rag_stem(stack, None)
 
     assert result == "found"
 
 
 def test_resolve_rag_stem_default_when_none(stack):
-    result = installer.resolve_rag_stem(stack, None)
+    result = apply.resolve_rag_stem(stack, None)
 
-    assert result == installer.DEFAULT_RAG_STEM
+    assert result == apply.DEFAULT_RAG_STEM
 
 
 def test_set_rag_stem_no_skills_dict():
     data = {"skills": None}
 
-    installer._set_rag_stem(data, "x")
+    apply._set_rag_stem(data, "x")
 
     assert data == {"skills": None}
 
@@ -450,7 +484,7 @@ def test_set_rag_stem_no_skills_dict():
 def test_set_rag_stem_skips_non_matching():
     data = {"skills": {"skill_configs": [{"kind": "other"}, "notadict"]}}
 
-    installer._set_rag_stem(data, "stem")
+    apply._set_rag_stem(data, "stem")
 
     assert "rag_lancedb_stem" not in data["skills"]["skill_configs"][0]
 
@@ -460,15 +494,15 @@ def test_set_rag_stem_skips_non_matching():
 
 def _opts(**kw):
     kw.setdefault("room_id", "about_concierge-test")
-    return installer.Options(**kw)
+    return apply.Options(**kw)
 
 
 def test_install_room_added(stack):
-    action = installer.install_room(REPO_ROOT, stack, _opts())
+    action = apply.install_room(ASSETS, stack, _opts())
 
     rooms = stack / "backend" / "environment" / "rooms"
     cfg = _load(rooms / "about_concierge-test" / "room_config.yaml")
-    assert action == installer.ADDED
+    assert action == apply.ADDED
     assert cfg["id"] == "about_concierge-test"
 
 
@@ -476,16 +510,16 @@ def test_install_room_unchanged(stack):
     rooms = stack / "backend" / "environment" / "rooms"
     (rooms / "about_concierge-test").mkdir()
 
-    action = installer.install_room(REPO_ROOT, stack, _opts())
+    action = apply.install_room(ASSETS, stack, _opts())
 
-    assert action == installer.UNCHANGED
+    assert action == apply.UNCHANGED
 
 
 def test_install_room_dry_run(stack):
-    action = installer.install_room(REPO_ROOT, stack, _opts(dry_run=True))
+    action = apply.install_room(ASSETS, stack, _opts(dry_run=True))
 
     rooms = stack / "backend" / "environment" / "rooms"
-    assert action == installer.ADDED
+    assert action == apply.ADDED
     assert not (rooms / "about_concierge-test").exists()
 
 
@@ -493,19 +527,17 @@ def test_install_room_force(stack):
     rooms = stack / "backend" / "environment" / "rooms"
     (rooms / "about_concierge-test").mkdir()
 
-    action = installer.install_room(REPO_ROOT, stack, _opts(force=True))
+    action = apply.install_room(ASSETS, stack, _opts(force=True))
 
-    assert action == installer.ADDED
+    assert action == apply.ADDED
     assert (rooms / "about_concierge-test" / "room_config.yaml").is_file()
 
 
 def test_install_skill_added(stack):
-    action = installer.install_skill(REPO_ROOT, stack, _opts())
+    action = apply.install_skill(ROOM_SKILL, stack, _opts())
 
-    skill_dir = (
-        stack / "backend" / "environment" / "skills" / installer.SKILL_NAME
-    )
-    assert action == installer.ADDED
+    skill_dir = stack / "backend" / "environment" / "skills" / apply.SKILL_NAME
+    assert action == apply.ADDED
     assert (skill_dir / "SKILL.md").is_file()
     # the whole tree is copied, including the request templates
     assert (skill_dir / "assets" / "room_creation_request.md").is_file()
@@ -513,42 +545,38 @@ def test_install_skill_added(stack):
 
 
 def test_install_skill_unchanged(stack):
-    skill_dir = (
-        stack / "backend" / "environment" / "skills" / installer.SKILL_NAME
-    )
+    skill_dir = stack / "backend" / "environment" / "skills" / apply.SKILL_NAME
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("old")
 
-    action = installer.install_skill(REPO_ROOT, stack, _opts())
+    action = apply.install_skill(ROOM_SKILL, stack, _opts())
 
-    assert action == installer.UNCHANGED
+    assert action == apply.UNCHANGED
 
 
 def test_install_skill_dry_run(stack):
-    action = installer.install_skill(REPO_ROOT, stack, _opts(dry_run=True))
+    action = apply.install_skill(ROOM_SKILL, stack, _opts(dry_run=True))
 
     skill = (
         stack
         / "backend"
         / "environment"
         / "skills"
-        / installer.SKILL_NAME
+        / apply.SKILL_NAME
         / "SKILL.md"
     )
-    assert action == installer.ADDED
+    assert action == apply.ADDED
     assert not skill.exists()
 
 
 def test_install_skill_force(stack):
-    skill_dir = (
-        stack / "backend" / "environment" / "skills" / installer.SKILL_NAME
-    )
+    skill_dir = stack / "backend" / "environment" / "skills" / apply.SKILL_NAME
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("old")
 
-    action = installer.install_skill(REPO_ROOT, stack, _opts(force=True))
+    action = apply.install_skill(ROOM_SKILL, stack, _opts(force=True))
 
-    assert action == installer.ADDED
+    assert action == apply.ADDED
     assert (skill_dir / "SKILL.md").read_text() != "old"
 
 
@@ -556,16 +584,14 @@ def test_install_skill_force(stack):
 
 
 def test_main_applies(stack, capsys):
-    rc = installer.main(
-        ["--stack-dir", str(stack), "--assets-dir", str(REPO_ROOT)]
-    )
+    rc = apply.main(["--stack-dir", str(stack)])
 
     assert rc == 0
     backend = stack / "backend"
     assert "soliplex-concierge" in (backend / "pyproject.toml").read_text()
     assert "soliplex-concierge" in (backend / "Dockerfile").read_text()
     inst = _load(backend / "environment" / "installation.yaml")
-    assert installer.GITEA_HOST in inst["environment"]
+    assert apply.GITEA_HOST in inst["environment"]
     assert (
         backend
         / "environment"
@@ -574,22 +600,14 @@ def test_main_applies(stack, capsys):
         / "room_config.yaml"
     ).is_file()
     assert (
-        backend / "environment" / "skills" / installer.SKILL_NAME / "SKILL.md"
+        backend / "environment" / "skills" / apply.SKILL_NAME / "SKILL.md"
     ).is_file()
     assert "GITEA_HOST=" in (stack / ".env").read_text()
     assert "edit owner/repo" in capsys.readouterr().out
 
 
 def test_main_dry_run(stack, capsys):
-    rc = installer.main(
-        [
-            "--stack-dir",
-            str(stack),
-            "--assets-dir",
-            str(REPO_ROOT),
-            "--dry-run",
-        ]
-    )
+    rc = apply.main(["--stack-dir", str(stack), "--dry-run"])
 
     assert rc == 0
     backend = stack / "backend"
@@ -603,24 +621,15 @@ def test_main_dry_run(stack, capsys):
 
 def test_main_idempotent(stack):
     opts = _opts()
-    installer.apply(stack, REPO_ROOT, opts)
+    apply.apply(stack, ASSETS, ROOM_SKILL, opts)
 
-    results = installer.apply(stack, REPO_ROOT, opts)
+    results = apply.apply(stack, ASSETS, ROOM_SKILL, opts)
 
-    assert set(results.values()) == {installer.UNCHANGED}
+    assert set(results.values()) == {apply.UNCHANGED}
 
 
 def test_main_room_id_override(stack):
-    rc = installer.main(
-        [
-            "--stack-dir",
-            str(stack),
-            "--assets-dir",
-            str(REPO_ROOT),
-            "--room-id",
-            "custom_room",
-        ]
-    )
+    rc = apply.main(["--stack-dir", str(stack), "--room-id", "custom_room"])
 
     assert rc == 0
     assert (
@@ -629,17 +638,8 @@ def test_main_room_id_override(stack):
 
 
 def test_main_with_owner_repo(stack, capsys):
-    rc = installer.main(
-        [
-            "--stack-dir",
-            str(stack),
-            "--assets-dir",
-            str(REPO_ROOT),
-            "--owner",
-            "acme",
-            "--repo",
-            "reqs",
-        ]
+    rc = apply.main(
+        ["--stack-dir", str(stack), "--owner", "acme", "--repo", "reqs"]
     )
 
     assert rc == 0
@@ -652,17 +652,26 @@ def test_main_with_owner_repo(stack, capsys):
         / "room_config.yaml"
     )
     tool = next(
-        t for t in cfg["tools"] if t.get("tool_name") == installer.GITEA_TOOL
+        t for t in cfg["tools"] if t.get("tool_name") == apply.GITEA_TOOL
     )
     assert (tool["owner"], tool["repo"]) == ("acme", "reqs")
     assert "edit owner/repo" not in capsys.readouterr().out
 
 
 def test_main_not_a_stack(temp_dir, capsys):
-    rc = installer.main(["--stack-dir", str(temp_dir)])
+    rc = apply.main(["--stack-dir", str(temp_dir)])
 
     assert rc == 2
     assert "error:" in capsys.readouterr().err
+
+
+def test_main_room_skill_unresolved(stack, capsys, monkeypatch):
+    monkeypatch.setattr(apply, "ROOM_SKILL_SIBLING", stack / "nope")
+
+    rc = apply.main(["--stack-dir", str(stack)])
+
+    assert rc == 2
+    assert "--room-skill-dir" in capsys.readouterr().err
 
 
 # --- --version handling ---------------------------------------------------
@@ -673,19 +682,19 @@ def test_main_not_a_stack(temp_dir, capsys):
     [(None, None), ("latest", None), ("0.2", "== 0.2")],
 )
 def test_pin_for_version(version, expected):
-    result = installer._pin_for_version(version)
+    result = apply._pin_for_version(version)
 
     assert result == expected
 
 
 def test_pin_for_version_warns_when_omitted(capsys):
-    installer._pin_for_version(None)
+    apply._pin_for_version(None)
 
     assert "warning" in capsys.readouterr().err
 
 
 def test_pin_for_version_latest_no_warning(capsys):
-    installer._pin_for_version("latest")
+    apply._pin_for_version("latest")
 
     assert "warning" not in capsys.readouterr().err
 
@@ -695,43 +704,19 @@ def test_pin_for_version_latest_no_warning(capsys):
     [(None, None), ("acme", None), (None, "reqs")],
 )
 def test_warn_missing_owner_repo_warns(capsys, owner, repo):
-    installer._warn_missing_owner_repo(owner, repo)
+    apply._warn_missing_owner_repo(owner, repo)
 
     assert "warning" in capsys.readouterr().err
 
 
 def test_warn_missing_owner_repo_silent_when_both_set(capsys):
-    installer._warn_missing_owner_repo("acme", "reqs")
+    apply._warn_missing_owner_repo("acme", "reqs")
 
     assert "warning" not in capsys.readouterr().err
 
 
-def test_installed_version_present():
-    result = installer.installed_version()
-
-    assert result == _metadata.version("soliplex-concierge")
-
-
-def test_installed_version_absent(monkeypatch):
-    def _raise(_name):
-        raise _metadata.PackageNotFoundError
-
-    monkeypatch.setattr(installer._metadata, "version", _raise)
-
-    assert installer.installed_version() is None
-
-
 def test_main_version_pins(stack):
-    rc = installer.main(
-        [
-            "--stack-dir",
-            str(stack),
-            "--assets-dir",
-            str(REPO_ROOT),
-            "--version",
-            "0.2",
-        ]
-    )
+    rc = apply.main(["--stack-dir", str(stack), "--version", "0.2"])
 
     backend = stack / "backend"
     assert rc == 0
@@ -743,12 +728,10 @@ def test_main_version_pins(stack):
 
 
 def test_main_version_latest_no_warning(stack, capsys):
-    rc = installer.main(
+    rc = apply.main(
         [
             "--stack-dir",
             str(stack),
-            "--assets-dir",
-            str(REPO_ROOT),
             "--version",
             "latest",
             "--owner",
@@ -767,22 +750,6 @@ def test_main_version_latest_no_warning(stack, capsys):
     )
 
 
-def test_main_echoes_installed_version(stack, capsys):
-    rc = installer.main(
-        [
-            "--stack-dir",
-            str(stack),
-            "--assets-dir",
-            str(REPO_ROOT),
-            "--version",
-            "latest",
-        ]
-    )
-
-    assert rc == 0
-    assert installer.installed_version() in capsys.readouterr().out
-
-
 def _room_rag_stem(stack, room_id="about_concierge-test"):
     cfg = _load(
         stack
@@ -795,34 +762,23 @@ def _room_rag_stem(stack, room_id="about_concierge-test"):
     rag = next(
         s
         for s in cfg["skills"]["skill_configs"]
-        if s.get("kind") == installer.RAG_SKILL_KIND
+        if s.get("kind") == apply.RAG_SKILL_KIND
     )
     return rag["rag_lancedb_stem"]
 
 
 def test_main_rag_stem_defaults_to_haiku(stack):
-    rc = installer.main(
-        [
-            "--stack-dir",
-            str(stack),
-            "--assets-dir",
-            str(REPO_ROOT),
-            "--version",
-            "latest",
-        ]
-    )
+    rc = apply.main(["--stack-dir", str(stack), "--version", "latest"])
 
     assert rc == 0
-    assert _room_rag_stem(stack) == installer.DEFAULT_RAG_STEM
+    assert _room_rag_stem(stack) == apply.DEFAULT_RAG_STEM
 
 
 def test_main_rag_stem_override(stack):
-    rc = installer.main(
+    rc = apply.main(
         [
             "--stack-dir",
             str(stack),
-            "--assets-dir",
-            str(REPO_ROOT),
             "--version",
             "latest",
             "--rag-stem",
@@ -832,20 +788,3 @@ def test_main_rag_stem_override(stack):
 
     assert rc == 0
     assert _room_rag_stem(stack) == "custom"
-
-
-def test_main_echoes_not_installed(stack, capsys, monkeypatch):
-    monkeypatch.setattr(installer, "installed_version", lambda: None)
-
-    installer.main(
-        [
-            "--stack-dir",
-            str(stack),
-            "--assets-dir",
-            str(REPO_ROOT),
-            "--version",
-            "latest",
-        ]
-    )
-
-    assert "not installed" in capsys.readouterr().out

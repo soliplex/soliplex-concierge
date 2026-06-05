@@ -1,9 +1,7 @@
 import importlib.util
 import pathlib
 
-from soliplex_concierge import installer
-
-REPO_ROOT = pathlib.Path(installer.__file__).resolve().parents[2]
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SKILL = "soliplex-concierge-admin"
 
 

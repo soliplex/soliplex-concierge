@@ -5,11 +5,9 @@ from unittest import mock
 
 import pytest
 
-from soliplex_concierge import installer
-
 # The admin skill's script lives outside the package, under the repo's
 # 'skills/' tree; load it by path so we can unit-test its HTTP logic.
-REPO_ROOT = pathlib.Path(installer.__file__).resolve().parents[2]
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = (
     REPO_ROOT
     / "skills"
