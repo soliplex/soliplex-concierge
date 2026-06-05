@@ -14,11 +14,13 @@ changes a human would otherwise make by hand:
 1. add 'soliplex-concierge' to 'backend/pyproject.toml' dependencies,
 2. add it to the 'backend/Dockerfile' 'uv add' block (the generated Dockerfile
    does 'uv init --bare' and ignores the pyproject deps, so both are needed),
-3. merge five entries into 'backend/environment/installation.yaml'
-   (meta.tool_configs, environment, secrets, skill_configs, room_paths),
+3. merge six entries into 'backend/environment/installation.yaml'
+   (meta.tool_configs, environment, secrets, two skill_configs --
+   'soliplex-concierge-room' and 'soliplex-docs' -- and room_paths),
 4. copy the 'about_soliplex' room template into 'rooms/<room_id>/' (renaming
    it -- directory, 'id:' and the room_paths entry -- to '<room_id>'),
-5. copy the 'soliplex-concierge-room' filesystem skill under 'skills/', and
+5. download + copy the 'soliplex-concierge-room' and 'soliplex-docs'
+   filesystem skills under 'skills/', and
 6. add GITEA_HOST / GITEA_ACCESS_TOKEN placeholders to '.env'.
 
 The room template lives beside this script in the bundled 'assets/' directory
@@ -57,39 +59,72 @@ from ruamel.yaml import YAML
 DIST = "soliplex-concierge"
 TOOL_CONFIG = "soliplex_concierge.config.CreateGiteaIssueToolConfig"
 GITEA_TOOL = "soliplex_concierge.tools.gitea.create_gitea_issue"
-SKILL_NAME = "soliplex-concierge-room"
 GITEA_HOST = "GITEA_HOST"
 GITEA_TOKEN_SECRET = "GITEA_ACCESS_TOKEN"
 ASSET_ROOM = "about_soliplex"
-RAG_SKILL_KIND = "haiku.rag.skills.rag"
 
 # Bundled assets ship beside this script under '<skill>/assets/' (this file is
 # '<skill>/scripts/apply.py'); resolve them relative to __file__ so apply.py
 # works from an unpacked release bundle with no checkout.
 ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 
-# The room skill is NOT bundled (it is its own published artifact); by default
-# it is downloaded from its GitHub release -- the 'room-skill-latest' pointer
-# (whose 'latest.json' names the immutable build + sha256), or an explicit tag
-# via '--room-skill-version'. '--room-skill-dir' installs a local copy instead.
-# This mirrors skills/soliplex-concierge-room/scripts/skill_versions.py; the
-# shared logic is slated to move to the planned 'soliplex-skills' library.
-ROOM_OWNER = "soliplex"
-ROOM_REPO = "soliplex-concierge"
-ROOM_ASSET_TARBALL = "soliplex-concierge-room-skill.tar.gz"
-ROOM_POINTER_TAG = "room-skill-latest"
-ROOM_POINTER_MANIFEST = "latest.json"
-_ROOM_DL = f"https://github.com/{ROOM_OWNER}/{ROOM_REPO}/releases/download"
+# Neither filesystem skill installed into the stack is bundled here; each is
+# its own published GitHub-release artifact, downloaded by default from its
+# 'latest' pointer (whose 'latest.json' names the immutable build + sha256) or
+# an explicit '--<x>-skill-version' tag. '--<x>-skill-dir' installs a local
+# copy instead. This mirrors
+# skills/soliplex-concierge-room/scripts/skill_versions.py; the shared logic is
+# slated to move to the planned 'soliplex-skills' library.
+_USER_AGENT = "soliplex-concierge-installer"
 # Schemes _get will open: https for GitHub, file:// for local/testing tarballs.
 _ALLOWED_SCHEMES = frozenset({"https", "file"})
-_USER_AGENT = "soliplex-concierge-installer"
+
+
+@dataclasses.dataclass(frozen=True)
+class PublishedSkill:
+    """A filesystem skill published as a GitHub-release tarball.
+
+    'pointer_tag' is a moving release whose 'pointer_manifest' (latest.json)
+    names the current immutable build + sha256; 'asset_tarball' is the
+    '<name>/...'-rooted tarball attached to each build. 'dir_flag' is the CLI
+    flag a user passes to install a local copy instead (used in error hints).
+    """
+
+    name: str
+    owner: str
+    repo: str
+    asset_tarball: str
+    pointer_tag: str
+    dir_flag: str
+    pointer_manifest: str = "latest.json"
+
+    @property
+    def download_base(self) -> str:
+        return f"https://github.com/{self.owner}/{self.repo}/releases/download"
+
+
+ROOM = PublishedSkill(
+    name="soliplex-concierge-room",
+    owner="soliplex",
+    repo="soliplex-concierge",
+    asset_tarball="soliplex-concierge-room-skill.tar.gz",
+    pointer_tag="room-skill-latest",
+    dir_flag="--room-skill-dir",
+)
+DOCS = PublishedSkill(
+    name="soliplex-docs",
+    owner="soliplex",
+    repo="soliplex",
+    asset_tarball="soliplex-docs-skill.tar.gz",
+    pointer_tag="docs-latest",
+    dir_flag="--docs-skill-dir",
+)
+
+# The concierge's own room skill name, used throughout the installation wiring.
+SKILL_NAME = ROOM.name
 
 DEFAULT_GITEA_HOST = "https://gitea.example.com"
 DEFAULT_GITEA_TOKEN = "replace-me"
-# The RAG LanceDB stem to wire into the room when the stack has none to detect.
-# It is the stem the soliplex-template haiku-ingester writes by default
-# ('rag/db/haiku.rag.lancedb'), which the shipped asset's "rag" does NOT match.
-DEFAULT_RAG_STEM = "haiku.rag"
 
 # Files that mark a directory as a generated Soliplex stack.
 STACK_MARKERS = (
@@ -130,48 +165,61 @@ class InstallerError(Exception):
         )
 
     @classmethod
-    def _room_skill_download(cls, reason: str) -> InstallerError:
-        return cls(
-            f"could not download the '{SKILL_NAME}' skill ({reason}); pass "
-            "--room-skill-dir to install from a local copy instead"
-        )
-
-    @classmethod
-    def room_skill_bad_scheme(cls, url: str) -> InstallerError:
-        return cls._room_skill_download(f"unsupported URL {url!r}")
-
-    @classmethod
-    def room_skill_http(cls, url: str, code: int) -> InstallerError:
-        return cls._room_skill_download(f"HTTP {code}: {url}")
-
-    @classmethod
-    def room_skill_unreachable(
-        cls, url: str, reason: object
+    def _skill_download(
+        cls, spec: PublishedSkill, reason: str
     ) -> InstallerError:
-        return cls._room_skill_download(f"{reason}: {url}")
+        return cls(
+            f"could not download the '{spec.name}' skill ({reason}); pass "
+            f"{spec.dir_flag} to install from a local copy instead"
+        )
 
     @classmethod
-    def room_skill_bad_manifest(cls, url: str) -> InstallerError:
-        return cls._room_skill_download(f"invalid manifest at {url}")
-
-    @classmethod
-    def room_skill_checksum(
-        cls, tag: str, expected: str, actual: str
+    def skill_bad_scheme(
+        cls, spec: PublishedSkill, url: str
     ) -> InstallerError:
-        return cls._room_skill_download(
-            f"checksum mismatch for {tag}: expected {expected}, got {actual}"
+        return cls._skill_download(spec, f"unsupported URL {url!r}")
+
+    @classmethod
+    def skill_http(
+        cls, spec: PublishedSkill, url: str, code: int
+    ) -> InstallerError:
+        return cls._skill_download(spec, f"HTTP {code}: {url}")
+
+    @classmethod
+    def skill_unreachable(
+        cls, spec: PublishedSkill, url: str, reason: object
+    ) -> InstallerError:
+        return cls._skill_download(spec, f"{reason}: {url}")
+
+    @classmethod
+    def skill_bad_manifest(
+        cls, spec: PublishedSkill, url: str
+    ) -> InstallerError:
+        return cls._skill_download(spec, f"invalid manifest at {url}")
+
+    @classmethod
+    def skill_checksum(
+        cls, spec: PublishedSkill, tag: str, expected: str, actual: str
+    ) -> InstallerError:
+        return cls._skill_download(
+            spec,
+            f"checksum mismatch for {tag}: expected {expected}, got {actual}",
         )
 
     @classmethod
-    def room_skill_no_skill_md(cls, tag: str) -> InstallerError:
+    def skill_no_skill_md(
+        cls, spec: PublishedSkill, tag: str
+    ) -> InstallerError:
         return cls(
-            f"the downloaded '{SKILL_NAME}' archive ({tag}) has no SKILL.md"
+            f"the downloaded '{spec.name}' archive ({tag}) has no SKILL.md"
         )
 
     @classmethod
-    def bad_room_skill(cls, path: pathlib.Path) -> InstallerError:
+    def bad_skill_dir(
+        cls, spec: PublishedSkill, path: pathlib.Path
+    ) -> InstallerError:
         return cls(
-            f"--room-skill-dir {path} is not a skill directory "
+            f"{spec.dir_flag} {path} is not a skill directory "
             "(no SKILL.md found)"
         )
 
@@ -202,7 +250,6 @@ class Options:
     """Resolved options for a single 'apply' run."""
 
     room_id: str
-    rag_stem: str = DEFAULT_RAG_STEM
     pin: str | None = None
     gitea_host: str = DEFAULT_GITEA_HOST
     gitea_token: str = DEFAULT_GITEA_TOKEN
@@ -252,23 +299,25 @@ def resolve_assets() -> pathlib.Path:
     return ASSETS
 
 
-def _room_skill_installed(stack: pathlib.Path) -> bool:
-    dst = stack / "backend" / "environment" / "skills" / SKILL_NAME
+def _skill_installed(stack: pathlib.Path, name: str) -> bool:
+    dst = stack / "backend" / "environment" / "skills" / name
     return dst.exists()
 
 
-def resolve_room_skill(
+def resolve_published_skill(
+    spec: PublishedSkill,
     override: str | None,
     version: str | None,
     opts: Options,
     stack: pathlib.Path,
     ctx: contextlib.ExitStack,
 ) -> pathlib.Path | None:
-    """Locate the 'soliplex-concierge-room' skill tree to install.
+    """Locate the filesystem skill tree for 'spec' to install.
 
-    With '--room-skill-dir', use that directory (it must contain a SKILL.md).
-    Otherwise download the published release (default: the 'room-skill-latest'
-    pointer; or the '--room-skill-version' tag) into a temp dir owned by 'ctx'.
+    With its '--<x>-skill-dir' override, use that directory (it must contain a
+    SKILL.md). Otherwise download the published release (default: the spec's
+    'latest' pointer; or the '--<x>-skill-version' tag) into a temp dir owned
+    by 'ctx'.
 
     Returns None when no install will happen anyway -- a dry run, or the skill
     is already present and '--force' was not given -- so neither the network
@@ -277,15 +326,15 @@ def resolve_room_skill(
     if override is not None:
         path = pathlib.Path(override).resolve()
         if not (path / "SKILL.md").is_file():
-            raise InstallerError.bad_room_skill(path)
+            raise InstallerError.bad_skill_dir(spec, path)
         return path
-    if opts.dry_run or (_room_skill_installed(stack) and not opts.force):
+    if opts.dry_run or (_skill_installed(stack, spec.name) and not opts.force):
         return None
     dest = pathlib.Path(ctx.enter_context(tempfile.TemporaryDirectory()))
-    return download_room_skill(version, dest)
+    return download_skill(spec, version, dest)
 
 
-# --- room-skill download (mirrors soliplex-concierge-room's skill_versions) --
+# --- published-skill download (mirrors the room skill's skill_versions.py) ---
 #
 # Stdlib only. Network access to GitHub is needed; set GITHUB_TOKEN / GH_TOKEN
 # to raise the API rate limit. The shared logic is slated to move to the
@@ -296,11 +345,16 @@ def _token() -> str | None:
     return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 
 
-def _get(url: str, *, accept: str = "application/octet-stream") -> bytes:
+def _get(
+    url: str,
+    spec: PublishedSkill,
+    *,
+    accept: str = "application/octet-stream",
+) -> bytes:
     """Fetch 'url' (https or file://); map failures to InstallerError."""
     scheme = urllib_parse.urlsplit(url).scheme
     if scheme not in _ALLOWED_SCHEMES:
-        raise InstallerError.room_skill_bad_scheme(url)
+        raise InstallerError.skill_bad_scheme(spec, url)
     request = urllib_request.Request(url)
     request.add_header("User-Agent", _USER_AGENT)
     request.add_header("Accept", accept)
@@ -312,9 +366,9 @@ def _get(url: str, *, accept: str = "application/octet-stream") -> bytes:
         with urllib_request.urlopen(request) as response:  # noqa: S310
             return response.read()
     except urllib_error.HTTPError as exc:
-        raise InstallerError.room_skill_http(url, exc.code) from exc
+        raise InstallerError.skill_http(spec, url, exc.code) from exc
     except urllib_error.URLError as exc:
-        raise InstallerError.room_skill_unreachable(url, exc.reason) from exc
+        raise InstallerError.skill_unreachable(spec, url, exc.reason) from exc
 
 
 def _sha256(path: pathlib.Path) -> str:
@@ -325,49 +379,55 @@ def _sha256(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-def _read_room_pointer() -> dict:
-    """Return the 'room-skill-latest' pointer manifest (latest.json)."""
-    url = f"{_ROOM_DL}/{ROOM_POINTER_TAG}/{ROOM_POINTER_MANIFEST}"
+def _read_pointer(spec: PublishedSkill) -> dict:
+    """Return the spec's 'latest' pointer manifest (latest.json)."""
+    url = f"{spec.download_base}/{spec.pointer_tag}/{spec.pointer_manifest}"
     try:
-        return json.loads(_get(url))
+        return json.loads(_get(url, spec))
     except json.JSONDecodeError as exc:
-        raise InstallerError.room_skill_bad_manifest(url) from exc
+        raise InstallerError.skill_bad_manifest(spec, url) from exc
 
 
-def _resolve_room_target(version: str | None) -> tuple[str, str, str | None]:
+def _resolve_target(
+    spec: PublishedSkill, version: str | None
+) -> tuple[str, str, str | None]:
     """Resolve to (tag, asset_url, sha256), expanding the default pointer.
 
-    'version is None' reads the 'room-skill-latest' pointer (verified sha256);
-    an explicit tag builds the asset URL by name (no sha256 to verify).
+    'version is None' reads the spec's 'latest' pointer (verified sha256); an
+    explicit tag builds the asset URL by name (no sha256 to verify).
     """
     if version is None:
-        pointer = _read_room_pointer()
+        pointer = _read_pointer(spec)
         return (
-            pointer.get("tag", ROOM_POINTER_TAG),
+            pointer.get("tag", spec.pointer_tag),
             pointer["asset_url"],
             pointer.get("sha256"),
         )
-    return version, f"{_ROOM_DL}/{version}/{ROOM_ASSET_TARBALL}", None
+    return (
+        version,
+        f"{spec.download_base}/{version}/{spec.asset_tarball}",
+        None,
+    )
 
 
-def download_room_skill(
-    version: str | None, dest: pathlib.Path
+def download_skill(
+    spec: PublishedSkill, version: str | None, dest: pathlib.Path
 ) -> pathlib.Path:
-    """Download + extract the room skill into 'dest'; return its skill root."""
-    tag, asset_url, sha256 = _resolve_room_target(version)
-    tarball = dest / ROOM_ASSET_TARBALL
-    tarball.write_bytes(_get(asset_url))
+    """Download + extract the spec's skill into 'dest'; return its root."""
+    tag, asset_url, sha256 = _resolve_target(spec, version)
+    tarball = dest / spec.asset_tarball
+    tarball.write_bytes(_get(asset_url, spec))
     if sha256:
         actual = _sha256(tarball)
         if actual != sha256:
-            raise InstallerError.room_skill_checksum(tag, sha256, actual)
+            raise InstallerError.skill_checksum(spec, tag, sha256, actual)
     extract = dest / "extract"
     extract.mkdir()
     with tarfile.open(tarball) as archive:
         archive.extractall(extract, filter="data")
     matches = list(extract.glob("*/SKILL.md"))
     if not matches:
-        raise InstallerError.room_skill_no_skill_md(tag)
+        raise InstallerError.skill_no_skill_md(spec, tag)
     return matches[0].parent
 
 
@@ -381,27 +441,6 @@ def compose_project_name(stack: pathlib.Path) -> str:
 
 def default_room_id(stack: pathlib.Path) -> str:
     return f"about_{compose_project_name(stack)}"
-
-
-def detect_rag_stem(stack: pathlib.Path) -> str | None:
-    """The stem of an existing RAG LanceDB under 'rag/db/', if any.
-
-    Prefers the template's default 'haiku.rag' when present, else the sole
-    database; returns None when 'rag/db/' has no '*.lancedb' (e.g. the
-    ingester has not run yet).
-    """
-    db_dir = stack / "rag" / "db"
-    stems = sorted(
-        p.name[: -len(".lancedb")] for p in db_dir.glob("*.lancedb")
-    )
-    if not stems:
-        return None
-    return DEFAULT_RAG_STEM if DEFAULT_RAG_STEM in stems else stems[0]
-
-
-def resolve_rag_stem(stack: pathlib.Path, override: str | None) -> str:
-    """The RAG stem to wire: explicit override, else detected, else default."""
-    return override or detect_rag_stem(stack) or DEFAULT_RAG_STEM
 
 
 # --- pure text edits -------------------------------------------------------
@@ -502,6 +541,7 @@ _HAS_GITEA_SECRET = re.compile(
     r'secret_name:\s*["\']?' + re.escape(GITEA_TOKEN_SECRET)
 )
 _HAS_SKILL = re.compile(r'skill_name:\s*["\']?' + re.escape(SKILL_NAME))
+_HAS_DOCS_SKILL = re.compile(r'skill_name:\s*["\']?' + re.escape(DOCS.name))
 
 _GITEA_HOST_BLOCK = [f'  - "{GITEA_HOST}"\n']
 _GITEA_SECRET_BLOCK = [
@@ -512,6 +552,10 @@ _GITEA_SECRET_BLOCK = [
 ]
 _SKILL_BLOCK = [
     f'  - skill_name: "{SKILL_NAME}"\n',
+    '    kind: "filesystem"\n',
+]
+_DOCS_SKILL_BLOCK = [
+    f'  - skill_name: "{DOCS.name}"\n',
     '    kind: "filesystem"\n',
 ]
 
@@ -597,6 +641,13 @@ def merge_installation(text: str, room_id: str) -> tuple[str, dict[str, str]]:
             _SKILL_BLOCK,
             "skill_configs",
         ),
+        "installation: skill_configs (docs)": _add_list_entry(
+            lines,
+            _SKILL_CONFIGS_RE,
+            _HAS_DOCS_SKILL,
+            _DOCS_SKILL_BLOCK,
+            "skill_configs",
+        ),
         "installation: room_paths": _add_list_entry(
             lines,
             _ROOM_PATHS_RE,
@@ -611,20 +662,10 @@ def merge_installation(text: str, room_id: str) -> tuple[str, dict[str, str]]:
 # --- file installs ---------------------------------------------------------
 
 
-def _set_rag_stem(data: object, rag_stem: str) -> None:
-    skills = data.get("skills")
-    if not isinstance(skills, dict):
-        return
-    for skill in skills.get("skill_configs", []):
-        if isinstance(skill, dict) and skill.get("kind") == RAG_SKILL_KIND:
-            skill["rag_lancedb_stem"] = rag_stem
-
-
 def _patch_room_config(path: pathlib.Path, opts: Options) -> None:
     yaml = _yaml()
     data = yaml.load(path.read_text())
     data["id"] = opts.room_id
-    _set_rag_stem(data, opts.rag_stem)
     for tool in data.get("tools", []):
         if isinstance(tool, dict) and tool.get("tool_name") == GITEA_TOOL:
             if opts.owner is not None:
@@ -650,19 +691,22 @@ def install_room(
 
 
 def install_skill(
-    room_skill: pathlib.Path | None, stack: pathlib.Path, opts: Options
+    name: str,
+    skill_src: pathlib.Path | None,
+    stack: pathlib.Path,
+    opts: Options,
 ) -> str:
-    """Copy the whole room skill tree (SKILL.md + assets/) into 'skills/'.
+    """Copy a whole filesystem skill tree (SKILL.md + the rest) into 'skills/'.
 
-    'room_skill' is None only when no copy will happen (dry run, or already
+    'skill_src' is None only when no copy will happen (dry run, or already
     installed without --force) -- the guards below return before using it.
     """
-    dst = stack / "backend" / "environment" / "skills" / SKILL_NAME
+    dst = stack / "backend" / "environment" / "skills" / name
     if dst.exists() and not opts.force:
         return UNCHANGED
     if opts.dry_run:
         return ADDED
-    shutil.copytree(room_skill, dst, dirs_exist_ok=True)
+    shutil.copytree(skill_src, dst, dirs_exist_ok=True)
     return ADDED
 
 
@@ -680,6 +724,7 @@ def apply(
     stack: pathlib.Path,
     assets: pathlib.Path,
     room_skill: pathlib.Path | None,
+    docs_skill: pathlib.Path | None,
     opts: Options,
 ) -> dict[str, str]:
     """Apply every change idempotently; return per-target actions."""
@@ -702,7 +747,12 @@ def apply(
     _write_if(inst, new, ADDED if changed else UNCHANGED, opts.dry_run)
 
     results[f"rooms/{opts.room_id}"] = install_room(assets, stack, opts)
-    results[f"skills/{SKILL_NAME}"] = install_skill(room_skill, stack, opts)
+    results[f"skills/{ROOM.name}"] = install_skill(
+        ROOM.name, room_skill, stack, opts
+    )
+    results[f"skills/{DOCS.name}"] = install_skill(
+        DOCS.name, docs_skill, stack, opts
+    )
 
     env = stack / ".env"
     new, action = update_env(
@@ -736,14 +786,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="room id to install as (default: about_<compose-project-name>)",
     )
     parser.add_argument(
-        "--rag-stem",
-        default=None,
-        help=(
-            "RAG LanceDB stem to wire into the room's rag skill (default: the "
-            "stack's existing rag/db/*.lancedb, else 'haiku.rag')"
-        ),
-    )
-    parser.add_argument(
         "--room-skill-version",
         default=None,
         help=(
@@ -758,6 +800,23 @@ def _build_parser() -> argparse.ArgumentParser:
             "install the 'soliplex-concierge-room' skill from this local "
             "directory instead of downloading a published release "
             "(offline / development)"
+        ),
+    )
+    parser.add_argument(
+        "--docs-skill-version",
+        default=None,
+        help=(
+            "published 'soliplex-docs' tag to install (default: the "
+            "'docs-latest' pointer); e.g. a rolling build or 'v0.69'"
+        ),
+    )
+    parser.add_argument(
+        "--docs-skill-dir",
+        default=None,
+        help=(
+            "install the 'soliplex-docs' skill from this local directory "
+            "instead of downloading a published release (offline / "
+            "development)"
         ),
     )
     parser.add_argument(
@@ -842,7 +901,6 @@ def main(argv: list[str] | None = None) -> int:
         assets = resolve_assets()
         opts = Options(
             room_id=args.room_id or default_room_id(stack),
-            rag_stem=resolve_rag_stem(stack, args.rag_stem),
             pin=_pin_for_version(args.version),
             gitea_host=args.gitea_host,
             gitea_token=args.gitea_token,
@@ -852,13 +910,26 @@ def main(argv: list[str] | None = None) -> int:
             dry_run=args.dry_run,
         )
         _warn_missing_owner_repo(opts.owner, opts.repo)
-        # The room skill may be downloaded into a temp dir; keep it alive until
-        # apply() (install_skill) has copied it into the stack.
+        # Each skill may be downloaded into a temp dir; keep them alive until
+        # apply() (install_skill) has copied them into the stack.
         with contextlib.ExitStack() as ctx:
-            room_skill = resolve_room_skill(
-                args.room_skill_dir, args.room_skill_version, opts, stack, ctx
+            room_skill = resolve_published_skill(
+                ROOM,
+                args.room_skill_dir,
+                args.room_skill_version,
+                opts,
+                stack,
+                ctx,
             )
-            results = apply(stack, assets, room_skill, opts)
+            docs_skill = resolve_published_skill(
+                DOCS,
+                args.docs_skill_dir,
+                args.docs_skill_version,
+                opts,
+                stack,
+                ctx,
+            )
+            results = apply(stack, assets, room_skill, docs_skill, opts)
     except InstallerError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

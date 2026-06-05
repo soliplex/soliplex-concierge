@@ -114,6 +114,15 @@ def stack(temp_dir) -> pathlib.Path:
     return temp_dir
 
 
+@pytest.fixture
+def docs_skill(tmp_path) -> pathlib.Path:
+    """A minimal local 'soliplex-docs' skill dir for offline installs."""
+    root = tmp_path / "soliplex-docs"
+    root.mkdir()
+    (root / "SKILL.md").write_text("---\nname: soliplex-docs\n---\n")
+    return root
+
+
 def _load(path: pathlib.Path):
     return apply._yaml().load(path.read_text())
 
@@ -151,67 +160,82 @@ def test_resolve_assets_missing(temp_dir, monkeypatch):
         apply.resolve_assets()
 
 
-# --- resolve_room_skill ---------------------------------------------------
+# --- resolve_published_skill / download -----------------------------------
+
+_SPECS = [apply.ROOM, apply.DOCS]
+_SPEC_IDS = ["room", "docs"]
 
 
-def _make_room_tarball(tmp_path, *, with_skill_md=True):
-    """Build a '<name>/...'-rooted .tar.gz like a published room build."""
-    root = tmp_path / "src" / apply.SKILL_NAME
+def _make_skill_tarball(tmp_path, spec, *, with_skill_md=True):
+    """Build a '<name>/...'-rooted .tar.gz like a published skill build."""
+    root = tmp_path / "src" / spec.name
     root.mkdir(parents=True)
     if with_skill_md:
         (root / "SKILL.md").write_text("---\nname: x\n---\n")
     else:
         (root / "README.md").write_text("no skill here\n")
-    tarball = tmp_path / apply.ROOM_ASSET_TARBALL
+    tarball = tmp_path / spec.asset_tarball
     with tarfile.open(tarball, "w:gz") as archive:
-        archive.add(root, arcname=apply.SKILL_NAME)
+        archive.add(root, arcname=spec.name)
     return tarball
 
 
-def test_resolve_room_skill_override(tmp_path):
+@pytest.mark.parametrize("spec", _SPECS, ids=_SPEC_IDS)
+def test_resolve_published_skill_override(tmp_path, spec):
     (tmp_path / "SKILL.md").write_text("x")
     ctx = contextlib.ExitStack()
 
-    result = apply.resolve_room_skill(
-        str(tmp_path), None, _opts(), tmp_path, ctx
+    result = apply.resolve_published_skill(
+        spec, str(tmp_path), None, _opts(), tmp_path, ctx
     )
 
     assert result == tmp_path.resolve()
     ctx.close()
 
 
-def test_resolve_room_skill_override_missing(temp_dir):
-    with pytest.raises(apply.InstallerError, match="room-skill-dir"):
-        apply.resolve_room_skill(
-            str(temp_dir), None, _opts(), temp_dir, contextlib.ExitStack()
+@pytest.mark.parametrize("spec", _SPECS, ids=_SPEC_IDS)
+def test_resolve_published_skill_override_missing(temp_dir, spec):
+    with pytest.raises(apply.InstallerError, match=spec.dir_flag):
+        apply.resolve_published_skill(
+            spec,
+            str(temp_dir),
+            None,
+            _opts(),
+            temp_dir,
+            contextlib.ExitStack(),
         )
 
 
-def test_resolve_room_skill_dry_run_skips(stack):
-    result = apply.resolve_room_skill(
-        None, None, _opts(dry_run=True), stack, contextlib.ExitStack()
+def test_resolve_published_skill_dry_run_skips(stack):
+    result = apply.resolve_published_skill(
+        apply.ROOM,
+        None,
+        None,
+        _opts(dry_run=True),
+        stack,
+        contextlib.ExitStack(),
     )
 
     assert result is None
 
 
-def test_resolve_room_skill_already_installed_skips(stack):
-    dst = stack / "backend" / "environment" / "skills" / apply.SKILL_NAME
+def test_resolve_published_skill_already_installed_skips(stack):
+    dst = stack / "backend" / "environment" / "skills" / apply.DOCS.name
     dst.mkdir(parents=True)
 
-    result = apply.resolve_room_skill(
-        None, None, _opts(), stack, contextlib.ExitStack()
+    result = apply.resolve_published_skill(
+        apply.DOCS, None, None, _opts(), stack, contextlib.ExitStack()
     )
 
     assert result is None
 
 
-# --- room-skill download helpers ------------------------------------------
+# --- published-skill download helpers -------------------------------------
 
 
 def test_get_rejects_unsupported_scheme():
     with pytest.raises(apply.InstallerError, match="could not download"):
-        apply._get("ftp://example.com/x")
+        apply._get("ftp://example.com/x", apply.ROOM)
 
 
 def test_get_reads_file_url_with_token(tmp_path, monkeypatch):
@@ -219,7 +243,7 @@ def test_get_reads_file_url_with_token(tmp_path, monkeypatch):
     blob.write_text("{}")
     monkeypatch.setenv("GITHUB_TOKEN", "tok")
 
-    result = apply._get(blob.as_uri())
+    result = apply._get(blob.as_uri(), apply.ROOM)
 
     assert result == b"{}"
 
@@ -230,7 +254,7 @@ def test_get_reads_file_url_without_token(tmp_path, monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_TOKEN", raising=False)
 
-    result = apply._get(blob.as_uri())
+    result = apply._get(blob.as_uri(), apply.ROOM)
 
     assert result == b"{}"
 
@@ -242,7 +266,7 @@ def test_get_http_error(monkeypatch):
     monkeypatch.setattr(apply.urllib_request, "urlopen", _raise)
 
     with pytest.raises(apply.InstallerError, match="HTTP 404"):
-        apply._get("https://example.com/x")
+        apply._get("https://example.com/x", apply.ROOM)
 
 
 def test_get_url_error(monkeypatch):
@@ -252,67 +276,76 @@ def test_get_url_error(monkeypatch):
     monkeypatch.setattr(apply.urllib_request, "urlopen", _raise)
 
     with pytest.raises(apply.InstallerError, match="boom"):
-        apply._get("https://example.com/x")
+        apply._get("https://example.com/x", apply.ROOM)
 
 
-def test_read_room_pointer_ok(monkeypatch):
-    monkeypatch.setattr(
-        apply, "_get", lambda url, **kw: b'{"tag": "t", "asset_url": "u"}'
-    )
+def test_read_pointer_ok(monkeypatch):
+    payload = b'{"tag": "t", "asset_url": "u"}'
+    monkeypatch.setattr(apply, "_get", lambda url, spec, **kw: payload)
 
-    result = apply._read_room_pointer()
+    result = apply._read_pointer(apply.ROOM)
 
     assert result["tag"] == "t"
 
 
-def test_read_room_pointer_bad_manifest(monkeypatch):
-    monkeypatch.setattr(apply, "_get", lambda url, **kw: b"not json")
+def test_read_pointer_bad_manifest(monkeypatch):
+    monkeypatch.setattr(apply, "_get", lambda url, spec, **kw: b"not json")
 
     with pytest.raises(apply.InstallerError, match="invalid manifest"):
-        apply._read_room_pointer()
+        apply._read_pointer(apply.ROOM)
 
 
-def test_resolve_room_target_explicit():
-    tag, url, sha256 = apply._resolve_room_target("v0.4")
+@pytest.mark.parametrize("spec", _SPECS, ids=_SPEC_IDS)
+def test_resolve_target_explicit(spec):
+    tag, url, sha256 = apply._resolve_target(spec, "v0.4")
 
     assert tag == "v0.4"
-    assert url.endswith(f"/v0.4/{apply.ROOM_ASSET_TARBALL}")
+    assert url.endswith(f"/v0.4/{spec.asset_tarball}")
     assert sha256 is None
 
 
-def test_download_room_skill_explicit_version(tmp_path, monkeypatch):
-    tarball = _make_room_tarball(tmp_path)
-    monkeypatch.setattr(apply, "_get", lambda url, **kw: tarball.read_bytes())
+@pytest.mark.parametrize("spec", _SPECS, ids=_SPEC_IDS)
+def test_download_skill_explicit_version(tmp_path, monkeypatch, spec):
+    tarball = _make_skill_tarball(tmp_path, spec)
+    monkeypatch.setattr(
+        apply, "_get", lambda url, s, **kw: tarball.read_bytes()
+    )
     dest = tmp_path / "dl"
     dest.mkdir()
 
-    result = apply.download_room_skill("v0.4", dest)
+    result = apply.download_skill(spec, "v0.4", dest)
 
     assert (result / "SKILL.md").is_file()
 
 
-def test_download_room_skill_checksum_mismatch(tmp_path, monkeypatch):
-    tarball = _make_room_tarball(tmp_path)
+def test_download_skill_checksum_mismatch(tmp_path, monkeypatch):
+    tarball = _make_skill_tarball(tmp_path, apply.ROOM)
     monkeypatch.setattr(
         apply,
-        "_read_room_pointer",
-        lambda: {"tag": "t", "asset_url": tarball.as_uri(), "sha256": "dead"},
+        "_read_pointer",
+        lambda spec: {
+            "tag": "t",
+            "asset_url": tarball.as_uri(),
+            "sha256": "dead",
+        },
     )
     dest = tmp_path / "dl"
     dest.mkdir()
 
     with pytest.raises(apply.InstallerError, match="checksum mismatch"):
-        apply.download_room_skill(None, dest)
+        apply.download_skill(apply.ROOM, None, dest)
 
 
-def test_download_room_skill_no_skill_md(tmp_path, monkeypatch):
-    tarball = _make_room_tarball(tmp_path, with_skill_md=False)
-    monkeypatch.setattr(apply, "_get", lambda url, **kw: tarball.read_bytes())
+def test_download_skill_no_skill_md(tmp_path, monkeypatch):
+    tarball = _make_skill_tarball(tmp_path, apply.DOCS, with_skill_md=False)
+    monkeypatch.setattr(
+        apply, "_get", lambda url, spec, **kw: tarball.read_bytes()
+    )
     dest = tmp_path / "dl"
     dest.mkdir()
 
     with pytest.raises(apply.InstallerError, match="no SKILL.md"):
-        apply.download_room_skill("v0.4", dest)
+        apply.download_skill(apply.DOCS, "v0.4", dest)
 
 
 # --- compose_project_name / default_room_id ------------------------------
@@ -462,6 +495,9 @@ def test_merge_installation_adds():
     assert any(
         s.get("skill_name") == apply.SKILL_NAME for s in data["skill_configs"]
     )
+    assert any(
+        s.get("skill_name") == apply.DOCS.name for s in data["skill_configs"]
+    )
     assert "./rooms/about_concierge-test" in data["room_paths"]
 
 
@@ -542,18 +578,12 @@ def test_patch_room_config(temp_dir, owner, repo):
     room = temp_dir / "room"
     shutil.copytree(src, room)
     cfg = room / "room_config.yaml"
-    opts = _opts(room_id="about_acme", owner=owner, repo=repo, rag_stem="hr")
+    opts = _opts(room_id="about_acme", owner=owner, repo=repo)
 
     apply._patch_room_config(cfg, opts)
 
     data = _load(cfg)
     assert data["id"] == "about_acme"
-    rag = next(
-        s
-        for s in data["skills"]["skill_configs"]
-        if s.get("kind") == apply.RAG_SKILL_KIND
-    )
-    assert rag["rag_lancedb_stem"] == "hr"
     tool = next(
         t for t in data["tools"] if t.get("tool_name") == apply.GITEA_TOOL
     )
@@ -561,70 +591,6 @@ def test_patch_room_config(temp_dir, owner, repo):
         owner if owner is not None else "your-gitea-owner"
     )
     assert tool["repo"] == (repo if repo is not None else "soliplex-requests")
-
-
-# --- rag stem detection / resolution --------------------------------------
-
-
-def test_detect_rag_stem_none(stack):
-    result = apply.detect_rag_stem(stack)
-
-    assert result is None
-
-
-def test_detect_rag_stem_single(stack):
-    (stack / "rag" / "db" / "mydb.lancedb").mkdir(parents=True)
-
-    result = apply.detect_rag_stem(stack)
-
-    assert result == "mydb"
-
-
-def test_detect_rag_stem_prefers_haiku(stack):
-    db = stack / "rag" / "db"
-    db.mkdir(parents=True)
-    (db / "other.lancedb").mkdir()
-    (db / "haiku.rag.lancedb").mkdir()
-
-    result = apply.detect_rag_stem(stack)
-
-    assert result == "haiku.rag"
-
-
-def test_resolve_rag_stem_override(stack):
-    result = apply.resolve_rag_stem(stack, "explicit")
-
-    assert result == "explicit"
-
-
-def test_resolve_rag_stem_detected(stack):
-    (stack / "rag" / "db" / "found.lancedb").mkdir(parents=True)
-
-    result = apply.resolve_rag_stem(stack, None)
-
-    assert result == "found"
-
-
-def test_resolve_rag_stem_default_when_none(stack):
-    result = apply.resolve_rag_stem(stack, None)
-
-    assert result == apply.DEFAULT_RAG_STEM
-
-
-def test_set_rag_stem_no_skills_dict():
-    data = {"skills": None}
-
-    apply._set_rag_stem(data, "x")
-
-    assert data == {"skills": None}
-
-
-def test_set_rag_stem_skips_non_matching():
-    data = {"skills": {"skill_configs": [{"kind": "other"}, "notadict"]}}
-
-    apply._set_rag_stem(data, "stem")
-
-    assert "rag_lancedb_stem" not in data["skills"]["skill_configs"][0]
 
 
 # --- install_room / install_skill -----------------------------------------
@@ -672,7 +638,7 @@ def test_install_room_force(stack):
 
 
 def test_install_skill_added(stack):
-    action = apply.install_skill(ROOM_SKILL, stack, _opts())
+    action = apply.install_skill(apply.SKILL_NAME, ROOM_SKILL, stack, _opts())
 
     skill_dir = stack / "backend" / "environment" / "skills" / apply.SKILL_NAME
     assert action == apply.ADDED
@@ -687,13 +653,15 @@ def test_install_skill_unchanged(stack):
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("old")
 
-    action = apply.install_skill(ROOM_SKILL, stack, _opts())
+    action = apply.install_skill(apply.SKILL_NAME, ROOM_SKILL, stack, _opts())
 
     assert action == apply.UNCHANGED
 
 
 def test_install_skill_dry_run(stack):
-    action = apply.install_skill(ROOM_SKILL, stack, _opts(dry_run=True))
+    action = apply.install_skill(
+        apply.SKILL_NAME, ROOM_SKILL, stack, _opts(dry_run=True)
+    )
 
     skill = (
         stack
@@ -712,7 +680,9 @@ def test_install_skill_force(stack):
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("old")
 
-    action = apply.install_skill(ROOM_SKILL, stack, _opts(force=True))
+    action = apply.install_skill(
+        apply.SKILL_NAME, ROOM_SKILL, stack, _opts(force=True)
+    )
 
     assert action == apply.ADDED
     assert (skill_dir / "SKILL.md").read_text() != "old"
@@ -721,9 +691,16 @@ def test_install_skill_force(stack):
 # --- main / apply end-to-end ----------------------------------------------
 
 
-def test_main_applies(stack, capsys):
+def test_main_applies(stack, docs_skill, capsys):
     rc = apply.main(
-        ["--stack-dir", str(stack), "--room-skill-dir", str(ROOM_SKILL)]
+        [
+            "--stack-dir",
+            str(stack),
+            "--room-skill-dir",
+            str(ROOM_SKILL),
+            "--docs-skill-dir",
+            str(docs_skill),
+        ]
     )
 
     assert rc == 0
@@ -739,9 +716,9 @@ def test_main_applies(stack, capsys):
         / "about_concierge-test"
         / "room_config.yaml"
     ).is_file()
-    assert (
-        backend / "environment" / "skills" / apply.SKILL_NAME / "SKILL.md"
-    ).is_file()
+    skills = backend / "environment" / "skills"
+    assert (skills / apply.SKILL_NAME / "SKILL.md").is_file()
+    assert (skills / apply.DOCS.name / "SKILL.md").is_file()
     assert "GITEA_HOST=" in (stack / ".env").read_text()
     assert "edit owner/repo" in capsys.readouterr().out
 
@@ -759,22 +736,24 @@ def test_main_dry_run(stack, capsys):
     assert "would apply" in capsys.readouterr().out
 
 
-def test_main_idempotent(stack):
+def test_main_idempotent(stack, docs_skill):
     opts = _opts()
-    apply.apply(stack, ASSETS, ROOM_SKILL, opts)
+    apply.apply(stack, ASSETS, ROOM_SKILL, docs_skill, opts)
 
-    results = apply.apply(stack, ASSETS, ROOM_SKILL, opts)
+    results = apply.apply(stack, ASSETS, ROOM_SKILL, docs_skill, opts)
 
     assert set(results.values()) == {apply.UNCHANGED}
 
 
-def test_main_room_id_override(stack):
+def test_main_room_id_override(stack, docs_skill):
     rc = apply.main(
         [
             "--stack-dir",
             str(stack),
             "--room-skill-dir",
             str(ROOM_SKILL),
+            "--docs-skill-dir",
+            str(docs_skill),
             "--room-id",
             "custom_room",
         ]
@@ -786,13 +765,15 @@ def test_main_room_id_override(stack):
     ).is_dir()
 
 
-def test_main_with_owner_repo(stack, capsys):
+def test_main_with_owner_repo(stack, docs_skill, capsys):
     rc = apply.main(
         [
             "--stack-dir",
             str(stack),
             "--room-skill-dir",
             str(ROOM_SKILL),
+            "--docs-skill-dir",
+            str(docs_skill),
             "--owner",
             "acme",
             "--repo",
@@ -823,35 +804,39 @@ def test_main_not_a_stack(temp_dir, capsys):
     assert "error:" in capsys.readouterr().err
 
 
-def test_main_downloads_room_skill(stack, tmp_path, monkeypatch):
-    tarball = _make_room_tarball(tmp_path)
-    sha256 = hashlib.sha256(tarball.read_bytes()).hexdigest()
-    monkeypatch.setattr(
-        apply,
-        "_read_room_pointer",
-        lambda: {
-            "tag": "room-skill-x",
+def test_main_downloads_skills(stack, tmp_path, monkeypatch):
+    room_tb = _make_skill_tarball(tmp_path / "room", apply.ROOM)
+    docs_tb = _make_skill_tarball(tmp_path / "docs", apply.DOCS)
+    tarballs = {apply.ROOM.name: room_tb, apply.DOCS.name: docs_tb}
+
+    def _pointer(spec):
+        tarball = tarballs[spec.name]
+        return {
+            "tag": f"{spec.name}-x",
             "asset_url": tarball.as_uri(),
-            "sha256": sha256,
-        },
-    )
+            "sha256": hashlib.sha256(tarball.read_bytes()).hexdigest(),
+        }
+
+    monkeypatch.setattr(apply, "_read_pointer", _pointer)
 
     rc = apply.main(["--stack-dir", str(stack), "--owner", "o", "--repo", "r"])
 
     assert rc == 0
-    dst = stack / "backend" / "environment" / "skills" / apply.SKILL_NAME
-    assert (dst / "SKILL.md").is_file()
+    skills = stack / "backend" / "environment" / "skills"
+    assert (skills / apply.ROOM.name / "SKILL.md").is_file()
+    assert (skills / apply.DOCS.name / "SKILL.md").is_file()
 
 
-def test_main_room_skill_download_fails(stack, capsys, monkeypatch):
-    def _boom(url, **kw):
-        raise apply.InstallerError.room_skill_bad_scheme(url)
+def test_main_skill_download_fails(stack, capsys, monkeypatch):
+    def _boom(url, spec, **kw):
+        raise apply.InstallerError.skill_bad_scheme(spec, url)
 
     monkeypatch.setattr(apply, "_get", _boom)
 
     rc = apply.main(["--stack-dir", str(stack)])
 
     assert rc == 2
+    # the room skill is resolved first, so its --room-skill-dir hint shows.
     assert "--room-skill-dir" in capsys.readouterr().err
 
 
@@ -896,13 +881,15 @@ def test_warn_missing_owner_repo_silent_when_both_set(capsys):
     assert "warning" not in capsys.readouterr().err
 
 
-def test_main_version_pins(stack):
+def test_main_version_pins(stack, docs_skill):
     rc = apply.main(
         [
             "--stack-dir",
             str(stack),
             "--room-skill-dir",
             str(ROOM_SKILL),
+            "--docs-skill-dir",
+            str(docs_skill),
             "--version",
             "0.2",
         ]
@@ -917,13 +904,15 @@ def test_main_version_pins(stack):
     assert "soliplex-concierge==0.2" in (backend / "Dockerfile").read_text()
 
 
-def test_main_version_latest_no_warning(stack, capsys):
+def test_main_version_latest_no_warning(stack, docs_skill, capsys):
     rc = apply.main(
         [
             "--stack-dir",
             str(stack),
             "--room-skill-dir",
             str(ROOM_SKILL),
+            "--docs-skill-dir",
+            str(docs_skill),
             "--version",
             "latest",
             "--owner",
@@ -940,54 +929,3 @@ def test_main_version_latest_no_warning(stack, capsys):
         '"soliplex-concierge",'
         in (stack / "backend" / "pyproject.toml").read_text()
     )
-
-
-def _room_rag_stem(stack, room_id="about_concierge-test"):
-    cfg = _load(
-        stack
-        / "backend"
-        / "environment"
-        / "rooms"
-        / room_id
-        / "room_config.yaml"
-    )
-    rag = next(
-        s
-        for s in cfg["skills"]["skill_configs"]
-        if s.get("kind") == apply.RAG_SKILL_KIND
-    )
-    return rag["rag_lancedb_stem"]
-
-
-def test_main_rag_stem_defaults_to_haiku(stack):
-    rc = apply.main(
-        [
-            "--stack-dir",
-            str(stack),
-            "--room-skill-dir",
-            str(ROOM_SKILL),
-            "--version",
-            "latest",
-        ]
-    )
-
-    assert rc == 0
-    assert _room_rag_stem(stack) == apply.DEFAULT_RAG_STEM
-
-
-def test_main_rag_stem_override(stack):
-    rc = apply.main(
-        [
-            "--stack-dir",
-            str(stack),
-            "--room-skill-dir",
-            str(ROOM_SKILL),
-            "--version",
-            "latest",
-            "--rag-stem",
-            "custom",
-        ]
-    )
-
-    assert rc == 0
-    assert _room_rag_stem(stack) == "custom"

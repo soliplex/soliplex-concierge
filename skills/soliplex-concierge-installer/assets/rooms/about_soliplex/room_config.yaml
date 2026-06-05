@@ -33,12 +33,23 @@ tools:
 
 skills:
   # The detailed concierge behavior lives in the 'soliplex-concierge-room'
-  # filesystem skill shipped by this package; wire its directory into the
-  # installation's 'filesystem_skills_paths' (see installation-snippet.yaml).
+  # filesystem skill shipped by this package; the 'soliplex-docs' skill (the
+  # full Soliplex documentation) lets the room answer "how do I ..." questions
+  # about Soliplex. Both are wired into the installation's
+  # 'filesystem_skills_paths' (see installation-snippet.yaml); the installer
+  # downloads them from their published GitHub releases.
   installation_skill_names:
     - "soliplex-concierge-room"
-  skill_configs:
-    - kind: "haiku.rag.skills.rag"
-      rag_lancedb_stem: "rag"
+    - "soliplex-docs"
+
+  # By default the room answers from 'soliplex-docs' above, so no RAG database
+  # is required. To ALSO answer from a RAG database -- e.g. this installation's
+  # own ingested content -- uncomment the block below, pointing
+  # 'rag_lancedb_stem' at a database under 'rag/db/'. The 'soliplex-template'
+  # skill can generate and ingest that database for you:
+  # https://github.com/soliplex/soliplex-template
+  # skill_configs:
+  #   - kind: "haiku.rag.skills.rag"
+  #     rag_lancedb_stem: "haiku.rag"
 
 allow_mcp: false
