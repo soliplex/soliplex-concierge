@@ -42,6 +42,8 @@ dev = [
     "pytest-asyncio >= 1.3.0, < 1.4",
     "pytest-xdist >= 3.8.0, < 3.9",
     "ruff >= 0.15.6, < 0.16",
+    # 'agentskills' CLI used by scripts/build_skills.py to validate each skill.
+    "skills-ref",
 ]
 
 [tool.setuptools.packages.find]
@@ -54,11 +56,20 @@ python_files = "test_*.py"
 # 'tests/functional' is skipped by default; run it explicitly (with
 # '--no-cov'), e.g. 'uv run py.test --no-cov tests/functional'.
 testpaths = ["tests/unit"]
-addopts = "--cov=soliplex_concierge --cov=tests/unit --cov-branch --cov-fail-under=100"
+addopts = "--cov=soliplex_concierge --cov=tests/unit --cov=skills --cov-branch --cov-fail-under=100"
 filterwarnings = [
 ]
 markers = [
     "needs_docker: functional test requiring a working Docker daemon",
+]
+
+[tool.coverage.run]
+# 'skill_versions.py' is vendored verbatim into each skill (release/upgrade
+# plumbing); its logic is slated to move to the shared 'soliplex-skills'
+# library and be tested there, so it is exempt from this project's gate.
+# First-party skill scripts (e.g. gitea_issues.py) are covered.
+omit = [
+    "*/skills/*/scripts/skill_versions.py",
 ]
 
 [tool.coverage.report]
