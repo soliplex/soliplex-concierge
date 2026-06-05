@@ -10,7 +10,7 @@ description: |
     soliplex-template-generated stack.
 license: MIT
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
 ---
 
 # Soliplex concierge installer
@@ -37,11 +37,14 @@ This skill is meant to be used alongside two sibling skills:
    `.env`). If there is no stack, generate one with the `soliplex-template` skill.
 3. A Gitea repository to file room requests against, and an access token with
    permission to create issues in it.
-4. Network access to GitHub: the `soliplex-concierge-room` skill is downloaded
-   from its published release by default (the `room-skill-latest` pointer, or a
-   tag via `--room-skill-version`). To install offline or from a local copy
-   instead, use `--room-skill-dir` (see the flags below). Set `GITHUB_TOKEN` /
-   `GH_TOKEN` to raise the GitHub rate limit if needed.
+4. Network access to GitHub: two filesystem skills are downloaded from their
+   published releases by default — `soliplex-concierge-room` (from
+   `soliplex/soliplex-concierge`, the `room-skill-latest` pointer) and
+   `soliplex-docs` (from `soliplex/soliplex`, the `docs-latest` pointer). Pin a
+   build with `--room-skill-version` / `--docs-skill-version`, or install
+   offline from a local copy with `--room-skill-dir` / `--docs-skill-dir` (see
+   the flags below). Set `GITHUB_TOKEN` / `GH_TOKEN` to raise the GitHub rate
+   limit if needed.
 
 ## Steps
 
@@ -70,14 +73,13 @@ Run the bundled script from this skill's directory with `uv run`.
 - `--version <X.Y>` — pin the `soliplex-concierge` dependency added to the
   stack. Omitting it leaves the dependency unpinned and prints a version-skew
   warning; `--version latest` opts into the newest release without the warning.
-- `--room-skill-version <tag>` — published `soliplex-concierge-room` tag to
-  install (default: the `room-skill-latest` pointer); e.g. a rolling build or
-  `v0.4`.
-- `--room-skill-dir <dir>` — install the `soliplex-concierge-room` skill from a
-  local directory instead of downloading (offline / development).
+- `--room-skill-version <tag>` / `--docs-skill-version <tag>` — published tag to
+  install for the room skill (default: `room-skill-latest`) / the docs skill
+  (default: `docs-latest`); e.g. a rolling build or `v0.4` / `v0.69`.
+- `--room-skill-dir <dir>` / `--docs-skill-dir <dir>` — install the
+  `soliplex-concierge-room` / `soliplex-docs` skill from a local directory
+  instead of downloading (offline / development).
 - `--room-id` — room id to create (default: `about_<compose-project-name>`).
-- `--rag-stem` — RAG LanceDB stem to wire into the room's `haiku.rag.skills.rag`
-  skill (default: the stack's existing `rag/db/*.lancedb`, else `haiku.rag`).
 - `--force` — overwrite an existing room/skill; `--dry-run` — report only.
 
 ## What it changes (six idempotent edits)
@@ -85,21 +87,30 @@ Run the bundled script from this skill's directory with `uv run`.
 1. adds `soliplex-concierge` to `backend/pyproject.toml` dependencies,
 2. adds it to the `backend/Dockerfile` `uv add` block (the generated Dockerfile
    does `uv init --bare` and ignores the pyproject deps, so both are needed),
-3. merges five `installation.yaml` entries (`meta.tool_configs`, `environment`,
-   `secrets`, `skill_configs`, `room_paths`),
+3. merges six `installation.yaml` entries (`meta.tool_configs`, `environment`,
+   `secrets`, two `skill_configs` — `soliplex-concierge-room` and
+   `soliplex-docs` — and `room_paths`),
 4. copies the `about_soliplex` room template into `rooms/<room-id>/` (renaming
    the directory, `id:`, and the `room_paths` entry),
-5. copies the `soliplex-concierge-room` filesystem skill into `skills/`, and
+5. downloads + copies the `soliplex-concierge-room` and `soliplex-docs`
+   filesystem skills into `skills/`, and
 6. adds `GITEA_HOST` / `GITEA_ACCESS_TOKEN` placeholders to `.env`.
 
+The about-room answers Soliplex questions from the bundled `soliplex-docs`
+skill, so no RAG database is required. To also answer from a RAG database,
+uncomment the `skill_configs` block in the room's `room_config.yaml` (it points
+at the `soliplex-template` skill for generating one).
+
 Re-running is safe: each edit is skipped if already present (use `--force` to
-overwrite the copied room/skill).
+overwrite the copied rooms/skills).
 
 ## Verify
 
 - The script prints a per-target summary (`added` / `unchanged`); confirm the
-  room, skill, and `installation.yaml` entries are accounted for.
-- Confirm `backend/environment/skills/soliplex-concierge-room/SKILL.md` exists
-  and `installation.yaml` lists `skill_name: "soliplex-concierge-room"`.
+  room, both skills, and `installation.yaml` entries are accounted for.
+- Confirm `backend/environment/skills/soliplex-concierge-room/SKILL.md` and
+  `backend/environment/skills/soliplex-docs/SKILL.md` exist, and
+  `installation.yaml` lists `skill_name: "soliplex-concierge-room"` and
+  `skill_name: "soliplex-docs"`.
 - Set real `GITEA_HOST` / `GITEA_ACCESS_TOKEN` in `.env`, then
   `docker compose build backend && docker compose up -d`.

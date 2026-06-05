@@ -17,14 +17,19 @@ meta:
   tool_configs:
     - "soliplex_concierge.config.CreateGiteaIssueToolConfig"
 
-# Point Soliplex at the package's 'soliplex-concierge-room' skill directory so
-# the filesystem skill is discovered. Adjust the path to wherever
-# 'soliplex-concierge' is checked out / installed.
+# Point Soliplex at the directories holding the two filesystem skills the
+# about-room uses, so they are discovered: 'soliplex-concierge-room' (this
+# package's room skill) and 'soliplex-docs' (the Soliplex documentation,
+# downloaded from https://github.com/soliplex/soliplex/releases). Adjust the
+# paths to wherever the skills are unpacked / installed.
 filesystem_skills_paths:
   - "/path/to/soliplex-concierge/skills/soliplex-concierge-room"
+  - "/path/to/skills/soliplex-docs"
 
 skill_configs:
   - skill_name: "soliplex-concierge-room"
+    kind: "filesystem"
+  - skill_name: "soliplex-docs"
     kind: "filesystem"
 
 # The 'create_gitea_issue' tool's 'host'/'token' config values are Soliplex
