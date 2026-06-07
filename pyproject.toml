@@ -111,3 +111,35 @@ plugins.no-inline-html.enabled = false          # md033
 plugins.no-emphasis-as-heading.enabled = false  # md036
 plugins.first-line-heading.enabled = false      # md041
 plugins.code-block-style.enabled = false        # md046
+
+
+# Lets the `soliplex-skills` console script (and CI) manage the published
+# concierge skills without repeating these constants on the command line. Each
+# skill's bundled scripts/skill_versions.py hardcodes the same values, since it
+# cannot read this file once the skill is installed elsewhere.
+[[tool.soliplex-skills.skill]]
+name = "soliplex-concierge-installer"
+owner = "soliplex"
+repo = "soliplex-concierge"
+asset_tarball = "soliplex-concierge-installer-skill.tar.gz"
+pointer_tag = "installer-skill-latest"
+rolling_prefix = "installer-skill"
+compare_scope = "tree"
+
+[[tool.soliplex-skills.skill]]
+name = "soliplex-concierge-room"
+owner = "soliplex"
+repo = "soliplex-concierge"
+asset_tarball = "soliplex-concierge-room-skill.tar.gz"
+pointer_tag = "room-skill-latest"
+rolling_prefix = "room-skill"
+compare_scope = "tree"
+
+[[tool.soliplex-skills.skill]]
+name = "soliplex-concierge-admin"
+owner = "soliplex"
+repo = "soliplex-concierge"
+asset_tarball = "soliplex-concierge-admin-skill.tar.gz"
+pointer_tag = "admin-skill-latest"
+rolling_prefix = "admin-skill"
+compare_scope = "tree"
