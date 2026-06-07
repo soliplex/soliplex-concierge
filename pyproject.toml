@@ -35,6 +35,8 @@ dev = [
     "ruff >= 0.15.6, < 0.16",
     # 'agentskills' CLI used by scripts/build_skills.py to validate each skill.
     "skills-ref",
+    # Backs the bundled skill_versions.py shims and the build script.
+    "soliplex-skills >= 0.2.2",
 ]
 
 [tool.setuptools.packages.find]
