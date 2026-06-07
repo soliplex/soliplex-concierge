@@ -13,11 +13,14 @@ def _load():
     return module
 
 
-def test_skill_versions_constants():
+def test_skill_versions_spec():
     module = _load()
+    spec = module.SPEC
 
-    assert module.OWNER == "soliplex"
-    assert module.REPO == "soliplex-concierge"
-    assert module.ASSET_TARBALL == "soliplex-concierge-room-skill.tar.gz"
-    assert module.POINTER_TAG == "room-skill-latest"
-    assert module._ROLLING_RE.match("room-skill-2026.06.05-abc1234")
+    assert spec.skill_name == "soliplex-concierge-room"
+    assert spec.owner == "soliplex"
+    assert spec.repo == "soliplex-concierge"
+    assert spec.asset_tarball == "soliplex-concierge-room-skill.tar.gz"
+    assert spec.pointer_tag == "room-skill-latest"
+    assert spec.compare_scope == "tree"
+    assert spec.rolling_re.match("room-skill-2026.06.05-abc1234")

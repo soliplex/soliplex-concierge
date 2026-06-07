@@ -33,8 +33,10 @@ dev = [
     "pytest-asyncio >= 1.3.0, < 1.4",
     "pytest-xdist >= 3.8.0, < 3.9",
     "ruff >= 0.15.6, < 0.16",
-    # 'agentskills' CLI used by scripts/build_skills.py to validate each skill.
-    "skills-ref",
+    # Backs the skill_versions.py shims and scripts/build_skills.py
+    # (build.build_skill); pulls in skills-ref (the Agent Skills validator)
+    # transitively.
+    "soliplex-skills >= 0.2.2",
 ]
 
 [tool.setuptools.packages.find]
@@ -55,10 +57,10 @@ markers = [
 ]
 
 [tool.coverage.run]
-# 'skill_versions.py' is vendored verbatim into each skill (release/upgrade
-# plumbing); its logic is slated to move to the shared 'soliplex-skills'
-# library and be tested there, so it is exempt from this project's gate.
-# First-party skill scripts (e.g. gitea_issues.py) are covered.
+# Each skill's 'skill_versions.py' is a thin shim over the shared
+# 'soliplex-skills' library (release/upgrade plumbing, tested there), so it is
+# exempt from this project's gate. First-party skill scripts (e.g.
+# gitea_issues.py) are covered.
 omit = [
     "*/skills/*/scripts/skill_versions.py",
 ]
@@ -109,3 +111,35 @@ plugins.no-inline-html.enabled = false          # md033
 plugins.no-emphasis-as-heading.enabled = false  # md036
 plugins.first-line-heading.enabled = false      # md041
 plugins.code-block-style.enabled = false        # md046
+
+
+# Lets the `soliplex-skills` console script (and CI) manage the published
+# concierge skills without repeating these constants on the command line. Each
+# skill's bundled scripts/skill_versions.py hardcodes the same values, since it
+# cannot read this file once the skill is installed elsewhere.
+[[tool.soliplex-skills.skill]]
+name = "soliplex-concierge-installer"
+owner = "soliplex"
+repo = "soliplex-concierge"
+asset_tarball = "soliplex-concierge-installer-skill.tar.gz"
+pointer_tag = "installer-skill-latest"
+rolling_prefix = "installer-skill"
+compare_scope = "tree"
+
+[[tool.soliplex-skills.skill]]
+name = "soliplex-concierge-room"
+owner = "soliplex"
+repo = "soliplex-concierge"
+asset_tarball = "soliplex-concierge-room-skill.tar.gz"
+pointer_tag = "room-skill-latest"
+rolling_prefix = "room-skill"
+compare_scope = "tree"
+
+[[tool.soliplex-skills.skill]]
+name = "soliplex-concierge-admin"
+owner = "soliplex"
+repo = "soliplex-concierge"
+asset_tarball = "soliplex-concierge-admin-skill.tar.gz"
+pointer_tag = "admin-skill-latest"
+rolling_prefix = "admin-skill"
+compare_scope = "tree"

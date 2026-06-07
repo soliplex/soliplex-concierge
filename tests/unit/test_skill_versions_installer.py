@@ -13,11 +13,14 @@ def _load():
     return module
 
 
-def test_skill_versions_constants():
+def test_skill_versions_spec():
     module = _load()
+    spec = module.SPEC
 
-    assert module.OWNER == "soliplex"
-    assert module.REPO == "soliplex-concierge"
-    assert module.ASSET_TARBALL == "soliplex-concierge-installer-skill.tar.gz"
-    assert module.POINTER_TAG == "installer-skill-latest"
-    assert module._ROLLING_RE.match("installer-skill-2026.06.05-abc1234")
+    assert spec.skill_name == "soliplex-concierge-installer"
+    assert spec.owner == "soliplex"
+    assert spec.repo == "soliplex-concierge"
+    assert spec.asset_tarball == "soliplex-concierge-installer-skill.tar.gz"
+    assert spec.pointer_tag == "installer-skill-latest"
+    assert spec.compare_scope == "tree"
+    assert spec.rolling_re.match("installer-skill-2026.06.05-abc1234")
