@@ -6,12 +6,18 @@
 """Assemble + validate the soliplex-concierge skills into dist/.
 
 The repo ships three hand-written skills under ``skills/``
-(``soliplex-concierge-{installer,room,admin}``). This copies one
-(``--skill <name>``) or all of them into ``dist/<name>/``, stamps each
-``SKILL.md`` with ``metadata.source_commit`` (from ``--commit``, default git
-HEAD), and validates each with the agent-skills reference library. The
-heavy lifting is the shared ``soliplex_skills.build`` helper; this wraps it.
-Packaging into release assets is the CI workflow's job; ``dist/`` is gitignored.
+(``soliplex-concierge-{installer,room,admin}``).
+
+- Copy one (``--skill <name>``) or all of them into ``dist/<name>/``
+- Stamp each ``SKILL.md`` with ``metadata.source_commit`` (from
+  ``--commit``, default git HEAD)
+- Validate each with the agent-skills reference library.
+
+The heavy lifting is the shared ``soliplex_skills.build`` helper; this
+script wraps it.
+
+Packaging into release assets is the CI workflow's job;
+``dist/`` is gitignored.
 
 Run with uv (provisions ``soliplex-skills`` automatically):
 
