@@ -46,8 +46,10 @@ jobs:
             prefix: admin-skill
             tarball: soliplex-concierge-admin-skill.tar.gz
             zip: soliplex-concierge-admin-skill.zip
-    # Legs publish disjoint tags, so they do not race each other; this only
-    # serializes re-runs of the same skill (rolling pointer / prune step).
+    # In rolling mode each leg publishes disjoint tags, so legs do not race
+    # each other; this group only serializes re-runs of the same skill (rolling
+    # pointer / prune step). In release mode all legs share the release tag, so
+    # the attach step below uses skill-unique asset names to avoid colliding.
     concurrency:
       group: build-skills-${{ matrix.prefix }}
       cancel-in-progress: false
@@ -117,9 +119,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.release.tag_name }}
-        run: >
-          gh release upload "$TAG"
-          "$DIST/$ASSET_TARBALL" "$DIST/$ASSET_ZIP" "$DIST/version.json" --clobber
+        run: |
+          # All three matrix legs share this release tag, so the manifest needs
+          # a skill-unique name (the tarball/zip already have one). A bare
+          # 'version.json' collides -> HTTP 422 + a clobber race between legs.
+          cp "$DIST/version.json" "$DIST/${{ matrix.prefix }}-version.json"
+          gh release upload "$TAG" \
+            "$DIST/$ASSET_TARBALL" "$DIST/$ASSET_ZIP" \
+            "$DIST/${{ matrix.prefix }}-version.json" --clobber
 
       # --- Rolling mode ----------------------------------------------------
       - name: Publish immutable rolling build
