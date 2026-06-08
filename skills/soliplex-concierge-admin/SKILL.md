@@ -36,15 +36,17 @@ connection via flags or the environment:
   issue-filing token).
 - `--owner` / `--repo` — the tracking repository the concierge files against.
 
-The script needs `httpx` (`pip install httpx`, or install the
-`soliplex-concierge` package, which depends on it).
+`scripts/gitea_issues.py` is a [PEP 723](https://peps.python.org/pep-0723/)
+script: run it with `uv run`, which provisions its `soliplex-concierge`
+dependency (and `httpx`) automatically from the inline metadata. It just needs
+`uv` on the `PATH`.
 
 Run `init` once per tracking repository to create the request labels
 (`new-room`, `room-access`, `approved`, `denied`) the workflow below relies on
 (idempotent — re-running reports each label as `created` or `exists`):
 
 ```sh
-python scripts/gitea_issues.py init --owner <owner> --repo <repo>
+uv run scripts/gitea_issues.py init --owner <owner> --repo <repo>
 ```
 
 ## Workflow
@@ -52,13 +54,13 @@ python scripts/gitea_issues.py init --owner <owner> --repo <repo>
 1. **Find pending requests.** List the open issues:
 
    ```sh
-   python scripts/gitea_issues.py list --owner <owner> --repo <repo>
+   uv run scripts/gitea_issues.py list --owner <owner> --repo <repo>
    ```
 
 2. **Read a request.** Print its title, metadata, and body:
 
    ```sh
-   python scripts/gitea_issues.py show <number> --owner <owner> --repo <repo>
+   uv run scripts/gitea_issues.py show <number> --owner <owner> --repo <repo>
    ```
 
    The body follows one of two templates the room skill fills in:
@@ -85,14 +87,14 @@ python scripts/gitea_issues.py init --owner <owner> --repo <repo>
    granted, follow-up needed):
 
    ```sh
-   python scripts/gitea_issues.py comment <number> --owner <owner> \
+   uv run scripts/gitea_issues.py comment <number> --owner <owner> \
        --repo <repo> --body "Created room 'marketing' and granted access."
    ```
 
 5. **Resolve the issue.** Close it, optionally with a final comment in one step:
 
    ```sh
-   python scripts/gitea_issues.py close <number> --owner <owner> \
+   uv run scripts/gitea_issues.py close <number> --owner <owner> \
        --repo <repo> --body "Done — room is live."
    ```
 
@@ -108,7 +110,7 @@ below, which record the decision as both a label and a closing comment.
 1. **Find the open access requests.** Filter by the type label:
 
    ```sh
-   python scripts/gitea_issues.py search --type room-access \
+   uv run scripts/gitea_issues.py search --type room-access \
        --owner <owner> --repo <repo>
    ```
 
@@ -137,7 +139,7 @@ below, which record the decision as both a label and a closing comment.
    record the outcome and close the issue:
 
    ```sh
-   python scripts/gitea_issues.py approve <number> --owner <owner> \
+   uv run scripts/gitea_issues.py approve <number> --owner <owner> \
        --repo <repo> \
        --body "Granted <user> access to '<room>' via room-authz add-acl-entry."
    ```
@@ -145,7 +147,7 @@ below, which record the decision as both a label and a closing comment.
 3. **Deny.** No stack change is needed — just record the decision and close:
 
    ```sh
-   python scripts/gitea_issues.py deny <number> --owner <owner> \
+   uv run scripts/gitea_issues.py deny <number> --owner <owner> \
        --repo <repo> --body "<reason for denial>"
    ```
 

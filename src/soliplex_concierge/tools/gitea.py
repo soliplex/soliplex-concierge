@@ -5,30 +5,25 @@ repository is fixed by the room's tool configuration, so the agent cannot
 file against an arbitrary repository.
 """
 
-import typing
-
 import httpx
 import pydantic
 import pydantic_ai
 from soliplex import agents
 
 from soliplex_concierge import config
+from soliplex_concierge.labels import ISSUE_TYPE_LABELS
 
-RequestType = typing.Literal["new-room", "room-access"]
 
-# Canonical issue-type label catalog. The 'soliplex-concierge-admin' skill's
-# 'gitea_issues.py' duplicates these names (plus the 'approved'/'denied'
-# decision labels) -- keep the two in sync.
-ISSUE_TYPE_LABELS: dict[str, dict[str, str]] = {
-    "new-room": {
-        "color": "#1d76db",
-        "description": "New room request",
-    },
-    "room-access": {
-        "color": "#5319e7",
-        "description": "Access request for an existing room",
-    },
-}
+class UnknownRequestType(ValueError):
+    """A 'request_type' with no matching issue-type label was supplied."""
+
+    def __init__(self, request_type: str, supported: set[str]):
+        self.request_type = request_type
+        self.supported = supported
+        super().__init__(
+            f"unknown request_type {request_type!r}; "
+            f"expected one of {sorted(supported)}"
+        )
 
 
 class CreatedGiteaIssue(pydantic.BaseModel):
@@ -70,7 +65,7 @@ async def create_gitea_issue(
     ctx: pydantic_ai.RunContext[agents.AgentDependencies],
     title: str,
     body: str,
-    request_type: RequestType,
+    request_type: str,
 ) -> CreatedGiteaIssue:
     """File a room request as a Gitea issue and return its number and link.
 
@@ -90,7 +85,13 @@ async def create_gitea_issue(
 
     Returns:
         CreatedGiteaIssue: the 'number', 'url', and 'title' of the new issue.
+
+    Raises:
+        UnknownRequestType: if 'request_type' is not a known issue-type label.
     """
+    if request_type not in ISSUE_TYPE_LABELS:
+        raise UnknownRequestType(request_type, set(ISSUE_TYPE_LABELS))
+
     tool_config = ctx.deps.tool_configs[config.CGI_TOOL_KIND]
 
     host = tool_config.host

@@ -1,11 +1,17 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["soliplex-concierge>=0.5"]
+# ///
 """Read and resolve Soliplex room-request issues on a Gitea repository.
 
-This is a self-contained CLI for the `soliplex-concierge-admin` skill: it runs
-in an external coding agent (NOT inside the Soliplex server) and talks to the
-Gitea REST API directly with httpx. It mirrors the auth and URL conventions of
-the room's `create_gitea_issue` tool (`Authorization: token <token>`,
-`/api/v1/repos/{owner}/{repo}/issues...`).
+This is a CLI for the `soliplex-concierge-admin` skill: it runs in an external
+coding agent (NOT inside the Soliplex server) and talks to the Gitea REST API
+directly with httpx. It mirrors the auth and URL conventions of the room's
+`create_gitea_issue` tool (`Authorization: token <token>`,
+`/api/v1/repos/{owner}/{repo}/issues...`) and shares its request-label catalog
+(`soliplex_concierge.labels`). Run it with `uv run`, which provisions the
+`soliplex-concierge` dependency (and httpx) from the inline metadata above.
 
 Configuration comes from flags or, as a fallback, the environment:
 
@@ -36,29 +42,7 @@ import sys
 
 import httpx
 
-# Request labels managed on the tracking repository. The two issue-TYPE labels
-# mirror `soliplex_concierge.tools.gitea.ISSUE_TYPE_LABELS` (the room tool
-# applies them when filing); the two DECISION labels are applied here by the
-# `approve`/`deny` subcommands. Keep the type-label names in sync with the
-# package tool.
-LABELS: dict[str, dict[str, str]] = {
-    "new-room": {
-        "color": "#1d76db",
-        "description": "New room request",
-    },
-    "room-access": {
-        "color": "#5319e7",
-        "description": "Access request for an existing room",
-    },
-    "approved": {
-        "color": "#0e8a16",
-        "description": "Room request approved",
-    },
-    "denied": {
-        "color": "#d73a4a",
-        "description": "Room request denied",
-    },
-}
+from soliplex_concierge.labels import REQUEST_LABELS as LABELS
 
 
 def _issues_url(host: str, owner: str, repo: str) -> str:

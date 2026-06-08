@@ -133,6 +133,24 @@ async def test_create_gitea_issue_creates_missing_label(ctx):
 
 
 @pytest.mark.anyio
+async def test_create_gitea_issue_rejects_unknown_request_type(ctx):
+    patched_client, client = _patch_async_client(_resp([]), [])
+
+    with patched_client, pytest.raises(gitea.UnknownRequestType) as exc:
+        await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="Mystery request",
+            body="Requested by Phreddy.",
+            request_type="bogus",
+        )
+
+    assert exc.value.request_type == "bogus"
+    assert exc.value.supported == {"new-room", "room-access"}
+    assert "new-room" in str(exc.value)
+    client.get.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_create_gitea_issue_raises_on_http_error(ctx):
     labels = _resp([{"name": "new-room", "id": 5}])
     issue = _resp(
