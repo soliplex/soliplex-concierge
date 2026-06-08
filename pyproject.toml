@@ -36,7 +36,7 @@ dev = [
     # Backs the skill_versions.py shims and scripts/build_skills.py
     # (build.build_skill); pulls in skills-ref (the Agent Skills validator)
     # transitively.
-    "soliplex-skills >= 0.2.2",
+    "soliplex-skills >= 0.4",
 ]
 
 [tool.setuptools.packages.find]
@@ -124,7 +124,6 @@ repo = "soliplex-concierge"
 asset_tarball = "soliplex-concierge-installer-skill.tar.gz"
 pointer_tag = "installer-skill-latest"
 rolling_prefix = "installer-skill"
-compare_scope = "tree"
 
 [[tool.soliplex-skills.skill]]
 name = "soliplex-concierge-room"
@@ -133,7 +132,6 @@ repo = "soliplex-concierge"
 asset_tarball = "soliplex-concierge-room-skill.tar.gz"
 pointer_tag = "room-skill-latest"
 rolling_prefix = "room-skill"
-compare_scope = "tree"
 
 [[tool.soliplex-skills.skill]]
 name = "soliplex-concierge-admin"
@@ -142,4 +140,3 @@ repo = "soliplex-concierge"
 asset_tarball = "soliplex-concierge-admin-skill.tar.gz"
 pointer_tag = "admin-skill-latest"
 rolling_prefix = "admin-skill"
-compare_scope = "tree"

@@ -22,5 +22,4 @@ def test_skill_versions_spec():
     assert spec.repo == "soliplex-concierge"
     assert spec.asset_tarball == "soliplex-concierge-room-skill.tar.gz"
     assert spec.pointer_tag == "room-skill-latest"
-    assert spec.compare_scope == "tree"
     assert spec.rolling_re.match("room-skill-2026.06.05-abc1234")
