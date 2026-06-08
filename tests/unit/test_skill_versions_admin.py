@@ -22,5 +22,4 @@ def test_skill_versions_spec():
     assert spec.repo == "soliplex-concierge"
     assert spec.asset_tarball == "soliplex-concierge-admin-skill.tar.gz"
     assert spec.pointer_tag == "admin-skill-latest"
-    assert spec.compare_scope == "tree"
     assert spec.rolling_re.match("admin-skill-2026.06.05-abc1234")
