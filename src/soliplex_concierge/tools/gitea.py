@@ -5,12 +5,30 @@ repository is fixed by the room's tool configuration, so the agent cannot
 file against an arbitrary repository.
 """
 
+import typing
+
 import httpx
 import pydantic
 import pydantic_ai
 from soliplex import agents
 
 from soliplex_concierge import config
+
+RequestType = typing.Literal["new-room", "room-access"]
+
+# Canonical issue-type label catalog. The 'soliplex-concierge-admin' skill's
+# 'gitea_issues.py' duplicates these names (plus the 'approved'/'denied'
+# decision labels) -- keep the two in sync.
+ISSUE_TYPE_LABELS: dict[str, dict[str, str]] = {
+    "new-room": {
+        "color": "#1d76db",
+        "description": "New room request",
+    },
+    "room-access": {
+        "color": "#5319e7",
+        "description": "Access request for an existing room",
+    },
+}
 
 
 class CreatedGiteaIssue(pydantic.BaseModel):
@@ -21,21 +39,54 @@ class CreatedGiteaIssue(pydantic.BaseModel):
     title: str
 
 
+async def _ensure_label(
+    client: httpx.AsyncClient,
+    repo_url: str,
+    headers: dict[str, str],
+    name: str,
+) -> int:
+    """Return the id of the named repo label, creating it if it is absent."""
+    response = await client.get(f"{repo_url}/labels", headers=headers)
+    response.raise_for_status()
+    for label in response.json():
+        if label["name"] == name:
+            return label["id"]
+
+    spec = ISSUE_TYPE_LABELS[name]
+    response = await client.post(
+        f"{repo_url}/labels",
+        headers=headers,
+        json={
+            "name": name,
+            "color": spec["color"],
+            "description": spec["description"],
+        },
+    )
+    response.raise_for_status()
+    return response.json()["id"]
+
+
 async def create_gitea_issue(
     ctx: pydantic_ai.RunContext[agents.AgentDependencies],
     title: str,
     body: str,
+    request_type: RequestType,
 ) -> CreatedGiteaIssue:
     """File a room request as a Gitea issue and return its number and link.
 
     The target repository is fixed by this room's configuration, so you do
     not choose it -- just supply a clear, specific 'title' and a 'body' that
     captures the request type, the requesting user, and every detail you
-    collected. Report the returned issue number and URL back to the user.
+    collected. The issue is tagged with a type label so administrators can
+    triage it; the label is created on the repository if it does not yet
+    exist. Report the returned issue number and URL back to the user.
 
     Args:
         title: the issue title.
         body: the issue body (Markdown).
+        request_type: which kind of request this is -- 'new-room' for a new
+            room, or 'room-access' for access to an existing private room
+            (the 'TYPE:' line returned by the room-request concierge skill).
 
     Returns:
         CreatedGiteaIssue: the 'number', 'url', and 'title' of the new issue.
@@ -44,16 +95,18 @@ async def create_gitea_issue(
 
     host = tool_config.host
     token = tool_config.token
-    url = (
+    repo_url = (
         f"{host.rstrip('/')}"
-        f"/api/v1/repos/{tool_config.owner}/{tool_config.repo}/issues"
+        f"/api/v1/repos/{tool_config.owner}/{tool_config.repo}"
     )
+    headers = {"Authorization": f"token {token}"}
 
     async with httpx.AsyncClient() as client:
+        label_id = await _ensure_label(client, repo_url, headers, request_type)
         response = await client.post(
-            url,
-            headers={"Authorization": f"token {token}"},
-            json={"title": title, "body": body},
+            f"{repo_url}/issues",
+            headers=headers,
+            json={"title": title, "body": body, "labels": [label_id]},
         )
     response.raise_for_status()
 

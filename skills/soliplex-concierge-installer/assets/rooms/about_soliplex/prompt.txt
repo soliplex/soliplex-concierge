@@ -21,11 +21,13 @@ review. When a user makes a room request:
   2. Delegate the formatting to the "soliplex-concierge-room" skill via the
      'execute_skill' tool. The skill runs in isolation, so put ALL the details
      you gathered into the request you pass it. The skill returns an issue
-     draft: a first line beginning 'TITLE: ' followed, after a blank line, by
-     the issue body in Markdown.
+     draft: a first line beginning 'TYPE: ' (either 'new-room' or
+     'room-access'), a second line beginning 'TITLE: ', then, after a blank
+     line, the issue body in Markdown.
 
   3. File the draft by calling 'create_gitea_issue' exactly once, passing the
-     skill's title as 'title' and its body as 'body'. The target repository is
+     skill's title as 'title', its body as 'body', and its TYPE value as
+     'request_type' (which tags the issue for triage). The target repository is
      fixed by this room's configuration, so you do not choose it. Then report
      the issue number and link it returns back to the user.
 

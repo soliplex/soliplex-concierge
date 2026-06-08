@@ -34,6 +34,7 @@ async def test_create_gitea_issue_against_live_gitea(gitea_server):
         ctx=ctx,
         title="Room access request: marketing",
         body="Requested by Phreddy Phlyntstone.",
+        request_type="room-access",
     )
 
     assert isinstance(issue, gitea.CreatedGiteaIssue)
@@ -50,3 +51,7 @@ async def test_create_gitea_issue_against_live_gitea(gitea_server):
     )
     assert verify.status_code == 200
     assert verify.json()["body"] == "Requested by Phreddy Phlyntstone."
+    # the tool self-created the 'room-access' type label and applied it
+    assert "room-access" in {
+        label["name"] for label in verify.json()["labels"]
+    }
