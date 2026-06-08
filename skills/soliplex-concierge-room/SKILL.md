@@ -7,7 +7,7 @@ description: |
     it with the create_gitea_issue tool.
 license: MIT
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # Soliplex room-request concierge
@@ -39,13 +39,15 @@ fill it in:
 5. Return your result in **exactly** this shape and nothing else:
 
    ```text
+   TYPE: <new-room | room-access>
    TITLE: <the one-line title>
 
    <the filled-in template body, in Markdown>
    ```
 
-   The first line must begin with `TITLE:` and a space, followed by the title;
-   after one
-   blank line comes the issue body. Do not wrap the result in code fences and
-   do not add any commentary -- the calling agent parses this output directly
-   to file the issue.
+   The first line must begin with `TYPE:` and a space, followed by exactly
+   `new-room` (for a new room) or `room-access` (for access to an existing
+   private room). The second line must begin with `TITLE:` and a space,
+   followed by the title; after one blank line comes the issue body. Do not
+   wrap the result in code fences and do not add any commentary -- the calling
+   agent parses this output directly to file the issue.

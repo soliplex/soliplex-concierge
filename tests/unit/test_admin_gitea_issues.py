@@ -68,13 +68,22 @@ def test_list_issues_with_labels():
 
     with patched:
         gitea_issues.list_issues(
-            HOST, TOKEN, OWNER, REPO, state="all", labels=["room", "access"]
+            HOST,
+            TOKEN,
+            OWNER,
+            REPO,
+            state="all",
+            labels=["room-access", "other"],
         )
 
     client.get.assert_called_once_with(
         BASE,
         headers=HEADERS,
-        params={"state": "all", "type": "issues", "labels": "room,access"},
+        params={
+            "state": "all",
+            "type": "issues",
+            "labels": "room-access,other",
+        },
     )
 
 
@@ -225,3 +234,266 @@ def test_main_close(capsys):
 
     assert rc == 0
     assert "closed #7" in capsys.readouterr().out
+
+
+# --- labels ---------------------------------------------------------------
+
+LABELS_URL = f"{HOST}/api/v1/repos/{OWNER}/{REPO}/labels"
+
+
+def _response(payload):
+    response = mock.Mock()
+    response.raise_for_status = mock.Mock()
+    response.json.return_value = payload
+    return response
+
+
+def _patch_client_seq(get=(), post=(), patch=()):
+    """Patch httpx.Client so get/post/patch yield a sequence of payloads.
+
+    Every `httpx.Client()` context in the script reuses the one client mock,
+    so the side_effect lists are consumed in call order across helpers.
+    """
+    client = mock.Mock()
+    client.get.side_effect = [_response(p) for p in get]
+    client.post.side_effect = [_response(p) for p in post]
+    client.patch.side_effect = [_response(p) for p in patch]
+
+    client_cm = mock.MagicMock()
+    client_cm.__enter__.return_value = client
+    client_cm.__exit__.return_value = False
+
+    ctor = mock.Mock(return_value=client_cm)
+    return mock.patch.object(gitea_issues.httpx, "Client", ctor), client
+
+
+def test_list_labels():
+    patched, client = _patch_client([{"name": "approved", "id": 1}])
+
+    with patched:
+        result = gitea_issues.list_labels(HOST, TOKEN, OWNER, REPO)
+
+    assert result == [{"name": "approved", "id": 1}]
+    client.get.assert_called_once_with(LABELS_URL, headers=HEADERS)
+
+
+def test_create_label():
+    patched, client = _patch_client({"id": 5, "name": "approved"})
+
+    with patched:
+        result = gitea_issues.create_label(
+            HOST, TOKEN, OWNER, REPO, "approved", "#0e8a16", "approved!"
+        )
+
+    assert result == {"id": 5, "name": "approved"}
+    client.post.assert_called_once_with(
+        LABELS_URL,
+        headers=HEADERS,
+        json={
+            "name": "approved",
+            "color": "#0e8a16",
+            "description": "approved!",
+        },
+    )
+
+
+def test_add_labels_to_issue():
+    patched, client = _patch_client([{"name": "approved", "id": 5}])
+
+    with patched:
+        result = gitea_issues.add_labels_to_issue(
+            HOST, TOKEN, OWNER, REPO, 7, [5]
+        )
+
+    assert result == [{"name": "approved", "id": 5}]
+    client.post.assert_called_once_with(
+        f"{BASE}/7/labels",
+        headers=HEADERS,
+        json={"labels": [5]},
+    )
+
+
+def test_resolve_label_ids():
+    patched, _client = _patch_client(
+        [{"name": "approved", "id": 5}, {"name": "denied", "id": 6}]
+    )
+
+    with patched:
+        result = gitea_issues._resolve_label_ids(
+            HOST, TOKEN, OWNER, REPO, ["denied", "approved"]
+        )
+
+    assert result == [6, 5]
+
+
+def test_resolve_label_ids_missing_raises():
+    patched, _client = _patch_client([{"name": "approved", "id": 5}])
+
+    with patched, pytest.raises(ValueError, match="init"):
+        gitea_issues._resolve_label_ids(HOST, TOKEN, OWNER, REPO, ["denied"])
+
+
+def test_init_labels_all_missing():
+    patched, client = _patch_client_seq(
+        get=[[]], post=[{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]
+    )
+
+    with patched:
+        result = gitea_issues.init_labels(HOST, TOKEN, OWNER, REPO)
+
+    assert result == {name: "created" for name in gitea_issues.LABELS}
+    assert client.post.call_count == len(gitea_issues.LABELS)
+
+
+def test_init_labels_partial():
+    patched, client = _patch_client_seq(
+        get=[[{"name": "approved", "id": 9}]],
+        post=[{"id": 1}, {"id": 2}, {"id": 3}],
+    )
+
+    with patched:
+        result = gitea_issues.init_labels(HOST, TOKEN, OWNER, REPO)
+
+    assert result["approved"] == "exists"
+    assert result["new-room"] == "created"
+    assert client.post.call_count == len(gitea_issues.LABELS) - 1
+
+
+# --- decision helpers -----------------------------------------------------
+
+
+def test_approve_issue_with_body():
+    patched, client = _patch_client_seq(
+        get=[[{"name": "approved", "id": 5}]],
+        post=[[{"name": "approved"}], {"html_url": "c"}],
+        patch=[{"number": 7, "state": "closed"}],
+    )
+
+    with patched:
+        result = gitea_issues.approve_issue(
+            HOST, TOKEN, OWNER, REPO, 7, body="granted"
+        )
+
+    assert result == {"number": 7, "state": "closed"}
+    add_call, comment_call = client.post.call_args_list
+    assert add_call == mock.call(
+        f"{BASE}/7/labels", headers=HEADERS, json={"labels": [5]}
+    )
+    assert comment_call == mock.call(
+        f"{BASE}/7/comments",
+        headers=HEADERS,
+        json={"body": "**Decision: APPROVED**\n\ngranted"},
+    )
+    client.patch.assert_called_once_with(
+        f"{BASE}/7", headers=HEADERS, json={"state": "closed"}
+    )
+
+
+def test_deny_issue_without_body():
+    patched, client = _patch_client_seq(
+        get=[[{"name": "denied", "id": 6}]],
+        post=[[{"name": "denied"}], {"html_url": "c"}],
+        patch=[{"number": 8, "state": "closed"}],
+    )
+
+    with patched:
+        result = gitea_issues.deny_issue(HOST, TOKEN, OWNER, REPO, 8)
+
+    assert result == {"number": 8, "state": "closed"}
+    _add_call, comment_call = client.post.call_args_list
+    assert comment_call == mock.call(
+        f"{BASE}/8/comments",
+        headers=HEADERS,
+        json={"body": "**Decision: DENIED**"},
+    )
+
+
+# --- main dispatch for the new subcommands --------------------------------
+
+
+def test_main_init(capsys):
+    patched, _client = _patch_client_seq(
+        get=[[]], post=[{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]
+    )
+
+    with patched:
+        rc = gitea_issues.main(["init", *_CONN])
+
+    assert rc == 0
+    assert "new-room: created" in capsys.readouterr().out
+
+
+def test_main_search(capsys):
+    patched, client = _patch_client(
+        [
+            {
+                "number": 7,
+                "title": "Room access request: chat",
+                "html_url": f"{BASE}/7",
+            }
+        ]
+    )
+
+    with patched:
+        rc = gitea_issues.main(
+            [
+                "search",
+                "--type",
+                "room-access",
+                "--decision",
+                "approved",
+                "--label",
+                "x",
+                *_CONN,
+            ]
+        )
+
+    assert rc == 0
+    assert "#7\tRoom access request: chat" in capsys.readouterr().out
+    client.get.assert_called_once_with(
+        BASE,
+        headers=HEADERS,
+        params={
+            "state": "open",
+            "type": "issues",
+            "labels": "x,room-access,approved",
+        },
+    )
+
+
+def test_main_search_empty(capsys):
+    patched, _client = _patch_client([])
+
+    with patched:
+        rc = gitea_issues.main(["search", *_CONN])
+
+    assert rc == 0
+    assert "no matching open issues" in capsys.readouterr().out
+
+
+def test_main_approve(capsys):
+    patched, _client = _patch_client_seq(
+        get=[[{"name": "approved", "id": 5}]],
+        post=[[{"name": "approved"}], {"html_url": "c"}],
+        patch=[{"number": 7, "state": "closed"}],
+    )
+
+    with patched:
+        rc = gitea_issues.main(["approve", "7", "--body", "ok", *_CONN])
+
+    assert rc == 0
+    assert "approved #7" in capsys.readouterr().out
+
+
+def test_main_deny(capsys):
+    patched, _client = _patch_client_seq(
+        get=[[{"name": "denied", "id": 6}]],
+        post=[[{"name": "denied"}], {"html_url": "c"}],
+        patch=[{"number": 8, "state": "closed"}],
+    )
+
+    with patched:
+        rc = gitea_issues.main(["deny", "8", *_CONN])
+
+    assert rc == 0
+    assert "denied #8" in capsys.readouterr().out
