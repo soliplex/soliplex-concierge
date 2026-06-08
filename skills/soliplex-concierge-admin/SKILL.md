@@ -8,7 +8,7 @@ description: |
     resolve pending Soliplex room requests in an external coding agent.
 license: MIT
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # Soliplex concierge admin
@@ -38,6 +38,14 @@ connection via flags or the environment:
 
 The script needs `httpx` (`pip install httpx`, or install the
 `soliplex-concierge` package, which depends on it).
+
+Run `init` once per tracking repository to create the request labels
+(`new-room`, `room-access`, `approved`, `denied`) the workflow below relies on
+(idempotent — re-running reports each label as `created` or `exists`):
+
+```sh
+python scripts/gitea_issues.py init --owner <owner> --repo <repo>
+```
 
 ## Workflow
 
@@ -90,3 +98,56 @@ The script needs `httpx` (`pip install httpx`, or install the
 
    Only close once the operation is actually complete. Never close a request you
    could not fulfil; comment what is blocking it and leave it open.
+
+## Resolving room access requests
+
+Access requests (filed with the `room-access` label, titled
+`Room access request: <room>`) are resolved with the dedicated subcommands
+below, which record the decision as both a label and a closing comment.
+
+1. **Find the open access requests.** Filter by the type label:
+
+   ```sh
+   python scripts/gitea_issues.py search --type room-access \
+       --owner <owner> --repo <repo>
+   ```
+
+   Read a request with `show <number>` and note the room id and the requesting
+   user from the body (`Requested by:` / `## Room`).
+
+2. **Approve.** Granting access mutates the running stack's authorization
+   database, so run the `soliplex-cli room-authz` commands against the stack
+   the same way `soliplex-template` does (a one-off `backend` container via
+   `docker compose run --rm`, from the stack directory). `add-acl-entry`
+   requires an existing `RoomPolicy`, so make the room private first if it is
+   not already:
+
+   ```sh
+   docker compose run --rm backend \
+     /app/.venv/bin/soliplex-cli room-authz make-private  /environment <room_id>
+   docker compose run --rm backend \
+     /app/.venv/bin/soliplex-cli room-authz add-acl-entry \
+       --allow --email <user> /environment <room_id>
+   ```
+
+   (`/environment` is the in-container installation path; use
+   `--preferred-username <name>` when the request gives a username rather than
+   an email.) **Show the admin these grant commands and run them only after
+   they explicitly confirm.** Only once the grant has actually succeeded,
+   record the outcome and close the issue:
+
+   ```sh
+   python scripts/gitea_issues.py approve <number> --owner <owner> \
+       --repo <repo> \
+       --body "Granted <user> access to '<room>' via room-authz add-acl-entry."
+   ```
+
+3. **Deny.** No stack change is needed — just record the decision and close:
+
+   ```sh
+   python scripts/gitea_issues.py deny <number> --owner <owner> \
+       --repo <repo> --body "<reason for denial>"
+   ```
+
+As above, never close a request you could not fulfil; if the grant fails or the
+request is unclear, comment what is blocking it and leave the issue open.

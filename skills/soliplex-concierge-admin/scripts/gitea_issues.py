@@ -18,10 +18,14 @@ The admin token is typically more privileged than the room's filing token
 
 Subcommands:
 
+    init                       create the request labels on the repository
     list                       list open request issues (--state, --label)
+    search                     filter requests by --type/--decision/--state
     show   <number>            print one issue's title, metadata, and body
     comment <number> --body T  add a comment recording the outcome
     close  <number> [--body T]  optionally comment, then close the issue
+    approve <number> [--body T] label 'approved', comment, and close
+    deny   <number> [--body T]  label 'denied', comment, and close
 """
 
 from __future__ import annotations
@@ -32,9 +36,37 @@ import sys
 
 import httpx
 
+# Request labels managed on the tracking repository. The two issue-TYPE labels
+# mirror `soliplex_concierge.tools.gitea.ISSUE_TYPE_LABELS` (the room tool
+# applies them when filing); the two DECISION labels are applied here by the
+# `approve`/`deny` subcommands. Keep the type-label names in sync with the
+# package tool.
+LABELS: dict[str, dict[str, str]] = {
+    "new-room": {
+        "color": "#1d76db",
+        "description": "New room request",
+    },
+    "room-access": {
+        "color": "#5319e7",
+        "description": "Access request for an existing room",
+    },
+    "approved": {
+        "color": "#0e8a16",
+        "description": "Room request approved",
+    },
+    "denied": {
+        "color": "#d73a4a",
+        "description": "Room request denied",
+    },
+}
+
 
 def _issues_url(host: str, owner: str, repo: str) -> str:
     return f"{host.rstrip('/')}/api/v1/repos/{owner}/{repo}/issues"
+
+
+def _labels_url(host: str, owner: str, repo: str) -> str:
+    return f"{host.rstrip('/')}/api/v1/repos/{owner}/{repo}/labels"
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -111,12 +143,146 @@ def close_issue(
     return response.json()
 
 
+def list_labels(host: str, token: str, owner: str, repo: str) -> list[dict]:
+    """Return the labels defined on the repository."""
+    with httpx.Client() as client:
+        response = client.get(
+            _labels_url(host, owner, repo),
+            headers=_headers(token),
+        )
+    response.raise_for_status()
+    return response.json()
+
+
+def create_label(
+    host: str,
+    token: str,
+    owner: str,
+    repo: str,
+    name: str,
+    color: str,
+    description: str,
+) -> dict:
+    """Create a label on the repository and return it."""
+    with httpx.Client() as client:
+        response = client.post(
+            _labels_url(host, owner, repo),
+            headers=_headers(token),
+            json={"name": name, "color": color, "description": description},
+        )
+    response.raise_for_status()
+    return response.json()
+
+
+def add_labels_to_issue(
+    host: str,
+    token: str,
+    owner: str,
+    repo: str,
+    number: int,
+    label_ids: list[int],
+) -> list[dict]:
+    """Attach the given label ids to an issue; return its labels."""
+    with httpx.Client() as client:
+        response = client.post(
+            f"{_issues_url(host, owner, repo)}/{number}/labels",
+            headers=_headers(token),
+            json={"labels": label_ids},
+        )
+    response.raise_for_status()
+    return response.json()
+
+
+def _resolve_label_ids(
+    host: str, token: str, owner: str, repo: str, names: list[str]
+) -> list[int]:
+    """Map label names to ids; raise if any are not defined on the repo."""
+    by_name = {
+        label["name"]: label["id"]
+        for label in list_labels(host, token, owner, repo)
+    }
+    missing = [name for name in names if name not in by_name]
+    if missing:
+        names_repr = ", ".join(missing)
+        msg = (
+            f"missing label(s) {names_repr!r} on {owner}/{repo}; "
+            "run 'gitea_issues.py init' to create them"
+        )
+        raise ValueError(msg)
+    return [by_name[name] for name in names]
+
+
+def init_labels(
+    host: str, token: str, owner: str, repo: str
+) -> dict[str, str]:
+    """Create any missing request labels; return {name: created|exists}."""
+    existing = {
+        label["name"] for label in list_labels(host, token, owner, repo)
+    }
+    results: dict[str, str] = {}
+    for name, spec in LABELS.items():
+        if name in existing:
+            results[name] = "exists"
+            continue
+        create_label(
+            host, token, owner, repo, name, spec["color"], spec["description"]
+        )
+        results[name] = "created"
+    return results
+
+
+def _decision_comment(status: str, body: str | None) -> str:
+    """Build a closing comment that records the decision and any detail."""
+    line = f"**Decision: {status.upper()}**"
+    return f"{line}\n\n{body}" if body else line
+
+
+def approve_issue(
+    host: str,
+    token: str,
+    owner: str,
+    repo: str,
+    number: int,
+    body: str | None = None,
+) -> dict:
+    """Label an issue 'approved', record the decision, and close it."""
+    ids = _resolve_label_ids(host, token, owner, repo, ["approved"])
+    add_labels_to_issue(host, token, owner, repo, number, ids)
+    return close_issue(
+        host, token, owner, repo, number, _decision_comment("approved", body)
+    )
+
+
+def deny_issue(
+    host: str,
+    token: str,
+    owner: str,
+    repo: str,
+    number: int,
+    body: str | None = None,
+) -> dict:
+    """Label an issue 'denied', record the decision, and close it."""
+    ids = _resolve_label_ids(host, token, owner, repo, ["denied"])
+    add_labels_to_issue(host, token, owner, repo, number, ids)
+    return close_issue(
+        host, token, owner, repo, number, _decision_comment("denied", body)
+    )
+
+
 def _resolve_conn(args: argparse.Namespace) -> tuple[str, str]:
     host = args.host or os.environ.get("GITEA_HOST")
     token = args.token or os.environ.get("GITEA_ACCESS_TOKEN")
     if not host or not token:
         sys.exit("error: set --host/GITEA_HOST and --token/GITEA_ACCESS_TOKEN")
     return host, token
+
+
+def _cmd_init(args: argparse.Namespace) -> int:
+    host, token = _resolve_conn(args)
+    results = init_labels(host, token, args.owner, args.repo)
+    for name, action in results.items():
+        print(f"{name}: {action}")
+    return 0
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
@@ -126,6 +292,24 @@ def _cmd_list(args: argparse.Namespace) -> int:
     )
     if not issues:
         print(f"no {args.state} issues")
+        return 0
+    for issue in issues:
+        print(f"#{issue['number']}\t{issue['title']}\t{issue['html_url']}")
+    return 0
+
+
+def _cmd_search(args: argparse.Namespace) -> int:
+    host, token = _resolve_conn(args)
+    labels = list(args.label or [])
+    if args.type:
+        labels.append(args.type)
+    if args.decision:
+        labels.append(args.decision)
+    issues = list_issues(
+        host, token, args.owner, args.repo, args.state, labels or None
+    )
+    if not issues:
+        print(f"no matching {args.state} issues")
         return 0
     for issue in issues:
         print(f"#{issue['number']}\t{issue['title']}\t{issue['html_url']}")
@@ -159,6 +343,20 @@ def _cmd_close(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_approve(args: argparse.Namespace) -> int:
+    host, token = _resolve_conn(args)
+    approve_issue(host, token, args.owner, args.repo, args.number, args.body)
+    print(f"approved #{args.number}")
+    return 0
+
+
+def _cmd_deny(args: argparse.Namespace) -> int:
+    host, token = _resolve_conn(args)
+    deny_issue(host, token, args.owner, args.repo, args.number, args.body)
+    print(f"denied #{args.number}")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--host", default=None, help="Gitea base URL")
@@ -169,6 +367,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    p_init = subparsers.add_parser(
+        "init", parents=[common], help="create the request labels"
+    )
+    p_init.set_defaults(func=_cmd_init)
+
     p_list = subparsers.add_parser(
         "list", parents=[common], help="list request issues"
     )
@@ -177,6 +380,25 @@ def _build_parser() -> argparse.ArgumentParser:
         "--label", action="append", help="filter by label (repeatable)"
     )
     p_list.set_defaults(func=_cmd_list)
+
+    p_search = subparsers.add_parser(
+        "search", parents=[common], help="filter requests by label"
+    )
+    p_search.add_argument(
+        "--type",
+        choices=["new-room", "room-access"],
+        help="filter by issue-type label",
+    )
+    p_search.add_argument(
+        "--decision",
+        choices=["approved", "denied"],
+        help="filter by decision label",
+    )
+    p_search.add_argument("--state", default="open", help="open/closed/all")
+    p_search.add_argument(
+        "--label", action="append", help="extra label filter (repeatable)"
+    )
+    p_search.set_defaults(func=_cmd_search)
 
     p_show = subparsers.add_parser(
         "show", parents=[common], help="show one issue"
@@ -199,6 +421,24 @@ def _build_parser() -> argparse.ArgumentParser:
         "--body", default=None, help="optional closing comment"
     )
     p_close.set_defaults(func=_cmd_close)
+
+    p_approve = subparsers.add_parser(
+        "approve", parents=[common], help="approve and close a request"
+    )
+    p_approve.add_argument("number", type=int)
+    p_approve.add_argument(
+        "--body", default=None, help="optional decision detail"
+    )
+    p_approve.set_defaults(func=_cmd_approve)
+
+    p_deny = subparsers.add_parser(
+        "deny", parents=[common], help="deny and close a request"
+    )
+    p_deny.add_argument("number", type=int)
+    p_deny.add_argument(
+        "--body", default=None, help="optional decision detail"
+    )
+    p_deny.set_defaults(func=_cmd_deny)
 
     return parser
 
