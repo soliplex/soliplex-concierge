@@ -8,7 +8,7 @@
 This script is bundled in the 'soliplex-concierge-installer' skill and run via
 'uv run scripts/apply.py' (uv provisions the 'ruamel.yaml' dependency from the
 PEP 723 header above). It wires the extension into an existing
-'soliplex-template'-generated installation, making the same six idempotent
+'soliplex-template'-generated installation, making the same seven idempotent
 changes a human would otherwise make by hand:
 
 1. add 'soliplex-concierge' to 'backend/pyproject.toml' dependencies,
@@ -20,8 +20,10 @@ changes a human would otherwise make by hand:
 4. copy the 'about_soliplex' room template into 'rooms/<room_id>/' (renaming
    it -- directory, 'id:' and the room_paths entry -- to '<room_id>'),
 5. download + copy the 'soliplex-concierge-room' and 'soliplex-docs'
-   filesystem skills under 'skills/', and
-6. add GITEA_HOST / GITEA_ACCESS_TOKEN placeholders to '.env'.
+   filesystem skills under 'skills/',
+6. add GITEA_HOST / GITEA_ACCESS_TOKEN placeholders to '.env', and
+7. write the admin 'gitea_issues.py' CLI (a thin shim over
+   'soliplex_concierge.gitea_admin') into '<stack>/scripts/'.
 
 The room template lives beside this script in the bundled 'assets/' directory
 (resolved relative to __file__); the wiring encoded here mirrors
@@ -465,6 +467,47 @@ def _dist_requirement(with_truststore: bool) -> str:
     return f"{DIST}[truststore]" if with_truststore else DIST
 
 
+# The release that first ships 'soliplex_concierge.gitea_admin' (the module the
+# stack 'gitea_issues.py' shim imports); used as the dependency floor when no
+# '--version' pin is given.
+GITEA_ADMIN_MIN = ">=0.6"
+
+
+def stack_gitea_script(
+    pin: str | None = None, with_truststore: bool = False
+) -> str:
+    """Return the text of the stack's 'scripts/gitea_issues.py' admin shim.
+
+    A thin PEP 723 script that delegates to 'soliplex_concierge.gitea_admin';
+    'uv run' provisions the dependency (with the '[truststore]' extra when
+    'with_truststore', and the '--version' pin when given, else the
+    GITEA_ADMIN_MIN floor) -- mirroring the admin skill's own shim.
+    """
+    dist = _dist_requirement(with_truststore)
+    requirement = f"{dist} {pin}" if pin else f"{dist}{GITEA_ADMIN_MIN}"
+    return f'''\
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["{requirement}"]
+# ///
+"""Read and resolve Soliplex room-request issues on a Gitea repository.
+
+Installed into this stack by the soliplex-concierge installer. Thin entry
+point: 'uv run' provisions 'soliplex-concierge' from the metadata above, then
+delegates to 'soliplex_concierge.gitea_admin'. Run with '--help' for the
+subcommands (list / show / approve / deny / ...).
+"""
+
+import sys
+
+from soliplex_concierge.gitea_admin import main
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())
+'''
+
+
 def add_pyproject_dep(
     text: str, pin: str | None = None, with_truststore: bool = False
 ) -> tuple[str, str]:
@@ -722,6 +765,18 @@ def install_skill(
     return ADDED
 
 
+def install_gitea_script(stack: pathlib.Path, opts: Options) -> str:
+    """Write the admin 'gitea_issues.py' CLI into the stack 'scripts/' dir."""
+    dst = stack / "scripts" / "gitea_issues.py"
+    if dst.exists() and not opts.force:
+        return UNCHANGED
+    if opts.dry_run:
+        return ADDED
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.write_text(stack_gitea_script(opts.pin, opts.with_truststore))
+    return ADDED
+
+
 # --- orchestration ---------------------------------------------------------
 
 
@@ -776,6 +831,8 @@ def apply(
     )
     _write_if(env, new, action, opts.dry_run)
     results[".env"] = action
+
+    results["scripts/gitea_issues.py"] = install_gitea_script(stack, opts)
 
     return results
 
@@ -891,6 +948,10 @@ def _print_summary(
             f"rooms/{opts.room_id}/room_config.yaml"
         )
     print("  - docker compose build backend && docker compose up -d")
+    print(
+        "  - triage filed requests with: uv run "
+        f"{stack / 'scripts' / 'gitea_issues.py'} list --owner <o> --repo <r>"
+    )
 
 
 def _pin_for_version(version: str | None) -> str | None:

@@ -79,9 +79,10 @@ Run the bundled script from this skill's directory with `uv run`.
   stack. Omitting it leaves the dependency unpinned and prints a version-skew
   warning; `--version latest` opts into the newest release without the warning.
 - `--with-truststore` — install the `soliplex-concierge[truststore]` extra so
-  the tool verifies TLS against the OS trust store (an enterprise/internal CA)
-  rather than certifi's bundle. If the bare dependency is already present, the
-  extra is not added on a re-run — edit it by hand in that case.
+  the tool (and the copied `scripts/gitea_issues.py`) verifies TLS against the
+  OS trust store (an enterprise/internal CA) rather than certifi's bundle. If
+  the bare dependency is already present, the extra is not added on a re-run —
+  edit it by hand in that case.
 - `--room-skill-version <tag>` / `--docs-skill-version <tag>` — published tag to
   install for the room skill (default: `room-skill-latest`) / the docs skill
   (default: `docs-latest`); e.g. a rolling build or `v0.4` / `v0.69`.
@@ -91,7 +92,7 @@ Run the bundled script from this skill's directory with `uv run`.
 - `--room-id` — room id to create (default: `about_<compose-project-name>`).
 - `--force` — overwrite an existing room/skill; `--dry-run` — report only.
 
-## What it changes (six idempotent edits)
+## What it changes (seven idempotent edits)
 
 1. adds `soliplex-concierge` to `backend/pyproject.toml` dependencies,
 2. adds it to the `backend/Dockerfile` `uv add` block (the generated Dockerfile
@@ -102,8 +103,12 @@ Run the bundled script from this skill's directory with `uv run`.
 4. copies the `about_soliplex` room template into `rooms/<room-id>/` (renaming
    the directory, `id:`, and the `room_paths` entry),
 5. downloads + copies the `soliplex-concierge-room` and `soliplex-docs`
-   filesystem skills into `skills/`, and
-6. adds `GITEA_HOST` / `GITEA_ACCESS_TOKEN` placeholders to `.env`.
+   filesystem skills into `skills/`,
+6. adds `GITEA_HOST` / `GITEA_ACCESS_TOKEN` placeholders to `.env`, and
+7. writes the admin `gitea_issues.py` request-triage CLI into `scripts/`
+   (a thin shim over `soliplex_concierge.gitea_admin`; run later with
+   `uv run scripts/gitea_issues.py …`). With `--with-truststore`, its PEP 723
+   header gets the `[truststore]` extra too.
 
 The about-room answers Soliplex questions from the bundled `soliplex-docs`
 skill, so no RAG database is required. To also answer from a RAG database,
@@ -111,7 +116,7 @@ uncomment the `skill_configs` block in the room's `room_config.yaml` (it points
 at the `soliplex-template` skill for generating one).
 
 Re-running is safe: each edit is skipped if already present (use `--force` to
-overwrite the copied rooms/skills).
+overwrite the copied rooms / skills / `scripts/gitea_issues.py`).
 
 ## Verify
 
@@ -123,3 +128,5 @@ overwrite the copied rooms/skills).
   `skill_name: "soliplex-docs"`.
 - Set real `GITEA_HOST` / `GITEA_ACCESS_TOKEN` in `.env`, then
   `docker compose build backend && docker compose up -d`.
+- Confirm `scripts/gitea_issues.py` exists and runs:
+  `uv run scripts/gitea_issues.py --help`.

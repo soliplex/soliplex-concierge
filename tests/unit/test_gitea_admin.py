@@ -5,19 +5,18 @@ from unittest import mock
 
 import pytest
 
-# The admin skill's script lives outside the package, under the repo's
-# 'skills/' tree; load it by path so we can unit-test its HTTP logic.
+from soliplex_concierge import gitea_admin
+
+# The admin skill's 'gitea_issues.py' is now a thin shim over this module; its
+# path is used by the shim smoke test at the bottom.
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-SCRIPT = (
+SHIM = (
     REPO_ROOT
     / "skills"
     / "soliplex-concierge-admin"
     / "scripts"
     / "gitea_issues.py"
 )
-_spec = importlib.util.spec_from_file_location("gitea_issues", SCRIPT)
-gitea_issues = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(gitea_issues)
 
 HOST = "https://gitea.example.com"
 TOKEN = "tok-abc123"
@@ -28,7 +27,7 @@ HEADERS = {"Authorization": f"token {TOKEN}"}
 
 
 def _patch_client(payload):
-    """Patch the script's httpx.Client; return (patcher, sync client mock)."""
+    """Patch the module's httpx.Client; return (patcher, sync client mock)."""
     response = mock.Mock()
     response.raise_for_status = mock.Mock()
     response.json.return_value = payload
@@ -43,7 +42,7 @@ def _patch_client(payload):
     client_cm.__exit__.return_value = False
 
     ctor = mock.Mock(return_value=client_cm)
-    return mock.patch.object(gitea_issues.httpx, "Client", ctor), client
+    return mock.patch.object(gitea_admin.httpx, "Client", ctor), client
 
 
 # --- HTTP helpers ---------------------------------------------------------
@@ -53,7 +52,7 @@ def test_list_issues():
     patched, client = _patch_client([{"number": 7}])
 
     with patched:
-        result = gitea_issues.list_issues(HOST, TOKEN, OWNER, REPO)
+        result = gitea_admin.list_issues(HOST, TOKEN, OWNER, REPO)
 
     assert result == [{"number": 7}]
     client.get.assert_called_once_with(
@@ -67,7 +66,7 @@ def test_list_issues_with_labels():
     patched, client = _patch_client([])
 
     with patched:
-        gitea_issues.list_issues(
+        gitea_admin.list_issues(
             HOST,
             TOKEN,
             OWNER,
@@ -91,7 +90,7 @@ def test_get_issue():
     patched, client = _patch_client({"number": 7, "title": "t"})
 
     with patched:
-        result = gitea_issues.get_issue(HOST, TOKEN, OWNER, REPO, 7)
+        result = gitea_admin.get_issue(HOST, TOKEN, OWNER, REPO, 7)
 
     assert result == {"number": 7, "title": "t"}
     client.get.assert_called_once_with(f"{BASE}/7", headers=HEADERS)
@@ -101,9 +100,7 @@ def test_comment_issue():
     patched, client = _patch_client({"html_url": f"{BASE}/7#issuecomment-1"})
 
     with patched:
-        result = gitea_issues.comment_issue(
-            HOST, TOKEN, OWNER, REPO, 7, "done"
-        )
+        result = gitea_admin.comment_issue(HOST, TOKEN, OWNER, REPO, 7, "done")
 
     assert result == {"html_url": f"{BASE}/7#issuecomment-1"}
     client.post.assert_called_once_with(
@@ -117,7 +114,7 @@ def test_close_issue_without_comment():
     patched, client = _patch_client({"number": 7, "state": "closed"})
 
     with patched:
-        result = gitea_issues.close_issue(HOST, TOKEN, OWNER, REPO, 7)
+        result = gitea_admin.close_issue(HOST, TOKEN, OWNER, REPO, 7)
 
     assert result == {"number": 7, "state": "closed"}
     client.post.assert_not_called()
@@ -132,7 +129,7 @@ def test_close_issue_with_comment():
     patched, client = _patch_client({"number": 7, "state": "closed"})
 
     with patched:
-        gitea_issues.close_issue(HOST, TOKEN, OWNER, REPO, 7, body="bye")
+        gitea_admin.close_issue(HOST, TOKEN, OWNER, REPO, 7, body="bye")
 
     client.post.assert_called_once_with(
         f"{BASE}/7/comments",
@@ -154,7 +151,7 @@ def test_resolve_conn_from_env(monkeypatch):
     monkeypatch.setenv("GITEA_ACCESS_TOKEN", TOKEN)
     args = argparse.Namespace(host=None, token=None)
 
-    result = gitea_issues._resolve_conn(args)
+    result = gitea_admin._resolve_conn(args)
 
     assert result == (HOST, TOKEN)
 
@@ -165,7 +162,7 @@ def test_resolve_conn_missing_raises(monkeypatch):
     args = argparse.Namespace(host=None, token=None)
 
     with pytest.raises(SystemExit, match="GITEA_HOST"):
-        gitea_issues._resolve_conn(args)
+        gitea_admin._resolve_conn(args)
 
 
 # --- main dispatch --------------------------------------------------------
@@ -179,7 +176,7 @@ def test_main_list(capsys):
     )
 
     with patched:
-        rc = gitea_issues.main(["list", *_CONN])
+        rc = gitea_admin.main(["list", *_CONN])
 
     assert rc == 0
     assert "#7\tNew room: mkt" in capsys.readouterr().out
@@ -189,7 +186,7 @@ def test_main_list_empty(capsys):
     patched, _client = _patch_client([])
 
     with patched:
-        rc = gitea_issues.main(["list", *_CONN])
+        rc = gitea_admin.main(["list", *_CONN])
 
     assert rc == 0
     assert "no open issues" in capsys.readouterr().out
@@ -208,7 +205,7 @@ def test_main_show(capsys):
     )
 
     with patched:
-        rc = gitea_issues.main(["show", "7", *_CONN])
+        rc = gitea_admin.main(["show", "7", *_CONN])
 
     out = capsys.readouterr().out
     assert rc == 0
@@ -220,7 +217,7 @@ def test_main_comment(capsys):
     patched, _client = _patch_client({"html_url": f"{BASE}/7#c1"})
 
     with patched:
-        rc = gitea_issues.main(["comment", "7", "--body", "ok", *_CONN])
+        rc = gitea_admin.main(["comment", "7", "--body", "ok", *_CONN])
 
     assert rc == 0
     assert "commented on #7" in capsys.readouterr().out
@@ -230,7 +227,7 @@ def test_main_close(capsys):
     patched, _client = _patch_client({"number": 7, "state": "closed"})
 
     with patched:
-        rc = gitea_issues.main(["close", "7", *_CONN])
+        rc = gitea_admin.main(["close", "7", *_CONN])
 
     assert rc == 0
     assert "closed #7" in capsys.readouterr().out
@@ -251,7 +248,7 @@ def _response(payload):
 def _patch_client_seq(get=(), post=(), patch=()):
     """Patch httpx.Client so get/post/patch yield a sequence of payloads.
 
-    Every `httpx.Client()` context in the script reuses the one client mock,
+    Every `httpx.Client()` context in the module reuses the one client mock,
     so the side_effect lists are consumed in call order across helpers.
     """
     client = mock.Mock()
@@ -264,14 +261,14 @@ def _patch_client_seq(get=(), post=(), patch=()):
     client_cm.__exit__.return_value = False
 
     ctor = mock.Mock(return_value=client_cm)
-    return mock.patch.object(gitea_issues.httpx, "Client", ctor), client
+    return mock.patch.object(gitea_admin.httpx, "Client", ctor), client
 
 
 def test_list_labels():
     patched, client = _patch_client([{"name": "approved", "id": 1}])
 
     with patched:
-        result = gitea_issues.list_labels(HOST, TOKEN, OWNER, REPO)
+        result = gitea_admin.list_labels(HOST, TOKEN, OWNER, REPO)
 
     assert result == [{"name": "approved", "id": 1}]
     client.get.assert_called_once_with(LABELS_URL, headers=HEADERS)
@@ -281,7 +278,7 @@ def test_create_label():
     patched, client = _patch_client({"id": 5, "name": "approved"})
 
     with patched:
-        result = gitea_issues.create_label(
+        result = gitea_admin.create_label(
             HOST, TOKEN, OWNER, REPO, "approved", "#0e8a16", "approved!"
         )
 
@@ -301,7 +298,7 @@ def test_add_labels_to_issue():
     patched, client = _patch_client([{"name": "approved", "id": 5}])
 
     with patched:
-        result = gitea_issues.add_labels_to_issue(
+        result = gitea_admin.add_labels_to_issue(
             HOST, TOKEN, OWNER, REPO, 7, [5]
         )
 
@@ -319,7 +316,7 @@ def test_resolve_label_ids():
     )
 
     with patched:
-        result = gitea_issues._resolve_label_ids(
+        result = gitea_admin._resolve_label_ids(
             HOST, TOKEN, OWNER, REPO, ["denied", "approved"]
         )
 
@@ -330,7 +327,7 @@ def test_resolve_label_ids_missing_raises():
     patched, _client = _patch_client([{"name": "approved", "id": 5}])
 
     with patched, pytest.raises(ValueError, match="init"):
-        gitea_issues._resolve_label_ids(HOST, TOKEN, OWNER, REPO, ["denied"])
+        gitea_admin._resolve_label_ids(HOST, TOKEN, OWNER, REPO, ["denied"])
 
 
 def test_init_labels_all_missing():
@@ -339,10 +336,10 @@ def test_init_labels_all_missing():
     )
 
     with patched:
-        result = gitea_issues.init_labels(HOST, TOKEN, OWNER, REPO)
+        result = gitea_admin.init_labels(HOST, TOKEN, OWNER, REPO)
 
-    assert result == {name: "created" for name in gitea_issues.LABELS}
-    assert client.post.call_count == len(gitea_issues.LABELS)
+    assert result == {name: "created" for name in gitea_admin.LABELS}
+    assert client.post.call_count == len(gitea_admin.LABELS)
 
 
 def test_init_labels_partial():
@@ -352,11 +349,11 @@ def test_init_labels_partial():
     )
 
     with patched:
-        result = gitea_issues.init_labels(HOST, TOKEN, OWNER, REPO)
+        result = gitea_admin.init_labels(HOST, TOKEN, OWNER, REPO)
 
     assert result["approved"] == "exists"
     assert result["new-room"] == "created"
-    assert client.post.call_count == len(gitea_issues.LABELS) - 1
+    assert client.post.call_count == len(gitea_admin.LABELS) - 1
 
 
 # --- decision helpers -----------------------------------------------------
@@ -370,7 +367,7 @@ def test_approve_issue_with_body():
     )
 
     with patched:
-        result = gitea_issues.approve_issue(
+        result = gitea_admin.approve_issue(
             HOST, TOKEN, OWNER, REPO, 7, body="granted"
         )
 
@@ -397,7 +394,7 @@ def test_deny_issue_without_body():
     )
 
     with patched:
-        result = gitea_issues.deny_issue(HOST, TOKEN, OWNER, REPO, 8)
+        result = gitea_admin.deny_issue(HOST, TOKEN, OWNER, REPO, 8)
 
     assert result == {"number": 8, "state": "closed"}
     _add_call, comment_call = client.post.call_args_list
@@ -417,7 +414,7 @@ def test_main_init(capsys):
     )
 
     with patched:
-        rc = gitea_issues.main(["init", *_CONN])
+        rc = gitea_admin.main(["init", *_CONN])
 
     assert rc == 0
     assert "new-room: created" in capsys.readouterr().out
@@ -435,7 +432,7 @@ def test_main_search(capsys):
     )
 
     with patched:
-        rc = gitea_issues.main(
+        rc = gitea_admin.main(
             [
                 "search",
                 "--type",
@@ -465,7 +462,7 @@ def test_main_search_empty(capsys):
     patched, _client = _patch_client([])
 
     with patched:
-        rc = gitea_issues.main(["search", *_CONN])
+        rc = gitea_admin.main(["search", *_CONN])
 
     assert rc == 0
     assert "no matching open issues" in capsys.readouterr().out
@@ -479,7 +476,7 @@ def test_main_approve(capsys):
     )
 
     with patched:
-        rc = gitea_issues.main(["approve", "7", "--body", "ok", *_CONN])
+        rc = gitea_admin.main(["approve", "7", "--body", "ok", *_CONN])
 
     assert rc == 0
     assert "approved #7" in capsys.readouterr().out
@@ -493,7 +490,19 @@ def test_main_deny(capsys):
     )
 
     with patched:
-        rc = gitea_issues.main(["deny", "8", *_CONN])
+        rc = gitea_admin.main(["deny", "8", *_CONN])
 
     assert rc == 0
     assert "denied #8" in capsys.readouterr().out
+
+
+# --- the admin skill's shim -----------------------------------------------
+
+
+def test_admin_shim_delegates_to_library():
+    spec = importlib.util.spec_from_file_location("gitea_issues_shim", SHIM)
+    shim = importlib.util.module_from_spec(spec)
+
+    spec.loader.exec_module(shim)
+
+    assert shim.main is gitea_admin.main
