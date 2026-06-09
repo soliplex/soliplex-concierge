@@ -31,6 +31,24 @@ repos:
         language: system
         pass_filenames: false
         files: (^pyproject\.toml$|^uv\.lock|^.pre-commit-config.yaml$)
+      - id: agentskills-validate-installer
+        name: agentskills validate soliplex-concierge-installer
+        entry: uv run --group dev agentskills validate skills/soliplex-concierge-installer
+        language: system
+        pass_filenames: false
+        files: ^skills/soliplex-concierge-installer/
+      - id: agentskills-validate-room
+        name: agentskills validate soliplex-concierge-room
+        entry: uv run --group dev agentskills validate skills/soliplex-concierge-room
+        language: system
+        pass_filenames: false
+        files: ^skills/soliplex-concierge-room/
+      - id: agentskills-validate-admin
+        name: agentskills validate soliplex-concierge-admin
+        entry: uv run --group dev agentskills validate skills/soliplex-concierge-admin
+        language: system
+        pass_filenames: false
+        files: ^skills/soliplex-concierge-admin/
 
   - repo: https://github.com/jackdewinter/pymarkdown
     rev: v0.9.36
