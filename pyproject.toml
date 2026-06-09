@@ -20,6 +20,11 @@ dependencies = [
     "httpx",
 ]
 
+[project.optional-dependencies]
+# Opt-in: verify TLS against OS trust store instead of certifi's bundled CAs.
+# Useful behind an enterprise/internal CA. See #46.
+truststore = ["truststore"]
+
 [dependency-groups]
 dev = [
     "anyio >= 4.12.1, < 4.13",

@@ -377,14 +377,18 @@ def test_default_room_id(stack):
 
 
 @pytest.mark.parametrize(
-    "pin,expected",
+    "pin,with_truststore,expected",
     [
-        (None, '"soliplex-concierge",'),
-        ("== 0.2", '"soliplex-concierge == 0.2",'),
+        (None, False, '"soliplex-concierge",'),
+        ("== 0.2", False, '"soliplex-concierge == 0.2",'),
+        (None, True, '"soliplex-concierge[truststore]",'),
+        ("== 0.2", True, '"soliplex-concierge[truststore] == 0.2",'),
     ],
 )
-def test_add_pyproject_dep_added(pin, expected):
-    new_text, action = apply.add_pyproject_dep(_PYPROJECT, pin)
+def test_add_pyproject_dep_added(pin, with_truststore, expected):
+    new_text, action = apply.add_pyproject_dep(
+        _PYPROJECT, pin, with_truststore
+    )
 
     assert action == apply.ADDED
     assert expected in new_text
@@ -396,6 +400,19 @@ def test_add_pyproject_dep_unchanged():
     )
 
     new_text, action = apply.add_pyproject_dep(text)
+
+    assert action == apply.UNCHANGED
+    assert new_text == text
+
+
+def test_add_pyproject_dep_truststore_unchanged_when_bare_present():
+    # Known limitation: re-running with the extra is a no-op once the bare
+    # name is already present (the idempotency probe matches the bare name).
+    text = _PYPROJECT.replace(
+        '    "soliplex",\n', '    "soliplex",\n    "soliplex-concierge",\n'
+    )
+
+    new_text, action = apply.add_pyproject_dep(text, with_truststore=True)
 
     assert action == apply.UNCHANGED
     assert new_text == text
@@ -421,14 +438,18 @@ def test_add_pyproject_dep_bad():
 
 
 @pytest.mark.parametrize(
-    "pin,expected",
+    "pin,with_truststore,expected",
     [
-        (None, "soliplex-concierge \\"),
-        ("== 0.2", "soliplex-concierge==0.2 \\"),
+        (None, False, "soliplex-concierge \\"),
+        ("== 0.2", False, "soliplex-concierge==0.2 \\"),
+        (None, True, "soliplex-concierge[truststore] \\"),
+        ("== 0.2", True, "soliplex-concierge[truststore]==0.2 \\"),
     ],
 )
-def test_add_dockerfile_dep_added(pin, expected):
-    new_text, action = apply.add_dockerfile_dep(_DOCKERFILE, pin)
+def test_add_dockerfile_dep_added(pin, with_truststore, expected):
+    new_text, action = apply.add_dockerfile_dep(
+        _DOCKERFILE, pin, with_truststore
+    )
 
     assert action == apply.ADDED
     assert expected in new_text
@@ -441,6 +462,20 @@ def test_add_dockerfile_dep_unchanged():
     )
 
     new_text, action = apply.add_dockerfile_dep(text)
+
+    assert action == apply.UNCHANGED
+    assert new_text == text
+
+
+def test_add_dockerfile_dep_truststore_unchanged_when_bare_present():
+    # Same known limitation as the pyproject case: the bare name already in
+    # the 'uv add' block short-circuits before the extra can be added.
+    text = _DOCKERFILE.replace(
+        "      soliplex \\\n",
+        "      soliplex \\\n      soliplex-concierge \\\n",
+    )
+
+    new_text, action = apply.add_dockerfile_dep(text, with_truststore=True)
 
     assert action == apply.UNCHANGED
     assert new_text == text
@@ -795,6 +830,31 @@ def test_main_with_owner_repo(stack, docs_skill, capsys):
     )
     assert (tool["owner"], tool["repo"]) == ("acme", "reqs")
     assert "edit owner/repo" not in capsys.readouterr().out
+
+
+def test_main_with_truststore(stack, docs_skill):
+    rc = apply.main(
+        [
+            "--stack-dir",
+            str(stack),
+            "--room-skill-dir",
+            str(ROOM_SKILL),
+            "--docs-skill-dir",
+            str(docs_skill),
+            "--with-truststore",
+        ]
+    )
+
+    assert rc == 0
+    backend = stack / "backend"
+    assert (
+        "soliplex-concierge[truststore]"
+        in (backend / "pyproject.toml").read_text()
+    )
+    assert (
+        "soliplex-concierge[truststore]"
+        in (backend / "Dockerfile").read_text()
+    )
 
 
 def test_main_not_a_stack(temp_dir, capsys):

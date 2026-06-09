@@ -58,7 +58,8 @@ def _patch_async_client(get_response, post_responses):
     client_cm.__aexit__.return_value = False
 
     async_client = mock.Mock(return_value=client_cm)
-    return mock.patch.object(gitea.httpx, "AsyncClient", async_client), client
+    patcher = mock.patch.object(gitea.httpx, "AsyncClient", async_client)
+    return patcher, client
 
 
 @pytest.mark.anyio
@@ -72,8 +73,12 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
         }
     )
     patched_client, client = _patch_async_client(labels, [issue])
+    patched_verify = mock.patch.object(gitea.tls, "httpx_verify")
 
-    with patched_client:
+    with (
+        patched_verify as p_verify,
+        patched_client as p_client,
+    ):
         found = await gitea.create_gitea_issue(
             ctx=ctx,
             title="New room request: marketing",
@@ -85,6 +90,8 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
     assert found.number == 7
     assert found.url == f"{REPO}/issues/7"
     assert found.title == "New room request: marketing"
+
+    p_client.assert_called_once_with(verify=p_verify.return_value)
     client.get.assert_awaited_once_with(f"{REPO}/labels", headers=HEADERS)
     client.post.assert_awaited_once_with(
         f"{REPO}/issues",

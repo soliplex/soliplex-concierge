@@ -8,6 +8,11 @@
 # After merging, copy 'rooms/about_soliplex/' into your installation's
 # 'rooms/' directory and set the GITEA_HOST / GITEA_ACCESS_TOKEN values (see
 # the '.env' lines at the bottom).
+#
+# If your Gitea host's TLS certificate chains to an enterprise / internal CA
+# (one not in certifi's bundle), install 'soliplex-concierge[truststore]'
+# instead of 'soliplex-concierge': the tool then verifies against the OS trust
+# store rather than certifi. See issue #46.
 # ---------------------------------------------------------------------------
 
 meta:

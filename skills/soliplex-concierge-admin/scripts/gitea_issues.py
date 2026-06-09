@@ -43,6 +43,12 @@ import sys
 import httpx
 
 from soliplex_concierge.labels import REQUEST_LABELS as LABELS
+from soliplex_concierge.tls import httpx_verify
+
+# httpx 'verify' value: an OS-trust-store SSLContext when 'truststore' is
+# present (run with 'uv run --with truststore ...' behind an enterprise CA),
+# else certifi. Built once and reused across every client below.
+_VERIFY = httpx_verify()
 
 
 def _issues_url(host: str, owner: str, repo: str) -> str:
@@ -69,7 +75,7 @@ def list_issues(
     params: dict[str, str] = {"state": state, "type": "issues"}
     if labels:
         params["labels"] = ",".join(labels)
-    with httpx.Client() as client:
+    with httpx.Client(verify=_VERIFY) as client:
         response = client.get(
             _issues_url(host, owner, repo),
             headers=_headers(token),
@@ -83,7 +89,7 @@ def get_issue(
     host: str, token: str, owner: str, repo: str, number: int
 ) -> dict:
     """Return a single issue's full payload."""
-    with httpx.Client() as client:
+    with httpx.Client(verify=_VERIFY) as client:
         response = client.get(
             f"{_issues_url(host, owner, repo)}/{number}",
             headers=_headers(token),
@@ -96,7 +102,7 @@ def comment_issue(
     host: str, token: str, owner: str, repo: str, number: int, body: str
 ) -> dict:
     """Add a comment to an issue and return the created comment."""
-    with httpx.Client() as client:
+    with httpx.Client(verify=_VERIFY) as client:
         response = client.post(
             f"{_issues_url(host, owner, repo)}/{number}/comments",
             headers=_headers(token),
@@ -117,7 +123,7 @@ def close_issue(
     """Optionally comment, then mark the issue closed; return the issue."""
     if body:
         comment_issue(host, token, owner, repo, number, body)
-    with httpx.Client() as client:
+    with httpx.Client(verify=_VERIFY) as client:
         response = client.patch(
             f"{_issues_url(host, owner, repo)}/{number}",
             headers=_headers(token),
@@ -129,7 +135,7 @@ def close_issue(
 
 def list_labels(host: str, token: str, owner: str, repo: str) -> list[dict]:
     """Return the labels defined on the repository."""
-    with httpx.Client() as client:
+    with httpx.Client(verify=_VERIFY) as client:
         response = client.get(
             _labels_url(host, owner, repo),
             headers=_headers(token),
@@ -148,7 +154,7 @@ def create_label(
     description: str,
 ) -> dict:
     """Create a label on the repository and return it."""
-    with httpx.Client() as client:
+    with httpx.Client(verify=_VERIFY) as client:
         response = client.post(
             _labels_url(host, owner, repo),
             headers=_headers(token),
@@ -167,7 +173,7 @@ def add_labels_to_issue(
     label_ids: list[int],
 ) -> list[dict]:
     """Attach the given label ids to an issue; return its labels."""
-    with httpx.Client() as client:
+    with httpx.Client(verify=_VERIFY) as client:
         response = client.post(
             f"{_issues_url(host, owner, repo)}/{number}/labels",
             headers=_headers(token),

@@ -41,6 +41,13 @@ script: run it with `uv run`, which provisions its `soliplex-concierge`
 dependency (and `httpx`) automatically from the inline metadata. It just needs
 `uv` on the `PATH`.
 
+If the Gitea host's TLS certificate chains to an enterprise / internal CA (one
+not in certifi's bundle), **ask the admin**, then add `--with truststore` to
+the `uv run` invocation so the script verifies against the host OS trust store
+instead — e.g. `uv run --with truststore scripts/gitea_issues.py list …`. No
+edit to the script is needed; the extra package activates the OS-trust-store
+path automatically (see issue #46).
+
 Run `init` once per tracking repository to create the request labels
 (`new-room`, `room-access`, `approved`, `denied`) the workflow below relies on
 (idempotent — re-running reports each label as `created` or `exists`):
