@@ -2907,7 +2907,7 @@ wheels = [
 
 [[package]]
 name = "soliplex-concierge"
-version = "0.5.dev0"
+version = "0.6.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
