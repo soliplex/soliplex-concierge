@@ -37,8 +37,15 @@ skill_configs:
 # reads the Gitea base URL from the GITEA_HOST environment variable and the
 # access token from the GITEA_ACCESS_TOKEN secret, then calls the Gitea REST API
 # directly (no MCP server / external binary required).
+#
+# The tool's 'owner'/'repo' config values may likewise be interpolation strings
+# ("env:GITEA_OWNER" / "env:GITEA_REPO"); uncomment the entries below and set
+# the room config's 'owner'/'repo' to those markers if you prefer to source the
+# tracking repo from the environment rather than hard-coding it.
 environment:
   - "GITEA_HOST"
+  # - "GITEA_OWNER"
+  # - "GITEA_REPO"
 
 secrets:
   - secret_name: "GITEA_ACCESS_TOKEN"
@@ -55,4 +62,9 @@ secrets:
 #   # Access token with permission to create issues in the target repo.
 #   # Create from: <your-gitea-host>/user/settings/applications
 #   GITEA_ACCESS_TOKEN=...
+#
+#   # Optional: only needed if the room config's 'owner'/'repo' use the
+#   # "env:GITEA_OWNER" / "env:GITEA_REPO" interpolation markers.
+#   GITEA_OWNER=your-gitea-owner
+#   GITEA_REPO=soliplex-requests
 # ---------------------------------------------------------------------------
