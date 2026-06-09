@@ -20,9 +20,11 @@ tools:
   - tool_name: "soliplex.tools.current_run_info"
 
   # Files room requests as Gitea issues via the Gitea REST API. Edit
-  # 'owner' / 'repo' to point at your installation's tracking repo. The
-  # Gitea base URL and access token are read at runtime from the
-  # installation environment / secrets named below (see
+  # 'owner' / 'repo' to point at your installation's tracking repo; either
+  # may be a literal value or a Soliplex interpolation string (e.g.
+  # "env:GITEA_OWNER") resolved from the installation environment at
+  # runtime. The Gitea base URL and access token are read at runtime from
+  # the installation environment / secrets named below (see
   # installation-snippet.yaml). Register the config class via the
   # installation's 'meta.tool_configs'.
   - tool_name: "soliplex_concierge.tools.gitea.create_gitea_issue"

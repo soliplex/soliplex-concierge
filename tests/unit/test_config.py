@@ -7,14 +7,16 @@ def test_cgi_ctor(installation_config, temp_dir):
     git_config = config.CreateGiteaIssueToolConfig(
         _installation_config=installation_config,
         _config_path=config_path,
-        owner="acme",
-        repo="widgets",
+        _owner="acme",
+        _repo="widgets",
     )
 
     assert git_config._installation_config is installation_config
     assert git_config._config_path == config_path
     assert git_config.kind == config.CGI_TOOL_KIND
     assert git_config.tool_name == config.CGI_TOOL_NAME
+    assert git_config._owner == "acme"
+    assert git_config._repo == "widgets"
     assert git_config._host == "env:GITEA_HOST"
     assert git_config._token == "secret:GITEA_ACCESS_TOKEN"
     assert git_config.get_extra_parameters() == {
@@ -29,8 +31,8 @@ def test_cgi_from_yaml(installation_config, temp_dir):
     config_path = temp_dir / "rooms" / "test" / "room_config.yaml"
     config_dict = {
         "tool_name": config.CGI_TOOL_NAME,
-        "owner": "acme",
-        "repo": "widgets",
+        "owner": "env:GH_OWNER",
+        "repo": "env:GH_REPO",
         "host": "env:GH_HOST",
         "token": "secret:GH_TOKEN",
     }
@@ -43,8 +45,8 @@ def test_cgi_from_yaml(installation_config, temp_dir):
 
     assert git_config._installation_config is installation_config
     assert git_config._config_path == config_path
-    assert git_config.owner == "acme"
-    assert git_config.repo == "widgets"
+    assert git_config._owner == "env:GH_OWNER"
+    assert git_config._repo == "env:GH_REPO"
     assert git_config._host == "env:GH_HOST"
     assert git_config._token == "secret:GH_TOKEN"
 
@@ -69,6 +71,42 @@ def test_cgi_from_yaml_without_host_token_keeps_defaults(
     assert git_config._token == "secret:GITEA_ACCESS_TOKEN"
 
 
+def test_cgi_owner_interpolates_environment(installation_config, temp_dir):
+    config_path = temp_dir / "rooms" / "test" / "room_config.yaml"
+    installation_config.interpolate_environment.return_value = "acme"
+    git_config = config.CreateGiteaIssueToolConfig(
+        _installation_config=installation_config,
+        _config_path=config_path,
+        _owner="env:GITEA_OWNER",
+        _repo="widgets",
+    )
+
+    owner = git_config.owner
+
+    assert owner == "acme"
+    installation_config.interpolate_environment.assert_called_once_with(
+        "env:GITEA_OWNER"
+    )
+
+
+def test_cgi_repo_interpolates_environment(installation_config, temp_dir):
+    config_path = temp_dir / "rooms" / "test" / "room_config.yaml"
+    installation_config.interpolate_environment.return_value = "widgets"
+    git_config = config.CreateGiteaIssueToolConfig(
+        _installation_config=installation_config,
+        _config_path=config_path,
+        _owner="acme",
+        _repo="env:GITEA_REPO",
+    )
+
+    repo = git_config.repo
+
+    assert repo == "widgets"
+    installation_config.interpolate_environment.assert_called_once_with(
+        "env:GITEA_REPO"
+    )
+
+
 def test_cgi_host_interpolates_environment(installation_config, temp_dir):
     config_path = temp_dir / "rooms" / "test" / "room_config.yaml"
     installation_config.interpolate_environment.return_value = (
@@ -77,8 +115,8 @@ def test_cgi_host_interpolates_environment(installation_config, temp_dir):
     git_config = config.CreateGiteaIssueToolConfig(
         _installation_config=installation_config,
         _config_path=config_path,
-        owner="acme",
-        repo="widgets",
+        _owner="acme",
+        _repo="widgets",
     )
 
     host = git_config.host
@@ -95,8 +133,8 @@ def test_cgi_token_interpolates_secrets(installation_config, temp_dir):
     git_config = config.CreateGiteaIssueToolConfig(
         _installation_config=installation_config,
         _config_path=config_path,
-        owner="acme",
-        repo="widgets",
+        _owner="acme",
+        _repo="widgets",
     )
 
     token = git_config.token

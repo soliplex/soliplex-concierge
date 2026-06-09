@@ -25,9 +25,12 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
     kind: str = CGI_TOOL_KIND
     tool_name: str = CGI_TOOL_NAME
 
-    # The repository room requests are filed against.
-    owner: str
-    repo: str
+    # The repository room requests are filed against. '_owner' / '_repo' may
+    # carry Soliplex interpolation markers (e.g. 'env:GITEA_OWNER'); the
+    # 'owner' / 'repo' properties resolve them lazily at tool-call time, just
+    # like 'host' below.
+    _owner: str
+    _repo: str
 
     # The Gitea base URL and access token, as Soliplex interpolation strings:
     # '_host' carries an 'env:' marker and '_token' a 'secret:' marker. The
@@ -38,12 +41,29 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
     _token: str = "secret:GITEA_ACCESS_TOKEN"
 
     @property
+    def owner(self) -> str:
+        return self._installation_config.interpolate_environment(self._owner)
+
+    @property
+    def repo(self) -> str:
+        return self._installation_config.interpolate_environment(self._repo)
+
+    @property
     def host(self) -> str:
         return self._installation_config.interpolate_environment(self._host)
 
     @property
     def token(self) -> str:
         return self._installation_config.interpolate_secrets(self._token)
+
+    # Public 'config_dict' keys mapped to the private fields backing the
+    # lazily-interpolated 'owner' / 'repo' / 'host' / 'token' properties.
+    _FIELD_ALIASES = {
+        "owner": "_owner",
+        "repo": "_repo",
+        "host": "_host",
+        "token": "_token",
+    }
 
     @classmethod
     def from_yaml(
@@ -52,10 +72,9 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
         config_path: pathlib.Path,
         config_dict: dict[str, typing.Any],
     ):
-        if "host" in config_dict:
-            config_dict["_host"] = config_dict.pop("host")
-        if "token" in config_dict:
-            config_dict["_token"] = config_dict.pop("token")
+        for public, private in cls._FIELD_ALIASES.items():
+            if public in config_dict:
+                config_dict[private] = config_dict.pop(public)
         return super().from_yaml(
             installation_config=installation_config,
             config_path=config_path,
@@ -64,8 +83,8 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
 
     def get_extra_parameters(self) -> dict:
         local = {
-            "owner": self.owner,
-            "repo": self.repo,
+            "owner": self._owner,
+            "repo": self._repo,
             "host": self._host,
             "token": self._token,
         }
