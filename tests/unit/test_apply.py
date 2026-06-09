@@ -723,6 +723,63 @@ def test_install_skill_force(stack):
     assert (skill_dir / "SKILL.md").read_text() != "old"
 
 
+# --- stack gitea_issues.py shim -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "pin,with_truststore,expected",
+    [
+        (None, False, '"soliplex-concierge>=0.6"'),
+        ("== 0.2", False, '"soliplex-concierge == 0.2"'),
+        (None, True, '"soliplex-concierge[truststore]>=0.6"'),
+        ("== 0.2", True, '"soliplex-concierge[truststore] == 0.2"'),
+    ],
+)
+def test_stack_gitea_script_dependency(pin, with_truststore, expected):
+    text = apply.stack_gitea_script(pin, with_truststore)
+
+    assert expected in text
+    assert text.startswith("#!/usr/bin/env -S uv run --script")
+    assert "from soliplex_concierge.gitea_admin import main" in text
+
+
+def test_install_gitea_script_added(stack):
+    action = apply.install_gitea_script(stack, _opts())
+
+    script = stack / "scripts" / "gitea_issues.py"
+    assert action == apply.ADDED
+    assert "soliplex_concierge.gitea_admin" in script.read_text()
+
+
+def test_install_gitea_script_unchanged(stack):
+    script = stack / "scripts" / "gitea_issues.py"
+    script.parent.mkdir()
+    script.write_text("old")
+
+    action = apply.install_gitea_script(stack, _opts())
+
+    assert action == apply.UNCHANGED
+    assert script.read_text() == "old"
+
+
+def test_install_gitea_script_dry_run(stack):
+    action = apply.install_gitea_script(stack, _opts(dry_run=True))
+
+    assert action == apply.ADDED
+    assert not (stack / "scripts" / "gitea_issues.py").exists()
+
+
+def test_install_gitea_script_force(stack):
+    script = stack / "scripts" / "gitea_issues.py"
+    script.parent.mkdir()
+    script.write_text("old")
+
+    action = apply.install_gitea_script(stack, _opts(force=True))
+
+    assert action == apply.ADDED
+    assert script.read_text() != "old"
+
+
 # --- main / apply end-to-end ----------------------------------------------
 
 
@@ -854,6 +911,10 @@ def test_main_with_truststore(stack, docs_skill):
     assert (
         "soliplex-concierge[truststore]"
         in (backend / "Dockerfile").read_text()
+    )
+    assert (
+        "soliplex-concierge[truststore]"
+        in (stack / "scripts" / "gitea_issues.py").read_text()
     )
 
 
