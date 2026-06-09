@@ -255,6 +255,7 @@ class Options:
     gitea_token: str = DEFAULT_GITEA_TOKEN
     owner: str | None = None
     repo: str | None = None
+    with_truststore: bool = False
     force: bool = False
     dry_run: bool = False
 
@@ -459,7 +460,14 @@ def _entry_indent(lines: list[str], open_idx: int) -> str:
     return "    "
 
 
-def add_pyproject_dep(text: str, pin: str | None = None) -> tuple[str, str]:
+def _dist_requirement(with_truststore: bool) -> str:
+    """The distribution name, with the '[truststore]' extra when opted in."""
+    return f"{DIST}[truststore]" if with_truststore else DIST
+
+
+def add_pyproject_dep(
+    text: str, pin: str | None = None, with_truststore: bool = False
+) -> tuple[str, str]:
     """Add 'soliplex-concierge' to the '[project] dependencies' array."""
     data = tomllib.loads(text)
     deps = data.get("project", {}).get("dependencies", [])
@@ -474,13 +482,16 @@ def add_pyproject_dep(text: str, pin: str | None = None) -> tuple[str, str]:
     if open_idx is None:
         raise InstallerError.bad_pyproject()
 
-    requirement = f"{DIST} {pin}" if pin else DIST
+    dist = _dist_requirement(with_truststore)
+    requirement = f"{dist} {pin}" if pin else dist
     indent = _entry_indent(lines, open_idx)
     lines.insert(open_idx + 1, f'{indent}"{requirement}",\n')
     return "".join(lines), ADDED
 
 
-def add_dockerfile_dep(text: str, pin: str | None = None) -> tuple[str, str]:
+def add_dockerfile_dep(
+    text: str, pin: str | None = None, with_truststore: bool = False
+) -> tuple[str, str]:
     """Add 'soliplex-concierge' to the Dockerfile 'uv add' block."""
     if DIST in text:
         return text, UNCHANGED
@@ -489,7 +500,8 @@ def add_dockerfile_dep(text: str, pin: str | None = None) -> tuple[str, str]:
     for i, line in enumerate(lines):
         match = _UVADD_RE.match(line)
         if match:
-            token = f"{DIST}{pin.replace(' ', '')}" if pin else DIST
+            dist = _dist_requirement(with_truststore)
+            token = f"{dist}{pin.replace(' ', '')}" if pin else dist
             lines.insert(i + 1, f"{match.group(1)}{token} \\\n")
             return "".join(lines), ADDED
     raise InstallerError.bad_dockerfile()
@@ -731,12 +743,16 @@ def apply(
     results: dict[str, str] = {}
 
     pyproject = stack / "backend" / "pyproject.toml"
-    new, action = add_pyproject_dep(pyproject.read_text(), opts.pin)
+    new, action = add_pyproject_dep(
+        pyproject.read_text(), opts.pin, opts.with_truststore
+    )
     _write_if(pyproject, new, action, opts.dry_run)
     results["backend/pyproject.toml"] = action
 
     dockerfile = stack / "backend" / "Dockerfile"
-    new, action = add_dockerfile_dep(dockerfile.read_text(), opts.pin)
+    new, action = add_dockerfile_dep(
+        dockerfile.read_text(), opts.pin, opts.with_truststore
+    )
     _write_if(dockerfile, new, action, opts.dry_run)
     results["backend/Dockerfile"] = action
 
@@ -833,6 +849,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--owner", default=None, help="Gitea repo owner")
     parser.add_argument("--repo", default=None, help="Gitea repo name")
     parser.add_argument(
+        "--with-truststore",
+        action="store_true",
+        help=(
+            "add the 'soliplex-concierge[truststore]' extra so the "
+            "create_gitea_issue tool verifies TLS against the OS trust store "
+            "(an enterprise/internal CA) instead of certifi's bundle. Note: "
+            "if the bare dependency is already present, the extra is not "
+            "added on a re-run -- edit it by hand in that case."
+        ),
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="overwrite the room/skill if they already exist",
@@ -906,6 +933,7 @@ def main(argv: list[str] | None = None) -> int:
             gitea_token=args.gitea_token,
             owner=args.owner,
             repo=args.repo,
+            with_truststore=args.with_truststore,
             force=args.force,
             dry_run=args.dry_run,
         )

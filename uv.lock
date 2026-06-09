@@ -2916,6 +2916,11 @@ dependencies = [
     { name = "soliplex" },
 ]
 
+[package.optional-dependencies]
+truststore = [
+    { name = "truststore" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "anyio" },
@@ -2935,7 +2940,9 @@ requires-dist = [
     { name = "pydantic" },
     { name = "pydantic-ai-slim", specifier = ">=1.100,<2.0" },
     { name = "soliplex" },
+    { name = "truststore", marker = "extra == 'truststore'" },
 ]
+provides-extras = ["truststore"]
 
 [package.metadata.requires-dev]
 dev = [

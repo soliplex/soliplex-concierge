@@ -11,6 +11,7 @@ import pydantic_ai
 from soliplex import agents
 
 from soliplex_concierge import config
+from soliplex_concierge import tls
 from soliplex_concierge.labels import ISSUE_TYPE_LABELS
 
 
@@ -102,7 +103,7 @@ async def create_gitea_issue(
     )
     headers = {"Authorization": f"token {token}"}
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=tls.httpx_verify()) as client:
         label_id = await _ensure_label(client, repo_url, headers, request_type)
         response = await client.post(
             f"{repo_url}/issues",
