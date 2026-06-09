@@ -57,7 +57,12 @@ Run the bundled script from this skill's directory with `uv run`.
        --owner <gitea-owner> --repo <gitea-repo> --dry-run
    ```
 
-2. Apply for real once the dry-run looks right:
+2. **Ask the operator** whether the Gitea host's TLS certificate chains to an
+   enterprise / internal CA (i.e. one not in certifi's bundle). If so, pass
+   `--with-truststore` so the `create_gitea_issue` tool verifies against the
+   host OS trust store instead of certifi.
+
+3. Apply for real once the dry-run looks right:
 
    ```sh
    uv run scripts/apply.py --stack-dir /path/to/stack \
@@ -73,6 +78,10 @@ Run the bundled script from this skill's directory with `uv run`.
 - `--version <X.Y>` — pin the `soliplex-concierge` dependency added to the
   stack. Omitting it leaves the dependency unpinned and prints a version-skew
   warning; `--version latest` opts into the newest release without the warning.
+- `--with-truststore` — install the `soliplex-concierge[truststore]` extra so
+  the tool verifies TLS against the OS trust store (an enterprise/internal CA)
+  rather than certifi's bundle. If the bare dependency is already present, the
+  extra is not added on a re-run — edit it by hand in that case.
 - `--room-skill-version <tag>` / `--docs-skill-version <tag>` — published tag to
   install for the room skill (default: `room-skill-latest`) / the docs skill
   (default: `docs-latest`); e.g. a rolling build or `v0.4` / `v0.69`.
