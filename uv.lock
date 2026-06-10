@@ -2913,6 +2913,7 @@ dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim" },
+    { name = "pyyaml" },
     { name = "soliplex" },
 ]
 
@@ -2939,6 +2940,7 @@ requires-dist = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", specifier = ">=1.100,<2.0" },
+    { name = "pyyaml" },
     { name = "soliplex" },
     { name = "truststore", marker = "extra == 'truststore'" },
 ]

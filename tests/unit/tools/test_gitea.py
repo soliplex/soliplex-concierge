@@ -4,17 +4,28 @@ import httpx
 import pytest
 from soliplex import agents
 from soliplex import installation
+from soliplex import models
 
 from soliplex_concierge import config
 from soliplex_concierge.tools import gitea
 
-USER = {
-    "full_name": "Phreddy Phlyntstone",
-    "email": "phreddy@example.com",
-}
+USER = models.UserProfile(
+    given_name="Phreddy",
+    family_name="Phlyntstone",
+    email="phreddy@example.com",
+    preferred_username="phreddy",
+)
 
 REPO = "https://gitea.example.com/api/v1/repos/acme/widgets"
 HEADERS = {"Authorization": "token tok-abc123"}
+
+# YAML the user profile serializes to, in field-declaration order.
+PROFILE_YAML = (
+    "given_name: Phreddy\n"
+    "family_name: Phlyntstone\n"
+    "email: phreddy@example.com\n"
+    "preferred_username: phreddy\n"
+)
 
 
 @pytest.fixture
@@ -72,7 +83,8 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
             "title": "New room request: marketing",
         }
     )
-    patched_client, client = _patch_async_client(labels, [issue])
+    asset = _resp({"name": gitea.PROFILE_ATTACHMENT_NAME})
+    patched_client, client = _patch_async_client(labels, [issue, asset])
     patched_verify = mock.patch.object(gitea.tls, "httpx_verify")
 
     with (
@@ -93,13 +105,26 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
 
     p_client.assert_called_once_with(verify=p_verify.return_value)
     client.get.assert_awaited_once_with(f"{REPO}/labels", headers=HEADERS)
-    client.post.assert_awaited_once_with(
+    issue_call, asset_call = client.post.await_args_list
+    assert issue_call == mock.call(
         f"{REPO}/issues",
         headers=HEADERS,
         json={
             "title": "New room request: marketing",
             "body": "Requested by Phreddy.",
             "labels": [5],
+        },
+    )
+    assert asset_call == mock.call(
+        f"{REPO}/issues/7/assets",
+        headers=HEADERS,
+        params={"name": gitea.PROFILE_ATTACHMENT_NAME},
+        files={
+            "attachment": (
+                gitea.PROFILE_ATTACHMENT_NAME,
+                PROFILE_YAML.encode("utf-8"),
+                "application/x-yaml",
+            )
         },
     )
 
@@ -115,7 +140,9 @@ async def test_create_gitea_issue_creates_missing_label(ctx):
             "title": "Room access request: chat",
         }
     )
-    patched_client, client = _patch_async_client(labels, [created, issue])
+    asset = _resp({"name": gitea.PROFILE_ATTACHMENT_NAME})
+    posts = [created, issue, asset]
+    patched_client, client = _patch_async_client(labels, posts)
 
     with patched_client:
         found = await gitea.create_gitea_issue(
@@ -126,7 +153,7 @@ async def test_create_gitea_issue_creates_missing_label(ctx):
         )
 
     assert found.number == 8
-    create_call, issue_call = client.post.await_args_list
+    create_call, issue_call, _asset_call = client.post.await_args_list
     assert create_call == mock.call(
         f"{REPO}/labels",
         headers=HEADERS,
@@ -158,6 +185,23 @@ async def test_create_gitea_issue_rejects_unknown_request_type(ctx):
 
 
 @pytest.mark.anyio
+async def test_create_gitea_issue_rejects_anonymous_user(ctx):
+    ctx.deps.user = None
+    patched_client, client = _patch_async_client(_resp([]), [])
+
+    with patched_client, pytest.raises(gitea.AnonymousUser) as exc:
+        await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="New room request: marketing",
+            body="Requested anonymously.",
+            request_type="new-room",
+        )
+
+    assert "anonymous" in str(exc.value)
+    client.get.assert_not_awaited()
+
+
+@pytest.mark.anyio
 async def test_create_gitea_issue_raises_on_http_error(ctx):
     labels = _resp([{"name": "new-room", "id": 5}])
     issue = _resp(
@@ -166,6 +210,32 @@ async def test_create_gitea_issue_raises_on_http_error(ctx):
         )
     )
     patched_client, _client = _patch_async_client(labels, [issue])
+
+    with patched_client, pytest.raises(httpx.HTTPStatusError):
+        await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="New room request: marketing",
+            body="Requested by Phreddy.",
+            request_type="new-room",
+        )
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_raises_on_attachment_error(ctx):
+    labels = _resp([{"name": "new-room", "id": 5}])
+    issue = _resp(
+        {
+            "number": 7,
+            "html_url": f"{REPO}/issues/7",
+            "title": "New room request: marketing",
+        }
+    )
+    asset = _resp(
+        error=httpx.HTTPStatusError(
+            "413 Payload Too Large", request=mock.Mock(), response=mock.Mock()
+        )
+    )
+    patched_client, _client = _patch_async_client(labels, [issue, asset])
 
     with patched_client, pytest.raises(httpx.HTTPStatusError):
         await gitea.create_gitea_issue(
