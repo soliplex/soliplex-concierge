@@ -16,9 +16,6 @@ from soliplex_concierge import config
 from soliplex_concierge import tls
 from soliplex_concierge.labels import ISSUE_TYPE_LABELS
 
-# Filename used for the requesting user's profile, attached to every issue.
-PROFILE_ATTACHMENT_NAME = "user-profile.yaml"
-
 
 class UnknownRequestType(ValueError):
     """A 'request_type' with no matching issue-type label was supplied."""
@@ -83,16 +80,17 @@ async def _attach_user_profile(
     headers: dict[str, str],
     number: int,
     user: models.UserProfile,
+    name: str,
 ) -> None:
     """Attach the requesting user's profile to the issue as a YAML file."""
     content = yaml.safe_dump(user.model_dump(), sort_keys=False)
     response = await client.post(
         f"{repo_url}/issues/{number}/assets",
         headers=headers,
-        params={"name": PROFILE_ATTACHMENT_NAME},
+        params={"name": name},
         files={
             "attachment": (
-                PROFILE_ATTACHMENT_NAME,
+                name,
                 content.encode("utf-8"),
                 "application/x-yaml",
             )
@@ -115,8 +113,8 @@ async def create_gitea_issue(
     collected. The issue is tagged with a type label so administrators can
     triage it; the label is created on the repository if it does not yet
     exist. The requesting user's profile is attached to the issue as a YAML
-    file ('user-profile.yaml'), so you need not transcribe their identity into
-    the 'body'. Report the returned issue number and URL back to the user.
+    file, so you need not transcribe their identity into the 'body'. Report the
+    returned issue number and URL back to the user.
 
     Args:
         title: the issue title.
@@ -159,7 +157,12 @@ async def create_gitea_issue(
         data = response.json()
 
         await _attach_user_profile(
-            client, repo_url, headers, data["number"], ctx.deps.user
+            client,
+            repo_url,
+            headers,
+            data["number"],
+            ctx.deps.user,
+            tool_config.profile_attachment_name,
         )
 
     return CreatedGiteaIssue(

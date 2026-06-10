@@ -19,6 +19,13 @@ from soliplex.config import tools as config_tools
 CGI_TOOL_NAME = "soliplex_concierge.tools.gitea.create_gitea_issue"
 _, CGI_TOOL_KIND = CGI_TOOL_NAME.rsplit(".", 1)
 
+# Filename for the requesting user's profile, attached to every issue. Gitea
+# only accepts attachments whose extension is in its '[attachment]
+# ALLOWED_TYPES' list; '.yaml' is allowed by the production server but not by a
+# stock Gitea, so the name is configurable per room via
+# 'profile_attachment_name'.
+DEFAULT_PROFILE_ATTACHMENT_NAME = "user-profile.yaml"
+
 
 @dataclasses.dataclass(kw_only=True)
 class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
@@ -39,6 +46,10 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
     # configs -- and thus tool configs -- are constructed).
     _host: str = "env:GITEA_HOST"
     _token: str = "secret:GITEA_ACCESS_TOKEN"
+
+    # Name of the YAML file the requesting user's profile is attached under.
+    # The extension must be one Gitea's '[attachment] ALLOWED_TYPES' permits.
+    profile_attachment_name: str = DEFAULT_PROFILE_ATTACHMENT_NAME
 
     @property
     def owner(self) -> str:
@@ -87,5 +98,6 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
             "repo": self._repo,
             "host": self._host,
             "token": self._token,
+            "profile_attachment_name": self.profile_attachment_name,
         }
         return super().get_extra_parameters() | local

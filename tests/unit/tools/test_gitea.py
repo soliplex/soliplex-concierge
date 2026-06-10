@@ -40,6 +40,7 @@ def ctx(the_installation):
         repo="widgets",
         host="https://gitea.example.com",
         token="tok-abc123",
+        profile_attachment_name=config.DEFAULT_PROFILE_ATTACHMENT_NAME,
     )
     deps = agents.AgentDependencies(
         the_installation=the_installation,
@@ -83,7 +84,7 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
             "title": "New room request: marketing",
         }
     )
-    asset = _resp({"name": gitea.PROFILE_ATTACHMENT_NAME})
+    asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
     patched_client, client = _patch_async_client(labels, [issue, asset])
     patched_verify = mock.patch.object(gitea.tls, "httpx_verify")
 
@@ -118,10 +119,49 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
     assert asset_call == mock.call(
         f"{REPO}/issues/7/assets",
         headers=HEADERS,
-        params={"name": gitea.PROFILE_ATTACHMENT_NAME},
+        params={"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME},
         files={
             "attachment": (
-                gitea.PROFILE_ATTACHMENT_NAME,
+                config.DEFAULT_PROFILE_ATTACHMENT_NAME,
+                PROFILE_YAML.encode("utf-8"),
+                "application/x-yaml",
+            )
+        },
+    )
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_honors_configured_attachment_name(ctx):
+    ctx.deps.tool_configs[
+        config.CGI_TOOL_KIND
+    ].profile_attachment_name = "user-profile.yaml.txt"
+    labels = _resp([{"name": "new-room", "id": 5}])
+    issue = _resp(
+        {
+            "number": 7,
+            "html_url": f"{REPO}/issues/7",
+            "title": "New room request: marketing",
+        }
+    )
+    asset = _resp({"name": "user-profile.yaml.txt"})
+    patched_client, client = _patch_async_client(labels, [issue, asset])
+
+    with patched_client:
+        await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="New room request: marketing",
+            body="Requested by Phreddy.",
+            request_type="new-room",
+        )
+
+    _issue_call, asset_call = client.post.await_args_list
+    assert asset_call == mock.call(
+        f"{REPO}/issues/7/assets",
+        headers=HEADERS,
+        params={"name": "user-profile.yaml.txt"},
+        files={
+            "attachment": (
+                "user-profile.yaml.txt",
                 PROFILE_YAML.encode("utf-8"),
                 "application/x-yaml",
             )
@@ -140,7 +180,7 @@ async def test_create_gitea_issue_creates_missing_label(ctx):
             "title": "Room access request: chat",
         }
     )
-    asset = _resp({"name": gitea.PROFILE_ATTACHMENT_NAME})
+    asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
     posts = [created, issue, asset]
     patched_client, client = _patch_async_client(labels, posts)
 
