@@ -18,6 +18,7 @@ dependencies = [
     "pydantic",
     "pydantic-ai-slim >= 1.100, < 2.0",
     "httpx",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
