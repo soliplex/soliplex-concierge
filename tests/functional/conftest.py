@@ -80,6 +80,11 @@ def gitea_server():
             CONTAINER_NAME,
             "-e",
             "GITEA__security__INSTALL_LOCK=true",
+            # A stock server's # '[attachment] ALLOWED_TYPES' does allow
+            # '*.yaml' files. Allow all types here so the test exercises
+            # the default 'user-profile.yaml' name.
+            "-e",
+            "GITEA__attachment__ALLOWED_TYPES=*/*",
             "-p",
             "127.0.0.1:0:3000",
             GITEA_IMAGE,
