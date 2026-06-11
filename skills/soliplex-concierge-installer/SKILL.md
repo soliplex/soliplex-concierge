@@ -35,8 +35,10 @@ This skill is meant to be used alongside two sibling skills:
 2. A `soliplex-template`-generated Docker Compose stack (the script edits
    `backend/pyproject.toml`, `backend/Dockerfile`, `backend/environment/`, and
    `.env`). If there is no stack, generate one with the `soliplex-template` skill.
-3. A Gitea repository to file room requests against, and an access token with
-   permission to create issues in it.
+3. A Gitea repository to file room requests against, and an access token whose
+   account has **Write** access to it (not just Read): Gitea lets a Read-only
+   account open issues but silently drops their labels, so requests would be
+   filed untagged (see issue #59).
 4. Network access to GitHub: two filesystem skills are downloaded from their
    published releases by default — `soliplex-concierge-room` (from
    `soliplex/soliplex-concierge`, the `room-skill-latest` pointer) and
