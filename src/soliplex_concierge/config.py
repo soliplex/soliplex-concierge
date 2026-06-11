@@ -51,6 +51,10 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
     # The extension must be one Gitea's '[attachment] ALLOWED_TYPES' permits.
     profile_attachment_name: str = DEFAULT_PROFILE_ATTACHMENT_NAME
 
+    # Fields to be dropped from the user profile before converting to
+    # YAML for the issue attachment.
+    exclude_claims: list[str] = dataclasses.field(default_factory=list)
+
     @property
     def owner(self) -> str:
         return self._installation_config.interpolate_environment(self._owner)
@@ -99,5 +103,6 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
             "host": self._host,
             "token": self._token,
             "profile_attachment_name": self.profile_attachment_name,
+            "exclude_claims": self.exclude_claims,
         }
         return super().get_extra_parameters() | local
