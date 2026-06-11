@@ -32,6 +32,10 @@ tools:
     repo: "soliplex-requests"
     host: "env:GITEA_HOST"
     token: "secret:GITEA_ACCESS_TOKEN"
+    # Optional: drop selected claims from the user profile attached to each
+    # issue (e.g. to keep the requester's email out of the tracking repo).
+    # exclude_claims:
+    #   - "email"
 
 skills:
   # The detailed concierge behavior lives in the 'soliplex-concierge-room'

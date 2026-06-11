@@ -25,6 +25,7 @@ async def test_create_gitea_issue_against_live_gitea(gitea_server):
         host=gitea_server["host"],
         token=gitea_server["token"],
         profile_attachment_name=config.DEFAULT_PROFILE_ATTACHMENT_NAME,
+        exclude_claims=[],
     )
     the_installation = mock.Mock()
     deps = agents.AgentDependencies(
