@@ -43,6 +43,13 @@ skill_configs:
 # access token from the GITEA_ACCESS_TOKEN secret, then calls the Gitea REST API
 # directly (no MCP server / external binary required).
 #
+# The GITEA_ACCESS_TOKEN account must have WRITE access to the tracking repo
+# (a Write collaborator, or a team with Write on the Issues unit) -- not just
+# Read. Gitea lets a Read-only account open issues (and attach files) but
+# SILENTLY DROPS their labels, so requests would be filed untagged and slip
+# past triage. A fine-grained token additionally needs the 'write:issue' and
+# 'read:repository' scopes. See issue #59.
+#
 # The tool's 'owner'/'repo' config values may likewise be interpolation strings
 # ("env:GITEA_OWNER" / "env:GITEA_REPO"); uncomment the entries below and set
 # the room config's 'owner'/'repo' to those markers if you prefer to source the
@@ -64,8 +71,9 @@ secrets:
 #   # Base URL of your Gitea instance.
 #   GITEA_HOST=https://gitea.example.com
 #
-#   # Access token with permission to create issues in the target repo.
-#   # Create from: <your-gitea-host>/user/settings/applications
+#   # Access token for the target repo. Its account needs WRITE access, not
+#   # just Read: a Read-only account files issues whose labels Gitea silently
+#   # drops (issue #59). Create from: <your-gitea-host>/user/settings/applications
 #   GITEA_ACCESS_TOKEN=...
 #
 #   # Optional: only needed if the room config's 'owner'/'repo' use the

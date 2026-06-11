@@ -102,7 +102,10 @@ non-generated installation.
    the `create_gitea_issue` tool to point at your tracking repository.
 
 4. Set `GITEA_HOST` and `GITEA_ACCESS_TOKEN` (see the `.env` lines at the
-   bottom of the installation snippet).
+   bottom of the installation snippet). The token's account must have **Write**
+   access to the tracking repo, not just Read — Gitea lets a Read-only account
+   open issues but silently drops their labels, so filed requests would arrive
+   untagged (see issue #59).
 
 ## Skill releases
 
