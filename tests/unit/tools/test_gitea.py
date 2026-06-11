@@ -41,6 +41,7 @@ def ctx(the_installation):
         host="https://gitea.example.com",
         token="tok-abc123",
         profile_attachment_name=config.DEFAULT_PROFILE_ATTACHMENT_NAME,
+        exclude_claims=[],
     )
     deps = agents.AgentDependencies(
         the_installation=the_installation,
@@ -163,6 +164,48 @@ async def test_create_gitea_issue_honors_configured_attachment_name(ctx):
             "attachment": (
                 "user-profile.yaml.txt",
                 PROFILE_YAML.encode("utf-8"),
+                "application/x-yaml",
+            )
+        },
+    )
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_excludes_configured_claims(ctx):
+    ctx.deps.tool_configs[config.CGI_TOOL_KIND].exclude_claims = ["email"]
+    labels = _resp([{"name": "new-room", "id": 5}])
+    issue = _resp(
+        {
+            "number": 7,
+            "html_url": f"{REPO}/issues/7",
+            "title": "New room request: marketing",
+        }
+    )
+    asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
+    patched_client, client = _patch_async_client(labels, [issue, asset])
+
+    with patched_client:
+        await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="New room request: marketing",
+            body="Requested by Phreddy.",
+            request_type="new-room",
+        )
+
+    profile_yaml = (
+        "given_name: Phreddy\n"
+        "family_name: Phlyntstone\n"
+        "preferred_username: phreddy\n"
+    )
+    _issue_call, asset_call = client.post.await_args_list
+    assert asset_call == mock.call(
+        f"{REPO}/issues/7/assets",
+        headers=HEADERS,
+        params={"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME},
+        files={
+            "attachment": (
+                config.DEFAULT_PROFILE_ATTACHMENT_NAME,
+                profile_yaml.encode("utf-8"),
                 "application/x-yaml",
             )
         },

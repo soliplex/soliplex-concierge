@@ -81,9 +81,17 @@ async def _attach_user_profile(
     number: int,
     user: models.UserProfile,
     name: str,
+    exclude_claims: list[str],
 ) -> None:
-    """Attach the requesting user's profile to the issue as a YAML file."""
-    content = yaml.safe_dump(user.model_dump(), sort_keys=False)
+    """Attach the requesting user's profile to the issue as a YAML file.
+
+    Fields named in 'exclude_claims' are dropped from the profile before
+    conversion to the YAML used for the attachment.
+    """
+    claims = user.model_dump()
+    for claim in exclude_claims:
+        claims.pop(claim, None)
+    content = yaml.safe_dump(claims, sort_keys=False)
     response = await client.post(
         f"{repo_url}/issues/{number}/assets",
         headers=headers,
@@ -110,11 +118,15 @@ async def create_gitea_issue(
     The target repository is fixed by this room's configuration, so you do
     not choose it -- just supply a clear, specific 'title' and a 'body' that
     captures the request type, the requesting user, and every detail you
-    collected. The issue is tagged with a type label so administrators can
-    triage it; the label is created on the repository if it does not yet
-    exist. The requesting user's profile is attached to the issue as a YAML
-    file, so you need not transcribe their identity into the 'body'. Report the
-    returned issue number and URL back to the user.
+    collected.
+
+    `request_type` is used to tag the issue a type label to allow
+    administrators to triage it.
+
+    The requesting user's profile is attached to the issue as a YAML
+    file, so you need not transcribe their identity into the 'body'.
+
+    Report the returned issue number and URL back to the user.
 
     Args:
         title: the issue title.
@@ -163,6 +175,7 @@ async def create_gitea_issue(
             data["number"],
             ctx.deps.user,
             tool_config.profile_attachment_name,
+            tool_config.exclude_claims,
         )
 
     return CreatedGiteaIssue(

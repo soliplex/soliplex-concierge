@@ -20,12 +20,14 @@ def test_cgi_ctor(installation_config, temp_dir):
     assert git_config._host == "env:GITEA_HOST"
     assert git_config._token == "secret:GITEA_ACCESS_TOKEN"
     assert git_config.profile_attachment_name == "user-profile.yaml"
+    assert git_config.exclude_claims == []
     assert git_config.get_extra_parameters() == {
         "owner": "acme",
         "repo": "widgets",
         "host": "env:GITEA_HOST",
         "token": "secret:GITEA_ACCESS_TOKEN",
         "profile_attachment_name": "user-profile.yaml",
+        "exclude_claims": [],
     }
 
 
@@ -71,6 +73,24 @@ def test_cgi_from_yaml_accepts_profile_attachment_name(
     )
 
     assert git_config.profile_attachment_name == "profile.json"
+
+
+def test_cgi_from_yaml_accepts_exclude_claims(installation_config, temp_dir):
+    config_path = temp_dir / "rooms" / "test" / "room_config.yaml"
+    config_dict = {
+        "tool_name": config.CGI_TOOL_NAME,
+        "owner": "acme",
+        "repo": "widgets",
+        "exclude_claims": ["email"],
+    }
+
+    git_config = config.CreateGiteaIssueToolConfig.from_yaml(
+        installation_config=installation_config,
+        config_path=config_path,
+        config_dict=config_dict,
+    )
+
+    assert git_config.exclude_claims == ["email"]
 
 
 def test_cgi_from_yaml_without_host_token_keeps_defaults(
