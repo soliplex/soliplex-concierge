@@ -83,6 +83,7 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
             "number": 7,
             "html_url": f"{REPO}/issues/7",
             "title": "New room request: marketing",
+            "labels": [{"name": "new-room"}],
         }
     )
     asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
@@ -142,6 +143,7 @@ async def test_create_gitea_issue_honors_configured_attachment_name(ctx):
             "number": 7,
             "html_url": f"{REPO}/issues/7",
             "title": "New room request: marketing",
+            "labels": [{"name": "new-room"}],
         }
     )
     asset = _resp({"name": "user-profile.yaml.txt"})
@@ -179,6 +181,7 @@ async def test_create_gitea_issue_excludes_configured_claims(ctx):
             "number": 7,
             "html_url": f"{REPO}/issues/7",
             "title": "New room request: marketing",
+            "labels": [{"name": "new-room"}],
         }
     )
     asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
@@ -221,6 +224,7 @@ async def test_create_gitea_issue_creates_missing_label(ctx):
             "number": 8,
             "html_url": f"{REPO}/issues/8",
             "title": "Room access request: chat",
+            "labels": [{"name": "room-access"}],
         }
     )
     asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
@@ -311,6 +315,7 @@ async def test_create_gitea_issue_raises_on_attachment_error(ctx):
             "number": 7,
             "html_url": f"{REPO}/issues/7",
             "title": "New room request: marketing",
+            "labels": [{"name": "new-room"}],
         }
     )
     asset = _resp(
@@ -327,3 +332,32 @@ async def test_create_gitea_issue_raises_on_attachment_error(ctx):
             body="Requested by Phreddy.",
             request_type="new-room",
         )
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_raises_when_label_dropped(ctx):
+    labels = _resp([{"name": "room-access", "id": 9}])
+    issue = _resp(
+        {
+            "number": 12,
+            "html_url": f"{REPO}/issues/12",
+            "title": "Room access request: chat",
+            "labels": [],
+        }
+    )
+    patched_client, client = _patch_async_client(labels, [issue])
+
+    with patched_client, pytest.raises(gitea.LabelNotApplied) as exc:
+        await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="Room access request: chat",
+            body="Requested by Phreddy.",
+            request_type="room-access",
+        )
+
+    assert exc.value.request_type == "room-access"
+    assert exc.value.number == 12
+    assert exc.value.url == f"{REPO}/issues/12"
+    assert "Write access" in str(exc.value)
+    (issue_call,) = client.post.await_args_list
+    assert issue_call.args[0] == f"{REPO}/issues"

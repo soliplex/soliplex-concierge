@@ -39,6 +39,29 @@ class AnonymousUser(ValueError):
         )
 
 
+class LabelNotApplied(RuntimeError):
+    """The issue was created but its request-type label was not applied.
+
+    Gitea accepts an issue (and its attachments) from an account with only
+    Read access to the repository, but silently drops the 'labels' it was
+    asked to set -- applying labels requires Write access. We surface that as
+    an error rather than quietly filing an untagged request that would slip
+    past triage. The created (but unlabeled) issue is named so an operator can
+    find it; the fix is to grant the Gitea account Write access to the repo.
+    """
+
+    def __init__(self, request_type: str, number: int, url: str):
+        self.request_type = request_type
+        self.number = number
+        self.url = url
+        super().__init__(
+            f"issue #{number} was created but its {request_type!r} label was "
+            f"not applied -- the Gitea account likely lacks Write access to "
+            f"the repository (a Read-only account can file issues but Gitea "
+            f"silently drops their labels): {url}"
+        )
+
+
 class CreatedGiteaIssue(pydantic.BaseModel):
     """A Gitea issue created on behalf of a room request."""
 
@@ -141,6 +164,8 @@ async def create_gitea_issue(
     Raises:
         UnknownRequestType: if 'request_type' is not a known issue-type label.
         AnonymousUser: if no user profile is attached to the run.
+        LabelNotApplied: if the created issue did not receive its type label
+            (typically the Gitea account lacks Write access to the repo).
     """
     if request_type not in ISSUE_TYPE_LABELS:
         raise UnknownRequestType(request_type, set(ISSUE_TYPE_LABELS))
@@ -167,6 +192,12 @@ async def create_gitea_issue(
         )
         response.raise_for_status()
         data = response.json()
+
+        applied = {label["name"] for label in data.get("labels", [])}
+        if request_type not in applied:
+            raise LabelNotApplied(
+                request_type, data["number"], data["html_url"]
+            )
 
         await _attach_user_profile(
             client,
