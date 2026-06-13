@@ -33,17 +33,24 @@ uv run scripts/apply.py --stack-dir /path/to/stack \
     --owner <gitea-owner> --repo <gitea-repo> --version <X.Y>
 ```
 
-It performs seven idempotent edits: it adds `soliplex-concierge` to
-`backend/pyproject.toml` **and** the `backend/Dockerfile` `uv add` block (the
-generated Dockerfile ignores the pyproject deps, so both are needed); merges six
-`installation.yaml` entries (`meta.tool_configs`, `environment`, `secrets`, two
-`skill_configs` — for `soliplex-concierge-room` and `soliplex-docs` — and
-`room_paths`); copies the about-room template into `rooms/<room-id>/`; downloads
-and installs both filesystem skills into `skills/`; appends the `GITEA_HOST` /
-`GITEA_ACCESS_TOKEN` placeholders to `.env`; and writes the admin request-triage
-CLI to `scripts/gitea_issues.py` (see [Admin](../admin/index.md)).
+### What it changes
 
-Useful flags:
+It applies these idempotent edits to the stack:
+
+- Adds `soliplex-concierge` to `backend/pyproject.toml` **and** the
+  `backend/Dockerfile` `uv add` block (the generated Dockerfile ignores the
+  `pyproject.toml` deps, so both are needed).
+- Merges six entries into `backend/environment/installation.yaml`:
+  `meta.tool_configs`, `environment`, `secrets`, two `skill_configs` — for
+  `soliplex-concierge-room` and `soliplex-docs` — and `room_paths`.
+- Copies the about-room into `backend/environment/rooms/<room-id>/`
+  (`about_<compose-project-name>` by default; override with `--room-id`).
+- Downloads and installs the `soliplex-concierge-room` and `soliplex-docs`
+  filesystem skills into `backend/environment/skills/`.
+- Appends the `GITEA_HOST` / `GITEA_ACCESS_TOKEN` placeholders to `.env`.
+- Writes the admin `scripts/gitea_issues.py` CLI (see [Admin](../admin/index.md)).
+
+### Useful flags
 
 - `--version <X.Y>` — pin the dependency added to the stack; omitting it warns
   about version skew, `--version latest` opts into the newest release.
