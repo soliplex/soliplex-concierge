@@ -7,9 +7,15 @@ repo_url = "https://github.com/soliplex/soliplex-concierge"
 
 nav = [
   { "Home" = "index.md" },
-  { "Installation" = "installation.md" },
-  { "Skills" = "skills.md" },
-  { "Administration" = "administration.md" },
+  { "Rooms" = [
+    { "The concierge" = "rooms/index.md" },
+    { "Setup" = "rooms/setup.md" },
+  ]},
+  { "Admin" = [
+    { "Administering requests" = "admin/index.md" },
+    { "Room creation" = "admin/room_creation.md" },
+    { "Room access" = "admin/room_access.md" },
+  ]},
 ]
 
 # --------------------------------------------------------------------------

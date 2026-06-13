@@ -1,32 +1,16 @@
 # Soliplex Concierge
 
 `soliplex-concierge` is a [Soliplex](https://github.com/soliplex/soliplex)
-extension that supports LLM-driven, on-demand creation of issues tracking
-requested changes to a Soliplex installation's configuration:
+extension for LLM-driven, on-demand room requests. Users chat with a self-serve
+"about" room to request **access to a non-public room** or the **creation of a
+new room**; the concierge files each request as a tracking issue on a Gitea
+repository, and an administrator resolves it.
 
-- Access to a non-public room
-- Creation of a new room
+The documentation is organized around the two task areas:
 
-## Components
-
-- The **Python library** ([`src/soliplex_concierge`](https://github.com/soliplex/soliplex-concierge/tree/main/src/soliplex_concierge))
-  contains code to support both the issue-creation tasks and the scripts which
-  actually perform the requested updates.
-
-- The **agent skills** ([`skills/`](https://github.com/soliplex/soliplex-concierge/tree/main/skills))
-  contain [skill definitions](https://agentskills.io) which allow an agent to
-  perform these tasks:
-
-  - `soliplex-concierge-installer` — wire the extension into a stack
-  - `soliplex-concierge-room` — the in-room request formatter, copied into
-    the stack
-  - `soliplex-concierge-admin` — act on and resolve filed requests
-
-## In this documentation
-
-- [Installation & wiring](installation.md) — add the extension to a stack,
-  either via the one-shot installer or by hand.
-- [Skills & releases](skills.md) — the three bundled skills and how they are
-  published.
-- [Administration & status](administration.md) — resolving filed requests and
-  the current implementation status.
+- **[Rooms](rooms/index.md)** — the self-serve side. How the about-room
+  concierge collects a request and files it as an issue, and how to
+  [set it up](rooms/setup.md) in an installation.
+- **[Admin](admin/index.md)** — the resolution side. How an administrator
+  triages the filed issues and carries out the requested
+  [room creation](admin/room_creation.md) or [room access](admin/room_access.md).
