@@ -18,6 +18,12 @@ nav = [
       { "Room access" = "tasks/admin/room_access.md" },
     ]},
   ]},
+  { "Skills" = [
+    { "Overview" = "skills/index.md" },
+    { "soliplex-concierge-installer" = "skills/soliplex-concierge-installer.md" },
+    { "soliplex-concierge-room" = "skills/soliplex-concierge-room.md" },
+    { "soliplex-concierge-admin" = "skills/soliplex-concierge-admin.md" },
+  ]},
 ]
 
 # --------------------------------------------------------------------------

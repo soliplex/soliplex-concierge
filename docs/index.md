@@ -15,3 +15,6 @@ The documentation is organized around the two task areas:
   triages the filed issues and carries out the requested
   [room creation](tasks/admin/room_creation.md) or
   [room access](tasks/admin/room_access.md).
+
+The extension is delivered as three [Agent Skills](https://agentskills.io); see
+[Skills](skills/index.md) for where to find each one and how to install it.
