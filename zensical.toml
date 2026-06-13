@@ -7,9 +7,27 @@ repo_url = "https://github.com/soliplex/soliplex-concierge"
 
 nav = [
   { "Home" = "index.md" },
-  { "Installation" = "installation.md" },
-  { "Skills" = "skills.md" },
-  { "Administration" = "administration.md" },
+  { "Tasks" = [
+    { "Rooms" = [
+      { "The concierge" = "tasks/rooms/index.md" },
+      { "Setup" = "tasks/rooms/setup.md" },
+    ]},
+    { "Admin" = [
+      { "Administering requests" = "tasks/admin/index.md" },
+      { "Room creation" = "tasks/admin/room_creation.md" },
+      { "Room access" = "tasks/admin/room_access.md" },
+    ]},
+  ]},
+  { "Skills" = [
+    { "Overview" = "skills/index.md" },
+    { "soliplex-concierge-installer" = "skills/soliplex-concierge-installer.md" },
+    { "soliplex-concierge-room" = "skills/soliplex-concierge-room.md" },
+    { "soliplex-concierge-admin" = "skills/soliplex-concierge-admin.md" },
+  ]},
+  { "Reference" = [
+    { "CLI scripts" = "reference/cli.md" },
+    { "Python API" = "reference/api.md" },
+  ]},
 ]
 
 # --------------------------------------------------------------------------
