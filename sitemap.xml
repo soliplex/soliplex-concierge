@@ -4,12 +4,36 @@
         <loc>https://soliplex.github.io/soliplex-concierge/</loc>
       </url>
       <url>
-        <loc>https://soliplex.github.io/soliplex-concierge/installation/</loc>
+        <loc>https://soliplex.github.io/soliplex-concierge/tasks/rooms/</loc>
+      </url>
+      <url>
+        <loc>https://soliplex.github.io/soliplex-concierge/tasks/rooms/setup/</loc>
+      </url>
+      <url>
+        <loc>https://soliplex.github.io/soliplex-concierge/tasks/admin/</loc>
+      </url>
+      <url>
+        <loc>https://soliplex.github.io/soliplex-concierge/tasks/admin/room_creation/</loc>
+      </url>
+      <url>
+        <loc>https://soliplex.github.io/soliplex-concierge/tasks/admin/room_access/</loc>
       </url>
       <url>
         <loc>https://soliplex.github.io/soliplex-concierge/skills/</loc>
       </url>
       <url>
-        <loc>https://soliplex.github.io/soliplex-concierge/administration/</loc>
+        <loc>https://soliplex.github.io/soliplex-concierge/skills/soliplex-concierge-installer/</loc>
+      </url>
+      <url>
+        <loc>https://soliplex.github.io/soliplex-concierge/skills/soliplex-concierge-room/</loc>
+      </url>
+      <url>
+        <loc>https://soliplex.github.io/soliplex-concierge/skills/soliplex-concierge-admin/</loc>
+      </url>
+      <url>
+        <loc>https://soliplex.github.io/soliplex-concierge/reference/cli/</loc>
+      </url>
+      <url>
+        <loc>https://soliplex.github.io/soliplex-concierge/reference/api/</loc>
       </url>
 </urlset>
