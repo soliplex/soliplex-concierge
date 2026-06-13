@@ -8,9 +8,10 @@ repository, and an administrator resolves it.
 
 The documentation is organized around the two task areas:
 
-- **[Rooms](rooms/index.md)** — the self-serve side. How the about-room
+- **[Rooms](tasks/rooms/index.md)** — the self-serve side. How the about-room
   concierge collects a request and files it as an issue, and how to
-  [set it up](rooms/setup.md) in an installation.
-- **[Admin](admin/index.md)** — the resolution side. How an administrator
+  [set it up](tasks/rooms/setup.md) in an installation.
+- **[Admin](tasks/admin/index.md)** — the resolution side. How an administrator
   triages the filed issues and carries out the requested
-  [room creation](admin/room_creation.md) or [room access](admin/room_access.md).
+  [room creation](tasks/admin/room_creation.md) or
+  [room access](tasks/admin/room_access.md).
