@@ -25,6 +25,12 @@ dependencies = [
 # Opt-in: verify TLS against OS trust store instead of certifi's bundled CAs.
 # Useful behind an enterprise/internal CA. See #46.
 truststore = ["truststore"]
+# Build & publish the documentation site (see .github/workflows/docs.yaml).
+# 'zensical' renders docs/ into site/; 'ghp-import' pushes it to gh-pages.
+docs = [
+    "zensical>=0.0.43",
+    "ghp-import",
+]
 
 [dependency-groups]
 dev = [
