@@ -24,6 +24,10 @@ nav = [
     { "soliplex-concierge-room" = "skills/soliplex-concierge-room.md" },
     { "soliplex-concierge-admin" = "skills/soliplex-concierge-admin.md" },
   ]},
+  { "Reference" = [
+    { "CLI scripts" = "reference/cli.md" },
+    { "Python API" = "reference/api.md" },
+  ]},
 ]
 
 # --------------------------------------------------------------------------
