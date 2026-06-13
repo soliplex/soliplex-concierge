@@ -1,30 +1,6 @@
-# `soliplex-concierge`: room access / creation support
+# Installation & wiring
 
-This project provides a [Soliplex](https://github.com/soliplex/soliplex)
-extension to support LLM-driven, on-demand creation of issues tracking
-requested changes to a Soliplex installation's configuration:
-
-- Access to a non-public room
-- Creation of a new room
-
-📖 Documentation: <https://soliplex.github.io/soliplex-concierge/>
-
-Components:
-
-- The [Python library](src/soliplex_concierge) contains code to support
-  both the issue creation tasks and the scripts which actually perform
-  the requested updates.
-
-- The [agent skills](skills/) contain
-  [skill definitions](https://agentskills.io) which allow an agent to
-  perform these tasks: `soliplex-concierge-installer` (wire the extension
-  into a stack), `soliplex-concierge-room` (the in-room request formatter,
-  copied into the stack), and `soliplex-concierge-admin` (act on and resolve
-  filed requests).
-
-## Install & wire up
-
-### Generated stacks: one-shot apply
+## Generated stacks: one-shot apply
 
 If your installation is a
 [`soliplex-template`](https://github.com/soliplex/soliplex-template)-generated
@@ -72,7 +48,7 @@ placeholders), `--force` (overwrite an existing room/skill), and `--dry-run`
 (report the changes without writing). Afterwards, set real Gitea values and
 `docker compose build backend && docker compose up -d`.
 
-### Manual wiring
+## Manual wiring
 
 The script above automates exactly these steps; do them by hand for a
 non-generated installation.
@@ -85,7 +61,7 @@ non-generated installation.
    ```
 
 2. Merge the entries from
-   [`installation-snippet.yaml`](skills/soliplex-concierge-installer/assets/installation-snippet.yaml)
+   [`installation-snippet.yaml`](https://github.com/soliplex/soliplex-concierge/blob/main/skills/soliplex-concierge-installer/assets/installation-snippet.yaml)
    (bundled in the installer skill's `assets/`) into your `installation.yaml`.
    They:
 
@@ -99,7 +75,7 @@ non-generated installation.
      API (no MCP server or external binary is required).
 
 3. Copy
-   [`rooms/about_soliplex/`](skills/soliplex-concierge-installer/assets/rooms/about_soliplex)
+   [`rooms/about_soliplex/`](https://github.com/soliplex/soliplex-concierge/tree/main/skills/soliplex-concierge-installer/assets/rooms/about_soliplex)
    into your installation's `rooms/` directory, editing the `owner` / `repo` on
    the `create_gitea_issue` tool to point at your tracking repository.
 
@@ -108,30 +84,3 @@ non-generated installation.
    access to the tracking repo, not just Read — Gitea lets a Read-only account
    open issues but silently drops their labels, so filed requests would arrive
    untagged (see issue #59).
-
-## Skill releases
-
-Each skill under `skills/` is published from CI
-([`build-skills.yaml`](.github/workflows/build-skills.yaml)) as a standalone
-GitHub release artifact, following the pattern `soliplex` uses for its skills:
-
-- **Rolling builds** — every change to `skills/**` on `main` publishes an
-  immutable `<prefix>-YYYY.MM.DD-<sha>` prerelease (prefixes: `installer-skill`,
-  `room-skill`, `admin-skill`) and updates a `<prefix>-latest` pointer; the ten
-  newest rolling builds per skill are kept.
-- **Tagged releases** — publishing a software release (`v*`) attaches all three
-  skill tarballs to that release, pinned to the version.
-
-Each published skill bundles `scripts/skill_versions.py`, so an installed copy
-can `list`, `diff`, and `upgrade` itself against the published builds, e.g.
-`python scripts/skill_versions.py list`.
-
-## Status
-
-The issue-filing concierge (the `about_soliplex` room, its `create_gitea_issue`
-tool, and the `soliplex-concierge-room` skill) is implemented, as is the
-`soliplex-concierge-admin` skill, whose scripts read, comment on, and close
-(resolve) the filed request issues. The actual provisioning those requests ask
-for — creating rooms and granting access — is driven through the
-`soliplex-template` skill (see the admin skill's workflow); turnkey automation of
-that step is a planned follow-up.
