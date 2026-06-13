@@ -456,6 +456,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The installer skill (recommended)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-it-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What it changes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#useful-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Useful flags
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -934,6 +962,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The installer skill (recommended)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-it-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What it changes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#useful-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Useful flags
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1100,16 +1156,23 @@ needed — and applies every change idempotently.</p>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/apply.py<span class="w"> </span>--stack-dir<span class="w"> </span>/path/to/stack<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span>--owner<span class="w"> </span>&lt;gitea-owner&gt;<span class="w"> </span>--repo<span class="w"> </span>&lt;gitea-repo&gt;<span class="w"> </span>--version<span class="w"> </span>&lt;X.Y&gt;
 </span></code></pre></div>
-<p>It performs seven idempotent edits: it adds <code>soliplex-concierge</code> to
-<code>backend/pyproject.toml</code> <strong>and</strong> the <code>backend/Dockerfile</code> <code>uv add</code> block (the
-generated Dockerfile ignores the pyproject deps, so both are needed); merges six
-<code>installation.yaml</code> entries (<code>meta.tool_configs</code>, <code>environment</code>, <code>secrets</code>, two
-<code>skill_configs</code> — for <code>soliplex-concierge-room</code> and <code>soliplex-docs</code> — and
-<code>room_paths</code>); copies the about-room template into <code>rooms/&lt;room-id&gt;/</code>; downloads
-and installs both filesystem skills into <code>skills/</code>; appends the <code>GITEA_HOST</code> /
-<code>GITEA_ACCESS_TOKEN</code> placeholders to <code>.env</code>; and writes the admin request-triage
-CLI to <code>scripts/gitea_issues.py</code> (see <a href="../../admin/">Admin</a>).</p>
-<p>Useful flags:</p>
+<h3 id="what-it-changes">What it changes</h3>
+<p>It applies these idempotent edits to the stack:</p>
+<ul>
+<li>Adds <code>soliplex-concierge</code> to <code>backend/pyproject.toml</code> <strong>and</strong> the
+  <code>backend/Dockerfile</code> <code>uv add</code> block (the generated Dockerfile ignores the
+  <code>pyproject.toml</code> deps, so both are needed).</li>
+<li>Merges six entries into <code>backend/environment/installation.yaml</code>:
+  <code>meta.tool_configs</code>, <code>environment</code>, <code>secrets</code>, two <code>skill_configs</code> — for
+  <code>soliplex-concierge-room</code> and <code>soliplex-docs</code> — and <code>room_paths</code>.</li>
+<li>Copies the about-room into <code>backend/environment/rooms/&lt;room-id&gt;/</code>
+  (<code>about_&lt;compose-project-name&gt;</code> by default; override with <code>--room-id</code>).</li>
+<li>Downloads and installs the <code>soliplex-concierge-room</code> and <code>soliplex-docs</code>
+  filesystem skills into <code>backend/environment/skills/</code>.</li>
+<li>Appends the <code>GITEA_HOST</code> / <code>GITEA_ACCESS_TOKEN</code> placeholders to <code>.env</code>.</li>
+<li>Writes the admin <code>scripts/gitea_issues.py</code> CLI (see <a href="../../admin/">Admin</a>).</li>
+</ul>
+<h3 id="useful-flags">Useful flags</h3>
 <ul>
 <li><code>--version &lt;X.Y&gt;</code> — pin the dependency added to the stack; omitting it warns
   about version skew, <code>--version latest</code> opts into the newest release.</li>
