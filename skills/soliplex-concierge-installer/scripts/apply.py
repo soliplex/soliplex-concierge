@@ -76,7 +76,7 @@ ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 # an explicit '--<x>-skill-version' tag. '--<x>-skill-dir' installs a local
 # copy instead. This mirrors
 # skills/soliplex-concierge-room/scripts/skill_versions.py; the shared logic is
-# slated to move to the planned 'soliplex-skills' library.
+# slated to move to the planned 'soliplex-skills' library (soliplex-skills#27).
 _USER_AGENT = "soliplex-concierge-installer"
 # Schemes _get will open: https for GitHub, file:// for local/testing tarballs.
 _ALLOWED_SCHEMES = frozenset({"https", "file"})
@@ -766,20 +766,23 @@ def install_skill(
     return ADDED
 
 
-# Both bundled skills ship a 'scripts/skill_versions.py' self-management
-# helper # (list / diff / upgrade) so their *published tarballs* are
-# self-describing in a # coding agent.
+# Both bundled skills ship a 'scripts/skill_versions.py' self-management helper
+# (list / diff / upgrade) so their *published tarballs* are self-describing
+# in a coding agent.
 #
-# But the copies we drop into a stack are reachable by a Soliplex
-# *room* agent and its users, who must never reach upgrade machinery that
-# rewrites files and calls out to GitHub/PyPI. So for every skill we install,
-# remove the helper and replace its SKILL.md section.
+# But the copies we drop into a stack are reachable by a Soliplex *room* agent
+# and its users, who must never reach upgrade machinery that rewrites files and
+# calls out to GitHub/PyPI. So for every skill we install, remove the helper
+# and replace its SKILL.md section.
 #
 # The section is located by the body that references the helper: this tracks
-# each skill's own heading # ("Managing this skill's version",
-# "Checking for updates", ...) without # hard-coding it, and bounds the
-# rewrite to that one section so anything after it (e.g. the docs skill's
-# "Documentation map") is preserved.
+# each skill's own heading ("Managing this skill's version", "Checking for
+# updates", ...) without hard-coding it, and bounds the rewrite to that one
+# section so anything after it (e.g. the docs skill's "Documentation map") is
+# preserved.
+#
+# Like the download plumbing above, this strip machinery is slated to move into
+# the shared 'soliplex-skills' library (soliplex-skills#27).
 
 _INSTALLED_NOTE = """\
 {heading}

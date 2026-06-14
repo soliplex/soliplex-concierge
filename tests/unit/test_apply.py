@@ -703,8 +703,9 @@ def test_install_skill_defang_bounds_to_one_section(stack, tmp_path):
     # the docs skill uses a different heading and keeps a 'Documentation map'
     # section after the self-management one, which must survive the rewrite
     src = tmp_path / "soliplex-docs"
-    (src / "scripts").mkdir(parents=True)
+    (src / "scripts" / "__pycache__").mkdir(parents=True)
     (src / "scripts" / "skill_versions.py").write_text("# helper\n")
+    (src / "scripts" / "__pycache__" / "skill_versions.pyc").write_text("x")
     (src / "SKILL.md").write_text(
         "# Soliplex documentation\n\n"
         "## Checking for updates\n\n"
@@ -718,7 +719,8 @@ def test_install_skill_defang_bounds_to_one_section(stack, tmp_path):
     skill_dir = stack / "backend" / "environment" / "skills" / apply.DOCS.name
     skill_md = (skill_dir / "SKILL.md").read_text()
     assert action == apply.ADDED
-    assert not (skill_dir / "scripts" / "skill_versions.py").exists()
+    # the helper, its bytecode cache, and the now-empty scripts/ are all gone
+    assert not (skill_dir / "scripts").exists()
     assert "## Checking for updates" in skill_md  # this skill's own heading
     assert "uv run scripts/skill_versions.py" not in skill_md
     assert "re-run the installer's `apply.py`" in skill_md
