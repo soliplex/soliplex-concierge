@@ -683,6 +683,65 @@ def test_install_skill_added(stack):
     assert (skill_dir / "assets" / "room_access_request.md").is_file()
 
 
+def test_install_skill_room_defangs_version_management(stack):
+    skill_dir = stack / "backend" / "environment" / "skills" / apply.SKILL_NAME
+
+    action = apply.install_skill(apply.SKILL_NAME, ROOM_SKILL, stack, _opts())
+
+    assert action == apply.ADDED
+    assert not (skill_dir / "scripts" / "skill_versions.py").exists()
+    skill_md = (skill_dir / "SKILL.md").read_text()
+    # the section's heading survives, but its helper invocations and the
+    # source-only admonition are replaced by the installer-managed note
+    assert "## Managing this skill's version" in skill_md
+    assert "uv run scripts/skill_versions.py" not in skill_md
+    assert "installed copies differ" not in skill_md
+    assert "re-run the installer's `apply.py`" in skill_md
+
+
+def test_install_skill_defang_bounds_to_one_section(stack, tmp_path):
+    # the docs skill uses a different heading and keeps a 'Documentation map'
+    # section after the self-management one, which must survive the rewrite
+    src = tmp_path / "soliplex-docs"
+    (src / "scripts").mkdir(parents=True)
+    (src / "scripts" / "skill_versions.py").write_text("# helper\n")
+    (src / "SKILL.md").write_text(
+        "# Soliplex documentation\n\n"
+        "## Checking for updates\n\n"
+        "Run `uv run scripts/skill_versions.py upgrade` to update.\n\n"
+        "## Documentation map\n\n"
+        "- a topic\n"
+    )
+
+    action = apply.install_skill(apply.DOCS.name, src, stack, _opts())
+
+    skill_dir = stack / "backend" / "environment" / "skills" / apply.DOCS.name
+    skill_md = (skill_dir / "SKILL.md").read_text()
+    assert action == apply.ADDED
+    assert not (skill_dir / "scripts" / "skill_versions.py").exists()
+    assert "## Checking for updates" in skill_md  # this skill's own heading
+    assert "uv run scripts/skill_versions.py" not in skill_md
+    assert "re-run the installer's `apply.py`" in skill_md
+    assert "## Documentation map" in skill_md  # later section preserved
+    assert "- a topic" in skill_md
+
+
+def test_install_skill_without_helper_is_untouched(stack, tmp_path):
+    # no section references the helper, so nothing is rewritten and an
+    # unrelated script in scripts/ is left in place
+    src = tmp_path / "soliplex-docs"
+    (src / "scripts").mkdir(parents=True)
+    (src / "scripts" / "other.py").write_text("x\n")
+    (src / "SKILL.md").write_text("# Title\n\n## How to use\n\nstuff.\n")
+
+    action = apply.install_skill(apply.DOCS.name, src, stack, _opts())
+
+    skill_dir = stack / "backend" / "environment" / "skills" / apply.DOCS.name
+    assert action == apply.ADDED
+    assert (skill_dir / "scripts" / "other.py").is_file()
+    assert (skill_dir / "SKILL.md").read_text().count("## How to use") == 1
+
+
 def test_install_skill_unchanged(stack):
     skill_dir = stack / "backend" / "environment" / "skills" / apply.SKILL_NAME
     skill_dir.mkdir(parents=True)
