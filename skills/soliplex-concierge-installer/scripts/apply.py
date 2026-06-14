@@ -76,7 +76,7 @@ ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 # an explicit '--<x>-skill-version' tag. '--<x>-skill-dir' installs a local
 # copy instead. This mirrors
 # skills/soliplex-concierge-room/scripts/skill_versions.py; the shared logic is
-# slated to move to the planned 'soliplex-skills' library.
+# slated to move to the planned 'soliplex-skills' library (soliplex-skills#27).
 _USER_AGENT = "soliplex-concierge-installer"
 # Schemes _get will open: https for GitHub, file:// for local/testing tarballs.
 _ALLOWED_SCHEMES = frozenset({"https", "file"})
@@ -762,7 +762,63 @@ def install_skill(
     if opts.dry_run:
         return ADDED
     shutil.copytree(skill_src, dst, dirs_exist_ok=True)
+    _defang_skill(dst)
     return ADDED
+
+
+# Both bundled skills ship a 'scripts/skill_versions.py' self-management helper
+# (list / diff / upgrade) so their *published tarballs* are self-describing
+# in a coding agent.
+#
+# But the copies we drop into a stack are reachable by a Soliplex *room* agent
+# and its users, who must never reach upgrade machinery that rewrites files and
+# calls out to GitHub/PyPI. So for every skill we install, remove the helper
+# and replace its SKILL.md section.
+#
+# The section is located by the body that references the helper: this tracks
+# each skill's own heading ("Managing this skill's version", "Checking for
+# updates", ...) without hard-coding it, and bounds the rewrite to that one
+# section so anything after it (e.g. the docs skill's "Documentation map") is
+# preserved.
+#
+# Like the download plumbing above, this strip machinery is slated to move into
+# the shared 'soliplex-skills' library (soliplex-skills#27).
+
+_INSTALLED_NOTE = """\
+{heading}
+
+This copy was installed into the Soliplex stack by the
+`soliplex-concierge-installer` skill and runs inside a room agent, not a coding
+agent. Its `scripts/skill_versions.py` self-management helper has been removed:
+do **not** try to list, diff, or upgrade this skill from inside the room. To
+update it, re-run the installer's `apply.py` (with `--force`) against this
+stack from a coding agent.
+"""
+
+
+def _defang_skill(dst: pathlib.Path) -> None:
+    """Strip the skill_versions self-update helper + its SKILL.md section."""
+    (dst / "scripts" / "skill_versions.py").unlink(missing_ok=True)
+    pycache = dst / "scripts" / "__pycache__"
+    if pycache.is_dir():
+        shutil.rmtree(pycache)
+    scripts = dst / "scripts"
+    if scripts.is_dir() and not any(scripts.iterdir()):
+        scripts.rmdir()
+
+    skill_md = dst / "SKILL.md"
+    lines = skill_md.read_text().splitlines(keepends=True)
+    heads = [i for i, line in enumerate(lines) if line.startswith("## ")]
+    for n, start in enumerate(heads):
+        end = heads[n + 1] if n + 1 < len(heads) else len(lines)
+        if "skill_versions.py" not in "".join(lines[start:end]):
+            continue
+        block = _INSTALLED_NOTE.format(heading=lines[start].rstrip("\n"))
+        if end < len(lines):  # keep a blank line before the next section
+            block += "\n"
+        lines[start:end] = [block]
+        break
+    skill_md.write_text("".join(lines))
 
 
 def install_gitea_script(stack: pathlib.Path, opts: Options) -> str:

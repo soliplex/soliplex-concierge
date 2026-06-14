@@ -23,7 +23,14 @@ tarball into the installation's `skills/` directory and add it to
 `filesystem_skills_paths` / `skill_configs` — see the manual steps in
 [Setup](../tasks/rooms/setup.md).
 
-**Keeping it current.** Each published copy bundles `scripts/skill_versions.py`,
-which can `list`, `diff`, and `upgrade` the installed skill against the published
-builds — see the
+**Keeping it current.** After installing the published tarball in a coding
+agent, the skill contains `scripts/skill_versions.py`, which can `list`,
+`diff`, and `upgrade` the skill against the published builds — see the
 [`soliplex-skills` versions CLI docs](https://soliplex.github.io/soliplex-skills/mechanisms/versions-cli/).
+
+When installed in a Soliplex room, however, this skill runs inside the room's
+agent rather than a coding agent. Room users should never reach machinery that
+rewrites files and calls out to GitHub/PyPI, and therefore the
+[installer](soliplex-concierge-installer.md) **strips that helper
+from the copy it drops into a stack**. To update an installed copy, re-run the
+installer's `apply.py` (with `--force`) against the stack from a coding agent.
