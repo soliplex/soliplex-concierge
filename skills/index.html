@@ -965,15 +965,24 @@ it, and where and how to install it:</p>
 <p>The concierge works alongside two skills published by sibling repositories.
 Their own documentation covers installing and using them:</p>
 <ul>
-<li><strong><a href="https://soliplex.github.io/soliplex-template/"><code>soliplex-template</code></a></strong> —
+<li>
+<p><strong><a href="https://soliplex.github.io/soliplex-template/"><code>soliplex-template</code></a></strong> —
   generate and configure a Soliplex stack, create rooms, and build RAG
   databases. The installer uses it to stand up a stack, and the admin uses it to
-  provision the rooms requests ask for.</li>
-<li><strong><a href="https://soliplex.github.io/soliplex/docs-skill/"><code>soliplex-docs</code></a></strong> — the
+  provision the rooms requests ask for.</p>
+</li>
+<li>
+<p><strong><a href="https://soliplex.github.io/soliplex/docs-skill/"><code>soliplex-docs</code></a></strong> — the
   full Soliplex documentation as a skill. The installer wires it into the
   about-room so the concierge can answer "how do I …" questions about Soliplex,
-  and the admin consults it for room, access, and RAG configuration.</li>
+  and the admin consults it for room, access, and RAG configuration.</p>
+</li>
 </ul>
+<p>Like the installed copy of the <code>soliplex-concierge-room</code> skill, the installer
+  strips the <code>skill_versions.py</code> helper from the copy of the <code>soliplex-docs</code>
+  skill it installs.  To update an installed copy, re-run the
+  installer's <code>apply.py</code> (with <code>--force</code>) against the stack from a coding
+  agent.</p>
 
 
 

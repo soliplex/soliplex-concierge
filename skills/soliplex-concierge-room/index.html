@@ -954,10 +954,16 @@ and enables it in <code>installation.yaml</code>. To wire it by hand, download t
 tarball into the installation's <code>skills/</code> directory and add it to
 <code>filesystem_skills_paths</code> / <code>skill_configs</code> — see the manual steps in
 <a href="../../tasks/rooms/setup/">Setup</a>.</p>
-<p><strong>Keeping it current.</strong> Each published copy bundles <code>scripts/skill_versions.py</code>,
-which can <code>list</code>, <code>diff</code>, and <code>upgrade</code> the installed skill against the published
-builds — see the
+<p><strong>Keeping it current.</strong> After installing the published tarball in a coding
+agent, the skill contains <code>scripts/skill_versions.py</code>, which can <code>list</code>,
+<code>diff</code>, and <code>upgrade</code> the skill against the published builds — see the
 <a href="https://soliplex.github.io/soliplex-skills/mechanisms/versions-cli/"><code>soliplex-skills</code> versions CLI docs</a>.</p>
+<p>When installed in a Soliplex room, however, this skill runs inside the room's
+agent rather than a coding agent. Room users should never reach machinery that
+rewrites files and calls out to GitHub/PyPI, and therefore the
+<a href="../soliplex-concierge-installer/">installer</a> <strong>strips that helper
+from the copy it drops into a stack</strong>. To update an installed copy, re-run the
+installer's <code>apply.py</code> (with <code>--force</code>) against the stack from a coding agent.</p>
 
 
 
