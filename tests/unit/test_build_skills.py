@@ -38,6 +38,8 @@ def test_main_builds_named_skill(built, monkeypatch):
         src=build_skills.SKILLS_DIR,
         dist=build_skills.DIST,
         commit="feedface",
+        version=None,
+        generated=None,
     )
 
 
@@ -58,12 +60,16 @@ def test_main_builds_all_discovered(built, monkeypatch):
         src=build_skills.SKILLS_DIR,
         dist=build_skills.DIST,
         commit="feedface",
+        version=None,
+        generated=None,
     )
     assert call_b == mock.call(
         "b",
         src=build_skills.SKILLS_DIR,
         dist=build_skills.DIST,
         commit="feedface",
+        version=None,
+        generated=None,
     )
 
 
@@ -78,6 +84,33 @@ def test_main_threads_explicit_commit(built):
         src=build_skills.SKILLS_DIR,
         dist=build_skills.DIST,
         commit="abc1234",
+        version=None,
+        generated=None,
+    )
+
+
+def test_main_forwards_version_and_date(built):
+    rc = build_skills.main(
+        [
+            "--skill",
+            "soliplex-concierge-admin",
+            "--commit",
+            "abc1234",
+            "--version",
+            "v1.2.3",
+            "--date",
+            "2026-06-14",
+        ]
+    )
+
+    assert rc == 0
+    built.assert_called_once_with(
+        "soliplex-concierge-admin",
+        src=build_skills.SKILLS_DIR,
+        dist=build_skills.DIST,
+        commit="abc1234",
+        version="v1.2.3",
+        generated="2026-06-14",
     )
 
 

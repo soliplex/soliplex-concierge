@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["soliplex-skills>=0.2.2"]
+# dependencies = ["soliplex-skills>=0.5"]
 # ///
 """Assemble + validate the soliplex-concierge skills into dist/.
 
@@ -49,6 +49,17 @@ def main(argv: list[str] | None = None) -> int:
         "--commit",
         help="commit to stamp into SKILL.md metadata (default: git HEAD).",
     )
+    parser.add_argument(
+        "--version",
+        help="Published version to stamp into SKILL.md. The concierge skills "
+        "author metadata.version in their SKILL.md, which wins, so this is "
+        "normally a no-op (omit for rolling builds).",
+    )
+    parser.add_argument(
+        "--date",
+        help="Build date (ISO YYYY-MM-DD) to stamp as 'generated' (default: "
+        "today).",
+    )
     args = parser.parse_args(argv)
 
     names = [args.skill] if args.skill else build.discover_skills(SKILLS_DIR)
@@ -56,7 +67,12 @@ def main(argv: list[str] | None = None) -> int:
     for name in names:
         try:
             out = build.build_skill(
-                name, src=SKILLS_DIR, dist=DIST, commit=commit
+                name,
+                src=SKILLS_DIR,
+                dist=DIST,
+                commit=commit,
+                version=args.version,
+                generated=args.date,
             )
         except (build.SkillNotFound, build.ValidationFailed) as exc:
             print(f"build_skills: error: {exc}", file=sys.stderr)
