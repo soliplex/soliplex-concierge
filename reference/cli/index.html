@@ -819,10 +819,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#applypy-install-the-extension" class="md-nav__link">
+  <a href="#install_conciergepy-install-the-extension" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>apply.py</code> — install the extension
+        <code>install_concierge.py</code> — install the extension
       </span>
     </span>
   </a>
@@ -924,10 +924,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#applypy-install-the-extension" class="md-nav__link">
+  <a href="#install_conciergepy-install-the-extension" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>apply.py</code> — install the extension
+        <code>install_concierge.py</code> — install the extension
       </span>
     </span>
   </a>
@@ -1029,14 +1029,23 @@ which provisions their dependencies from the inline metadata — no install step
 (Each skill also bundles a <code>skill_versions.py</code>; that one is documented with the
 <a href="https://soliplex.github.io/soliplex-skills/mechanisms/versions-cli/"><code>soliplex-skills</code> versions CLI</a>,
 not here.)</p>
-<h2 id="applypy-install-the-extension"><code>apply.py</code> — install the extension</h2>
-<p><code>skills/soliplex-concierge-installer/scripts/apply.py</code> wires the extension into
-a <code>soliplex-template</code>-generated stack, idempotently. See
+<h2 id="install_conciergepy-install-the-extension"><code>install_concierge.py</code> — install the extension</h2>
+<p><code>skills/soliplex-concierge-installer/scripts/install_concierge.py</code> wires the
+extension into a <code>soliplex-template</code>-generated stack, idempotently. See
 <a href="../../tasks/rooms/setup/">Setup</a> for the full walkthrough; this is the option
 summary.</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/apply.py<span class="w"> </span>--stack-dir<span class="w"> </span>/path/to/stack<span class="w"> </span><span class="se">\</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/install_concierge.py<span class="w"> </span>--stack-dir<span class="w"> </span>/path/to/stack<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span>--owner<span class="w"> </span>&lt;gitea-owner&gt;<span class="w"> </span>--repo<span class="w"> </span>&lt;gitea-repo&gt;<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
 </span></code></pre></div>
+<p>The same logic is also installed as the <strong><code>install-concierge</code></strong> console script
+(<code>pip install soliplex-concierge</code>). It takes the options below, but — because
+the installed package does not ship the room template — the skill bundle's
+<code>assets/</code> directory is a required leading positional argument:</p>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>install-concierge<span class="w"> </span>/path/to/soliplex-concierge-installer/assets<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span>--stack-dir<span class="w"> </span>/path/to/stack<span class="w"> </span>--owner<span class="w"> </span>&lt;gitea-owner&gt;<span class="w"> </span>--repo<span class="w"> </span>&lt;gitea-repo&gt;
+</span></code></pre></div>
+<p>The <code>uv run scripts/install_concierge.py</code> shim supplies that path from its own
+bundle automatically, so you never pass it there.</p>
 <table>
 <thead>
 <tr>
@@ -1095,7 +1104,7 @@ See <a href="../../tasks/admin/">Administering requests</a> for the workflow; th
 the subcommand summary.</p>
 <p>Every subcommand takes the connection options <code>--host</code> / <code>--token</code> (falling back
 to <code>GITEA_HOST</code> / <code>GITEA_ACCESS_TOKEN</code>) and the required <code>--owner</code> / <code>--repo</code>.</p>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/gitea_issues.py<span class="w"> </span>&lt;command&gt;<span class="w"> </span>--owner<span class="w"> </span>&lt;owner&gt;<span class="w"> </span>--repo<span class="w"> </span>&lt;repo&gt;<span class="w"> </span><span class="o">[</span>...<span class="o">]</span>
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/gitea_issues.py<span class="w"> </span>&lt;command&gt;<span class="w"> </span>--owner<span class="w"> </span>&lt;owner&gt;<span class="w"> </span>--repo<span class="w"> </span>&lt;repo&gt;<span class="w"> </span><span class="o">[</span>...<span class="o">]</span>
 </span></code></pre></div>
 <table>
 <thead>

@@ -945,13 +945,13 @@ the <a href="https://github.com/soliplex/soliplex-concierge/releases/tag/room-sk
 pointer tracks the newest build (the asset is
 <code>soliplex-concierge-room-skill.tar.gz</code>), and tagged software releases (<code>v*</code>)
 attach the same tarball pinned to that version.</p>
-<p><strong>Where to install it.</strong> Into a <strong>Soliplex installation</strong>, as a filesystem skill
-enabled in the about-room's configuration — <em>not</em> into a coding agent. It runs
-as a sub-agent of the room agent.</p>
+<p><strong>Where to install it.</strong> Into a <strong>Soliplex installation</strong>, as a filesystem
+skill enabled in the about-room's configuration — <em>not</em> into a coding agent.
+It runs as a sub-agent of the room agent.</p>
 <p><strong>How to install it.</strong> The <a href="../soliplex-concierge-installer/">installer skill</a>
-does this for you: it downloads the release into the stack's <code>skills/</code> directory
-and enables it in <code>installation.yaml</code>. To wire it by hand, download the release
-tarball into the installation's <code>skills/</code> directory and add it to
+does this for you: it downloads the release into the stack's <code>skills/</code>
+directory and enables it in <code>installation.yaml</code>. To wire it by hand, download
+the release tarball into the installation's <code>skills/</code> directory and add it to
 <code>filesystem_skills_paths</code> / <code>skill_configs</code> — see the manual steps in
 <a href="../../tasks/rooms/setup/">Setup</a>.</p>
 <p><strong>Keeping it current.</strong> After installing the published tarball in a coding
@@ -963,7 +963,8 @@ agent rather than a coding agent. Room users should never reach machinery that
 rewrites files and calls out to GitHub/PyPI, and therefore the
 <a href="../soliplex-concierge-installer/">installer</a> <strong>strips that helper
 from the copy it drops into a stack</strong>. To update an installed copy, re-run the
-installer's <code>apply.py</code> (with <code>--force</code>) against the stack from a coding agent.</p>
+installer's <code>install_concierge.py</code> (with <code>--force</code>) against the stack
+from a coding agent.</p>
 
 
 

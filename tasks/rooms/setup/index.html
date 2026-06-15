@@ -1130,30 +1130,32 @@
 
 
 <h1 id="setting-up-the-concierge">Setting up the concierge</h1>
-<p>Adding the concierge to an installation means creating the about-room, wiring in
-the <code>soliplex-concierge-room</code> and <code>soliplex-docs</code> skills, registering the
-<code>create_gitea_issue</code> tool, and declaring the Gitea connection. The
-<strong><code>soliplex-concierge-installer</code></strong> skill does all of this for you on a
+<p>Adding the concierge to an installation means creating the about-room,
+wiring in the <code>soliplex-concierge-room</code> and <code>soliplex-docs</code> skills,
+registering the <code>create_gitea_issue</code> tool, and declaring the Gitea connection.
+The <strong><code>soliplex-concierge-installer</code></strong> skill does all of this for you on a
 <a href="https://github.com/soliplex/soliplex-template"><code>soliplex-template</code></a>-generated
 stack; the <a href="#manual-wiring">manual steps</a> below are for any other installation.</p>
 <p>Either way you will need a Gitea repository to file requests against, and an
 access token whose account has <strong>Write</strong> access to it — not just Read. Gitea
-lets a Read-only account open issues but silently drops their labels, so requests
-would be filed untagged and slip past triage (issue #59). A fine-grained token
-additionally needs the <code>write:issue</code> and <code>read:repository</code> scopes.</p>
+lets a Read-only account open issues but silently drops their labels, so
+requests would be filed untagged and slip past triage (issue #59).
+A fine-grained token additionally needs the <code>write:issue</code> and <code>read:repository</code>
+scopes.</p>
 <h2 id="the-installer-skill-recommended">The installer skill (recommended)</h2>
 <p>Run the <code>soliplex-concierge-installer</code> skill from an external coding agent (e.g.
-Claude Code). It runs its bundled <code>scripts/apply.py</code> with <code>uv run</code> — which
-provisions the script's one dependency (<code>ruamel.yaml</code>) from its
-<a href="https://peps.python.org/pep-0723/">PEP 723</a> header, so no install step is
-needed — and applies every change idempotently.</p>
+Claude Code). It runs its bundled <code>scripts/install_concierge.py</code> with
+<code>uv run</code> — a thin shim that provisions <code>soliplex-concierge</code> from its
+<a href="https://peps.python.org/pep-0723/">PEP 723</a> header (so no install step is
+needed) and delegates to the <code>soliplex_concierge.installer</code> module — applying
+every change idempotently.</p>
 <p>Preview first with <code>--dry-run</code>, then apply:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># dry run — report changes without writing</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/apply.py<span class="w"> </span>--stack-dir<span class="w"> </span>/path/to/stack<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/install_concierge.py<span class="w"> </span>--stack-dir<span class="w"> </span>/path/to/stack<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span>--owner<span class="w"> </span>&lt;gitea-owner&gt;<span class="w"> </span>--repo<span class="w"> </span>&lt;gitea-repo&gt;<span class="w"> </span>--dry-run
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># apply, pinning the dependency version</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/apply.py<span class="w"> </span>--stack-dir<span class="w"> </span>/path/to/stack<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/install_concierge.py<span class="w"> </span>--stack-dir<span class="w"> </span>/path/to/stack<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span>--owner<span class="w"> </span>&lt;gitea-owner&gt;<span class="w"> </span>--repo<span class="w"> </span>&lt;gitea-repo&gt;<span class="w"> </span>--version<span class="w"> </span>&lt;X.Y&gt;
 </span></code></pre></div>
 <h3 id="what-it-changes">What it changes</h3>
@@ -1170,20 +1172,23 @@ needed — and applies every change idempotently.</p>
 <li>Downloads and installs the <code>soliplex-concierge-room</code> and <code>soliplex-docs</code>
   filesystem skills into <code>backend/environment/skills/</code>.</li>
 <li>Appends the <code>GITEA_HOST</code> / <code>GITEA_ACCESS_TOKEN</code> placeholders to <code>.env</code>.</li>
-<li>Writes the admin <code>scripts/gitea_issues.py</code> CLI (see <a href="../../admin/">Admin</a>).</li>
+<li>Writes the admin <code>scripts/gitea_issues.py</code> CLI (see
+  <a href="../../admin/">Admin</a>).</li>
 </ul>
 <h3 id="useful-flags">Useful flags</h3>
 <ul>
 <li><code>--version &lt;X.Y&gt;</code> — pin the dependency added to the stack; omitting it warns
   about version skew, <code>--version latest</code> opts into the newest release.</li>
 <li><code>--room-id</code> — room id to create (default <code>about_&lt;compose-project-name&gt;</code>).</li>
-<li><code>--gitea-host</code> / <code>--gitea-token</code> — fill real <code>.env</code> values instead of placeholders.</li>
-<li><code>--with-truststore</code> — install the <code>soliplex-concierge[truststore]</code> extra so the
-  tool verifies TLS against the OS trust store rather than certifi's bundle; use
-  when the Gitea host's certificate chains to an enterprise / internal CA (issue #46).</li>
+<li><code>--gitea-host</code> / <code>--gitea-token</code> — fill real <code>.env</code> values instead
+  of placeholders.</li>
+<li><code>--with-truststore</code> — install the <code>soliplex-concierge[truststore]</code> extra
+  so the tool verifies TLS against the OS trust store rather than <code>certifi</code>'s
+  bundle; use when the Gitea host's certificate chains to an enterprise /
+  internal CA (issue #46).</li>
 <li><code>--room-skill-dir</code> / <code>--docs-skill-dir</code> (or <code>--room-skill-version</code> /
-  <code>--docs-skill-version</code>) — install the skills from a local copy or a pinned tag
-  instead of downloading the latest.</li>
+  <code>--docs-skill-version</code>) — install the skills from a local copy or a pinned
+  tag instead of downloading the latest.</li>
 <li><code>--force</code> — overwrite an existing room/skill.</li>
 </ul>
 <p>Afterwards, set the real Gitea values in <code>.env</code> and rebuild:
@@ -1207,8 +1212,8 @@ present under <code>backend/environment/skills/</code> and that
 <li>register the tool-config class via <code>meta.tool_configs</code> (Soliplex resolves
      the tool by its dotted <code>tool_name</code>; no core edit is needed),</li>
 <li>add the directories of the two filesystem skills the about-room uses
-     (<code>soliplex-concierge-room</code> and <code>soliplex-docs</code>) to <code>filesystem_skills_paths</code>,
-     and enable both under <code>skill_configs</code>, and</li>
+     (<code>soliplex-concierge-room</code> and <code>soliplex-docs</code>) to
+     <code>filesystem_skills_paths</code>, and enable both under <code>skill_configs</code>, and</li>
 <li>
 <p>declare the <code>GITEA_HOST</code> environment variable and <code>GITEA_ACCESS_TOKEN</code>
      secret the tool reads to call the Gitea REST API (no MCP server or external
@@ -1224,16 +1229,16 @@ present under <code>backend/environment/skills/</code> and that
 </li>
 <li>
 <p><strong>Set the Gitea connection</strong> — <code>GITEA_HOST</code> and the <code>GITEA_ACCESS_TOKEN</code>
-   secret (see the <code>.env</code> lines at the bottom of the snippet), using a token with
-   Write access as noted above.</p>
+   secret (see the <code>.env</code> lines at the bottom of the snippet), using a token
+   with Write access as noted above.</p>
 </li>
 </ol>
 <p>The about-room answers questions from the bundled <code>soliplex-docs</code> skill, so no
-RAG database is required. To <em>also</em> answer from this installation's own ingested
-content, uncomment the <code>skill_configs</code> block in the room's <code>room_config.yaml</code>,
-pointing <code>rag_lancedb_stem</code> at a database under <code>rag/db/</code> — the
-<a href="https://github.com/soliplex/soliplex-template"><code>soliplex-template</code></a> skill can
-generate and ingest one (see the
+RAG database is required. To <em>also</em> answer from this installation's own
+ingested content, uncomment the <code>skill_configs</code> block in the room's
+<code>room_config.yaml</code>, pointing <code>rag_lancedb_stem</code> at a database under <code>rag/db/</code>.
+tHe <a href="https://github.com/soliplex/soliplex-template"><code>soliplex-template</code></a> skill
+can generate and ingest one (see the
 <a href="https://soliplex.github.io/soliplex/config/rag/">RAG DB docs</a>).</p>
 
 

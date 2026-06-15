@@ -898,6 +898,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#soliplex_conciergeinstaller" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.installer</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1003,6 +1014,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         <code>soliplex_concierge.gitea_admin</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#soliplex_conciergeinstaller" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.installer</code>
       </span>
     </span>
   </a>
@@ -1198,6 +1220,85 @@ parameters.</p>
 <li><code>main(argv=None) -&gt; int</code> — the CLI entry point used by the <code>gitea_issues.py</code>
   shim.</li>
 </ul>
+<h2 id="soliplex_conciergeinstaller"><code>soliplex_concierge.installer</code></h2>
+<p>The implementation behind the installer skill's <code>install_concierge.py</code> shim
+(see <a href="../../tasks/rooms/setup/">Setup</a> and the <a href="../cli/">CLI reference</a>). It wires
+the extension into a <code>soliplex-template</code>-generated stack through idempotent,
+individually-testable edits. It depends on <code>ruamel.yaml</code> and <code>soliplex-skills</code>
+(runtime deps of <code>soliplex-concierge</code>); most users run the shim or the
+<code>install-concierge</code> console script and never import these symbols.</p>
+<p><strong>Entry points</strong></p>
+<ul>
+<li><code>main(argv=None) -&gt; int</code> — the CLI entry point, exposed as the
+  <code>install-concierge</code> console script and delegated to by the
+  <code>install_concierge.py</code> shim. The skill bundle's <code>assets/</code> directory is a
+  required <strong>positional</strong> argument (the installed package doesn't ship the room
+  template); the shim prepends its own bundled path. Resolves the stack and
+  assets, runs <code>apply</code>, and returns a process exit code (<code>0</code> ok, <code>2</code> on
+  <code>InstallerError</code>).</li>
+<li><code>apply(stack, assets, room_skill, docs_skill, opts) -&gt; dict[str, str]</code> — make
+  every change idempotently against <code>stack</code>, returning a <code>{target: action}</code>
+  map. <code>room_skill</code> / <code>docs_skill</code> are the resolved skill trees to install (or
+  <code>None</code> to skip).</li>
+</ul>
+<p><strong><code>class Options</code></strong> <em>(keyword-only dataclass)</em> — one apply run's resolved
+options: <code>room_id</code>, <code>pin</code>, <code>gitea_host</code>, <code>gitea_token</code>, <code>owner</code>, <code>repo</code>,
+<code>with_truststore</code>, <code>force</code>, <code>dry_run</code>.</p>
+<p><strong><code>class InstallerError(Exception)</code></strong> — a problem applying the extension; <code>main</code>
+maps it to exit code <code>2</code>. Built via message-constructing classmethods
+(<code>not_a_stack</code>, <code>assets_missing</code>, <code>bad_skill_dir</code>, <code>bad_pyproject</code>,
+<code>bad_dockerfile</code>, <code>bad_installation</code>, …).</p>
+<p><strong>Published skills</strong></p>
+<ul>
+<li><code>class PublishedSkill</code> <em>(frozen dataclass)</em> — a skill published as a
+  GitHub-release tarball: <code>name</code>, <code>owner</code>, <code>repo</code>, <code>asset_tarball</code>,
+  <code>pointer_tag</code>, <code>dir_flag</code> (the <code>--…-skill-dir</code> flag named in download-failure
+  hints), <code>pointer_manifest</code>. Its <code>published</code> property adapts it to a
+  <code>soliplex_skills.install.PublishedSkill</code> for downloading.</li>
+<li><code>ROOM</code>, <code>DOCS</code> — the two <code>PublishedSkill</code> specs installed into a stack
+  (<code>soliplex-concierge-room</code> and <code>soliplex-docs</code>).</li>
+<li><code>resolve_published_skill(spec, override, version, opts, stack, ctx) -&gt; Path | None</code>
+  — locate a skill tree to install: the <code>override</code> local dir, else download the
+  published release (via <code>soliplex_skills.install.download_skill</code>, mapping its
+  failures to <code>InstallerError</code>) into a temp dir owned by the <code>contextlib.ExitStack</code>
+  <em>ctx</em>. Returns <code>None</code> when nothing will be installed (dry run, or already
+  present without <code>--force</code>).</li>
+</ul>
+<p><strong>Stack / asset discovery</strong></p>
+<ul>
+<li><code>resolve_stack(stack_dir) -&gt; Path</code> — the resolved stack root, or raise if it
+  is not a generated stack (see <code>STACK_MARKERS</code>).</li>
+<li><code>resolve_assets(assets_dir) -&gt; Path</code> — validate and return the skill-bundle
+  <code>assets/</code> dir (room template + snippet).</li>
+<li><code>compose_project_name(stack) -&gt; str</code> / <code>default_room_id(stack) -&gt; str</code> — the
+  compose project name, and the default <code>about_&lt;project&gt;</code> room id.</li>
+</ul>
+<p><strong>Edits</strong> — pure <code>(text, …) -&gt; (new_text, action)</code> functions, so <code>--dry-run</code> is
+just "compute, don't write"; <code>action</code> is <code>ADDED</code> or <code>UNCHANGED</code>:</p>
+<ul>
+<li><code>add_pyproject_dep(text, pin=None, with_truststore=False)</code> /
+  <code>add_dockerfile_dep(text, pin=None, with_truststore=False)</code> — add the
+  <code>soliplex-concierge</code> dependency to <code>backend/pyproject.toml</code> and to the
+  <code>backend/Dockerfile</code> <code>uv add</code> block.</li>
+<li><code>merge_installation(text, room_id) -&gt; (new_text, {target: action})</code> —
+  surgically merge the six <code>installation.yaml</code> entries.</li>
+<li><code>update_env(text, host, token)</code> — add the <code>GITEA_HOST</code> / <code>GITEA_ACCESS_TOKEN</code>
+  lines.</li>
+<li><code>stack_gitea_script(pin=None, with_truststore=False) -&gt; str</code> — render the
+  stack's <code>scripts/gitea_issues.py</code> admin shim text.</li>
+</ul>
+<p><strong>File installs</strong> — mutate the stack, returning <code>ADDED</code> / <code>UNCHANGED</code>:</p>
+<ul>
+<li><code>install_room(assets, stack, opts)</code> — copy and rewire the about-room template.</li>
+<li><code>install_skill(name, skill_src, stack, opts)</code> — copy a skill tree into the
+  stack and defang it (via <code>soliplex_skills.install.defang_skill</code>).</li>
+<li><code>install_gitea_script(stack, opts)</code> — write the admin <code>gitea_issues.py</code> CLI.</li>
+</ul>
+<p><strong>Constants</strong> — <code>ADDED</code> / <code>UNCHANGED</code> (action strings); <code>SKILL_NAME</code> and
+<code>STACK_MARKERS</code>; the wiring constants <code>DIST</code>, <code>TOOL_CONFIG</code>, <code>GITEA_TOOL</code>,
+<code>GITEA_HOST</code>, <code>GITEA_TOKEN_SECRET</code>, <code>ASSET_ROOM</code>; <code>DEFAULT_GITEA_HOST</code> /
+<code>DEFAULT_GITEA_TOKEN</code>; and <code>GITEA_ADMIN_MIN</code> (the <code>soliplex-concierge</code> version
+floor pinned into the generated <code>gitea_issues.py</code> when <code>--version</code> is omitted).</p>
 
 
 
