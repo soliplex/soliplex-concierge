@@ -18,6 +18,17 @@ ROOM_SKILL = REPO_ROOT / "skills" / "soliplex-concierge-room"
 
 _COMPOSE = "name: concierge-test\nservices: {}\n"
 
+# A stack built by soliplex-template with 'include_gitea': a 'gitea' service
+# (backed by postgres) that 'scripts/init_gitea.py' provisions.
+_COMPOSE_LOCAL_GITEA = """\
+name: concierge-test
+services:
+  postgres:
+    image: postgres:16
+  gitea:
+    image: gitea/gitea:1.22
+"""
+
 _PYPROJECT = """\
 [project]
 name = "soliplex-template"
@@ -135,6 +146,35 @@ def test_resolve_stack_missing_marker(stack, marker):
 
     with pytest.raises(installer.InstallerError, match=marker):
         installer.resolve_stack(str(stack))
+
+
+# --- has_local_gitea ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "compose, expected",
+    [
+        # a service literally named 'gitea'
+        ("services:\n  gitea:\n    image: gitea/gitea:1.22\n", True),
+        # matched by image even under a different service name
+        ("services:\n  vcs:\n    image: gitea/gitea:1.22\n", True),
+        # matched by name even with no 'image:' key
+        ("services:\n  gitea:\n    build: ./gitea\n", True),
+        # a non-gitea service with a non-mapping spec
+        ("services:\n  weird:\n", False),
+        # other services, no gitea
+        ("services:\n  postgres:\n    image: postgres:16\n", False),
+        # an empty services mapping, and no services at all
+        ("name: x\nservices: {}\n", False),
+        ("name: x\n", False),
+    ],
+)
+def test_has_local_gitea(temp_dir, compose, expected):
+    (temp_dir / "docker-compose.yml").write_text(compose)
+
+    result = installer.has_local_gitea(temp_dir)
+
+    assert result is expected
 
 
 # --- resolve_assets -------------------------------------------------------
@@ -891,6 +931,92 @@ def test_main_with_owner_repo(stack, docs_skill, capsys):
     )
     assert (tool["owner"], tool["repo"]) == ("acme", "reqs")
     assert "edit owner/repo" not in capsys.readouterr().out
+
+
+def _room_tool(stack, room_id="about_concierge-test"):
+    cfg = _load(
+        stack
+        / "backend"
+        / "environment"
+        / "rooms"
+        / room_id
+        / "room_config.yaml"
+    )
+    return next(
+        t for t in cfg["tools"] if t.get("tool_name") == installer.GITEA_TOOL
+    )
+
+
+def test_main_local_gitea_defaults(stack, docs_skill, capsys):
+    (stack / "docker-compose.yml").write_text(_COMPOSE_LOCAL_GITEA)
+
+    rc = _main(
+        [
+            "--stack-dir",
+            str(stack),
+            "--room-skill-dir",
+            str(ROOM_SKILL),
+            "--docs-skill-dir",
+            str(docs_skill),
+        ]
+    )
+
+    assert rc == 0
+    tool = _room_tool(stack)
+    assert (tool["owner"], tool["repo"]) == (
+        installer.LOCAL_GITEA_OWNER,
+        installer.LOCAL_GITEA_REPO,
+    )
+    # '.env' is left untouched -- init_gitea.py owns GITEA_HOST/token.
+    assert (stack / ".env").read_text() == _ENV
+    out = capsys.readouterr().out
+    assert "local Gitea detected" in out
+    assert "init_gitea.py" in out
+
+
+def test_main_local_gitea_explicit_owner_repo_wins(stack, docs_skill):
+    (stack / "docker-compose.yml").write_text(_COMPOSE_LOCAL_GITEA)
+
+    rc = _main(
+        [
+            "--stack-dir",
+            str(stack),
+            "--room-skill-dir",
+            str(ROOM_SKILL),
+            "--docs-skill-dir",
+            str(docs_skill),
+            "--owner",
+            "acme",
+            "--repo",
+            "reqs",
+        ]
+    )
+
+    assert rc == 0
+    tool = _room_tool(stack)
+    assert (tool["owner"], tool["repo"]) == ("acme", "reqs")
+
+
+def test_main_no_local_gitea_keeps_placeholders(stack, docs_skill, capsys):
+    (stack / "docker-compose.yml").write_text(_COMPOSE_LOCAL_GITEA)
+
+    rc = _main(
+        [
+            "--stack-dir",
+            str(stack),
+            "--room-skill-dir",
+            str(ROOM_SKILL),
+            "--docs-skill-dir",
+            str(docs_skill),
+            "--no-local-gitea",
+        ]
+    )
+
+    assert rc == 0
+    tool = _room_tool(stack)
+    assert tool["owner"] == "your-gitea-owner"
+    assert "GITEA_HOST=" in (stack / ".env").read_text()
+    assert "edit owner/repo" in capsys.readouterr().out
 
 
 def test_main_with_truststore(stack, docs_skill):

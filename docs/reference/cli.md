@@ -37,6 +37,7 @@ bundle automatically, so you never pass it there.
 | `--stack-dir` | stack root (default: current directory) |
 | `--owner` / `--repo` | Gitea owner and repository for filed issues |
 | `--gitea-host` / `--gitea-token` | fill real `.env` values instead of placeholders |
+| `--no-local-gitea` | skip local-Gitea auto-detection; keep the external-Gitea defaults |
 | `--version <X.Y>` | pin the `soliplex-concierge` dependency added to the stack (`latest` for newest; omitted warns about skew) |
 | `--with-truststore` | install the `[truststore]` extra (verify TLS against the OS trust store; issue #46) |
 | `--room-skill-version` / `--docs-skill-version` | published tag to install for the room / docs skill |
