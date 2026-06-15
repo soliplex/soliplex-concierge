@@ -19,8 +19,8 @@ Their own documentation covers installing and using them:
 
 - **[`soliplex-template`](https://soliplex.github.io/soliplex-template/)** —
   generate and configure a Soliplex stack, create rooms, and build RAG
-  databases. The installer uses it to stand up a stack, and the admin uses it to
-  provision the rooms requests ask for.
+  databases. The installer skill uses it to stand up a stack, and the
+  admin user uses it to provision the rooms requests ask for.
 
 - **[`soliplex-docs`](https://soliplex.github.io/soliplex/docs-skill/)** — the
   full Soliplex documentation as a skill. The installer wires it into the
@@ -30,5 +30,5 @@ Their own documentation covers installing and using them:
   Like the installed copy of the `soliplex-concierge-room` skill, the installer
   strips the `skill_versions.py` helper from the copy of the `soliplex-docs`
   skill it installs.  To update an installed copy, re-run the
-  installer's `apply.py` (with `--force`) against the stack from a coding
-  agent.
+  installer's `install_concierge.py` (with `--force`) against the stack
+  from a coding agent.

@@ -12,14 +12,14 @@ pointer tracks the newest build (the asset is
 `soliplex-concierge-room-skill.tar.gz`), and tagged software releases (`v*`)
 attach the same tarball pinned to that version.
 
-**Where to install it.** Into a **Soliplex installation**, as a filesystem skill
-enabled in the about-room's configuration — *not* into a coding agent. It runs
-as a sub-agent of the room agent.
+**Where to install it.** Into a **Soliplex installation**, as a filesystem
+skill enabled in the about-room's configuration — *not* into a coding agent.
+It runs as a sub-agent of the room agent.
 
 **How to install it.** The [installer skill](soliplex-concierge-installer.md)
-does this for you: it downloads the release into the stack's `skills/` directory
-and enables it in `installation.yaml`. To wire it by hand, download the release
-tarball into the installation's `skills/` directory and add it to
+does this for you: it downloads the release into the stack's `skills/`
+directory and enables it in `installation.yaml`. To wire it by hand, download
+the release tarball into the installation's `skills/` directory and add it to
 `filesystem_skills_paths` / `skill_configs` — see the manual steps in
 [Setup](../tasks/rooms/setup.md).
 
@@ -33,4 +33,5 @@ agent rather than a coding agent. Room users should never reach machinery that
 rewrites files and calls out to GitHub/PyPI, and therefore the
 [installer](soliplex-concierge-installer.md) **strips that helper
 from the copy it drops into a stack**. To update an installed copy, re-run the
-installer's `apply.py` (with `--force`) against the stack from a coding agent.
+installer's `install_concierge.py` (with `--force`) against the stack
+from a coding agent.

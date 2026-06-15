@@ -14,41 +14,37 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "soliplex",
+    "httpx",
     "pydantic",
     "pydantic-ai-slim >= 1.100, < 2.0",
-    "httpx",
     "pyyaml",
+    "ruamel.yaml",             # `soliplex_concierge.installer`
+    "soliplex",
+    "soliplex-skills >= 0.5",  # `soliplex_concierge.installer`
 ]
 
 [project.optional-dependencies]
 # Opt-in: verify TLS against OS trust store instead of certifi's bundled CAs.
 # Useful behind an enterprise/internal CA. See #46.
 truststore = ["truststore"]
-# Build & publish the documentation site (see .github/workflows/docs.yaml).
-# 'zensical' renders docs/ into site/; 'ghp-import' pushes it to gh-pages.
-docs = [
-    "zensical>=0.0.43",
-    "ghp-import",
-]
+
+[project.scripts]
+install-concierge = "soliplex_concierge.installer:main"
 
 [dependency-groups]
 dev = [
     "anyio >= 4.12.1, < 4.13",
-    # Used by the bundled 'soliplex-concierge-installer' skill's apply.py
-    # (declared there via PEP 723); kept here so the unit tests that import
-    # apply.py can load it.
-    "ruamel.yaml",
     "coverage >= 7.13.5, < 7.14",
     "pytest >= 9.0.2, < 9.1",
     "pytest-cov >= 7.0.0, < 7.1",
     "pytest-asyncio >= 1.3.0, < 1.4",
     "pytest-xdist >= 3.8.0, < 3.9",
     "ruff >= 0.15.6, < 0.16",
-    # Backs the skill_versions.py shims and scripts/build_skills.py
-    # (build.build_skill); pulls in skills-ref (the Agent Skills validator)
-    # transitively.
-    "soliplex-skills >= 0.5",
+    # ruamel.yaml and soliplex-skills are runtime deps (see [project]), so the
+    # test env gets them with the project; only docs tooling is dev-only here.
+    # Renders docs/ into site/ for the docs workflow; that workflow installs
+    # 'ghp-import' itself (via 'uv run --with') to publish to gh-pages.
+    "zensical >= 0.0.43",
 ]
 
 [tool.setuptools.packages.find]
