@@ -48,7 +48,7 @@ dev = [
     # Backs the skill_versions.py shims and scripts/build_skills.py
     # (build.build_skill); pulls in skills-ref (the Agent Skills validator)
     # transitively.
-    "soliplex-skills >= 0.4",
+    "soliplex-skills >= 0.5",
 ]
 
 [tool.setuptools.packages.find]
