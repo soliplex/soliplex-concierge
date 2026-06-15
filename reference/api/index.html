@@ -1243,7 +1243,9 @@ individually-testable edits. It depends on <code>ruamel.yaml</code> and <code>so
 </ul>
 <p><strong><code>class Options</code></strong> <em>(keyword-only dataclass)</em> — one apply run's resolved
 options: <code>room_id</code>, <code>pin</code>, <code>gitea_host</code>, <code>gitea_token</code>, <code>owner</code>, <code>repo</code>,
-<code>with_truststore</code>, <code>force</code>, <code>dry_run</code>.</p>
+<code>local_gitea</code>, <code>with_truststore</code>, <code>force</code>, <code>dry_run</code>. When <code>local_gitea</code> is set,
+<code>apply</code> skips the <code>.env</code> <code>GITEA_HOST</code> / <code>GITEA_ACCESS_TOKEN</code> write (the stack's
+<code>scripts/init_gitea.py</code> owns those).</p>
 <p><strong><code>class InstallerError(Exception)</code></strong> — a problem applying the extension; <code>main</code>
 maps it to exit code <code>2</code>. Built via message-constructing classmethods
 (<code>not_a_stack</code>, <code>assets_missing</code>, <code>bad_skill_dir</code>, <code>bad_pyproject</code>,
@@ -1272,6 +1274,10 @@ maps it to exit code <code>2</code>. Built via message-constructing classmethods
   <code>assets/</code> dir (room template + snippet).</li>
 <li><code>compose_project_name(stack) -&gt; str</code> / <code>default_room_id(stack) -&gt; str</code> — the
   compose project name, and the default <code>about_&lt;project&gt;</code> room id.</li>
+<li><code>has_local_gitea(stack) -&gt; bool</code> — whether <code>docker-compose.yml</code> defines a local
+  <code>gitea</code> service (by name or a <code>gitea/gitea*</code> image). When true (and not
+  <code>--no-local-gitea</code>), <code>main</code> defaults the room's owner/repo to
+  <code>LOCAL_GITEA_OWNER</code> / <code>LOCAL_GITEA_REPO</code>.</li>
 </ul>
 <p><strong>Edits</strong> — pure <code>(text, …) -&gt; (new_text, action)</code> functions, so <code>--dry-run</code> is
 just "compute, don't write"; <code>action</code> is <code>ADDED</code> or <code>UNCHANGED</code>:</p>
@@ -1297,7 +1303,9 @@ just "compute, don't write"; <code>action</code> is <code>ADDED</code> or <code>
 <p><strong>Constants</strong> — <code>ADDED</code> / <code>UNCHANGED</code> (action strings); <code>SKILL_NAME</code> and
 <code>STACK_MARKERS</code>; the wiring constants <code>DIST</code>, <code>TOOL_CONFIG</code>, <code>GITEA_TOOL</code>,
 <code>GITEA_HOST</code>, <code>GITEA_TOKEN_SECRET</code>, <code>ASSET_ROOM</code>; <code>DEFAULT_GITEA_HOST</code> /
-<code>DEFAULT_GITEA_TOKEN</code>; and <code>GITEA_ADMIN_MIN</code> (the <code>soliplex-concierge</code> version
+<code>DEFAULT_GITEA_TOKEN</code>; <code>LOCAL_GITEA_OWNER</code> / <code>LOCAL_GITEA_REPO</code> (the service
+account and repo <code>soliplex-template</code>'s <code>init_gitea.py</code> provisions, defaulted into
+the room when a local Gitea is detected); and <code>GITEA_ADMIN_MIN</code> (the <code>soliplex-concierge</code> version
 floor pinned into the generated <code>gitea_issues.py</code> when <code>--version</code> is omitted).</p>
 
 
