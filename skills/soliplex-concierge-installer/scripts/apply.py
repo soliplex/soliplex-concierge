@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["ruamel.yaml"]
+# dependencies = ["ruamel.yaml", "soliplex-skills>=0.5"]
 # ///
 """Apply the 'soliplex-concierge' extension to a generated Soliplex stack.
 
@@ -39,22 +39,16 @@ from __future__ import annotations
 import argparse
 import contextlib
 import dataclasses
-import hashlib
 import io
-import json
-import os
 import pathlib
 import re
 import shutil
 import sys
-import tarfile
 import tempfile
 import tomllib
-import urllib.error as urllib_error
-import urllib.parse as urllib_parse
-import urllib.request as urllib_request
 
 from ruamel.yaml import YAML
+from soliplex_skills import install
 
 # --- the constants that define the wiring ---------------------------------
 
@@ -74,22 +68,19 @@ ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 # its own published GitHub-release artifact, downloaded by default from its
 # 'latest' pointer (whose 'latest.json' names the immutable build + sha256) or
 # an explicit '--<x>-skill-version' tag. '--<x>-skill-dir' installs a local
-# copy instead. This mirrors
-# skills/soliplex-concierge-room/scripts/skill_versions.py; the shared logic is
-# slated to move to the planned 'soliplex-skills' library (soliplex-skills#27).
-_USER_AGENT = "soliplex-concierge-installer"
-# Schemes _get will open: https for GitHub, file:// for local/testing tarballs.
-_ALLOWED_SCHEMES = frozenset({"https", "file"})
+# copy instead. The download/extract/verify and defang machinery now lives in
+# the shared 'soliplex-skills' library (soliplex-skills#28); see
+# resolve_published_skill and install_skill below.
+_INSTALLED_BY = "soliplex-concierge-installer"
 
 
 @dataclasses.dataclass(frozen=True)
 class PublishedSkill:
     """A filesystem skill published as a GitHub-release tarball.
 
-    'pointer_tag' is a moving release whose 'pointer_manifest' (latest.json)
-    names the current immutable build + sha256; 'asset_tarball' is the
-    '<name>/...'-rooted tarball attached to each build. 'dir_flag' is the CLI
-    flag a user passes to install a local copy instead (used in error hints).
+    Mirrors 'soliplex_skills.install.PublishedSkill' (the 'published' property
+    adapts to it for downloading); 'dir_flag' is the extra CLI flag a user
+    passes to install a local copy instead (used in error hints).
     """
 
     name: str
@@ -101,8 +92,16 @@ class PublishedSkill:
     pointer_manifest: str = "latest.json"
 
     @property
-    def download_base(self) -> str:
-        return f"https://github.com/{self.owner}/{self.repo}/releases/download"
+    def published(self) -> install.PublishedSkill:
+        """The library spec used to download this skill (drops 'dir_flag')."""
+        return install.PublishedSkill(
+            name=self.name,
+            owner=self.owner,
+            repo=self.repo,
+            asset_tarball=self.asset_tarball,
+            pointer_tag=self.pointer_tag,
+            pointer_manifest=self.pointer_manifest,
+        )
 
 
 ROOM = PublishedSkill(
@@ -173,47 +172,6 @@ class InstallerError(Exception):
         return cls(
             f"could not download the '{spec.name}' skill ({reason}); pass "
             f"{spec.dir_flag} to install from a local copy instead"
-        )
-
-    @classmethod
-    def skill_bad_scheme(
-        cls, spec: PublishedSkill, url: str
-    ) -> InstallerError:
-        return cls._skill_download(spec, f"unsupported URL {url!r}")
-
-    @classmethod
-    def skill_http(
-        cls, spec: PublishedSkill, url: str, code: int
-    ) -> InstallerError:
-        return cls._skill_download(spec, f"HTTP {code}: {url}")
-
-    @classmethod
-    def skill_unreachable(
-        cls, spec: PublishedSkill, url: str, reason: object
-    ) -> InstallerError:
-        return cls._skill_download(spec, f"{reason}: {url}")
-
-    @classmethod
-    def skill_bad_manifest(
-        cls, spec: PublishedSkill, url: str
-    ) -> InstallerError:
-        return cls._skill_download(spec, f"invalid manifest at {url}")
-
-    @classmethod
-    def skill_checksum(
-        cls, spec: PublishedSkill, tag: str, expected: str, actual: str
-    ) -> InstallerError:
-        return cls._skill_download(
-            spec,
-            f"checksum mismatch for {tag}: expected {expected}, got {actual}",
-        )
-
-    @classmethod
-    def skill_no_skill_md(
-        cls, spec: PublishedSkill, tag: str
-    ) -> InstallerError:
-        return cls(
-            f"the downloaded '{spec.name}' archive ({tag}) has no SKILL.md"
         )
 
     @classmethod
@@ -334,104 +292,15 @@ def resolve_published_skill(
     if opts.dry_run or (_skill_installed(stack, spec.name) and not opts.force):
         return None
     dest = pathlib.Path(ctx.enter_context(tempfile.TemporaryDirectory()))
-    return download_skill(spec, version, dest)
-
-
-# --- published-skill download (mirrors the room skill's skill_versions.py) ---
-#
-# Stdlib only. Network access to GitHub is needed; set GITHUB_TOKEN / GH_TOKEN
-# to raise the API rate limit. The shared logic is slated to move to the
-# planned 'soliplex-skills' library.
-
-
-def _token() -> str | None:
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-
-
-def _get(
-    url: str,
-    spec: PublishedSkill,
-    *,
-    accept: str = "application/octet-stream",
-) -> bytes:
-    """Fetch 'url' (https or file://); map failures to InstallerError."""
-    scheme = urllib_parse.urlsplit(url).scheme
-    if scheme not in _ALLOWED_SCHEMES:
-        raise InstallerError.skill_bad_scheme(spec, url)
-    request = urllib_request.Request(url)
-    request.add_header("User-Agent", _USER_AGENT)
-    request.add_header("Accept", accept)
-    token = _token()
-    if token:
-        request.add_header("Authorization", f"Bearer {token}")
+    # Download + verify + extract is the shared library's job (soliplex-skills
+    # #28); map its failures back to the installer's '--<x>-skill-dir' hint.
     try:
-        # Scheme allowlist above bounds this to https/file (S310 mitigated).
-        with urllib_request.urlopen(request) as response:  # noqa: S310
-            return response.read()
-    except urllib_error.HTTPError as exc:
-        raise InstallerError.skill_http(spec, url, exc.code) from exc
-    except urllib_error.URLError as exc:
-        raise InstallerError.skill_unreachable(spec, url, exc.reason) from exc
-
-
-def _sha256(path: pathlib.Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(65536), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def _read_pointer(spec: PublishedSkill) -> dict:
-    """Return the spec's 'latest' pointer manifest (latest.json)."""
-    url = f"{spec.download_base}/{spec.pointer_tag}/{spec.pointer_manifest}"
-    try:
-        return json.loads(_get(url, spec))
-    except json.JSONDecodeError as exc:
-        raise InstallerError.skill_bad_manifest(spec, url) from exc
-
-
-def _resolve_target(
-    spec: PublishedSkill, version: str | None
-) -> tuple[str, str, str | None]:
-    """Resolve to (tag, asset_url, sha256), expanding the default pointer.
-
-    'version is None' reads the spec's 'latest' pointer (verified sha256); an
-    explicit tag builds the asset URL by name (no sha256 to verify).
-    """
-    if version is None:
-        pointer = _read_pointer(spec)
-        return (
-            pointer.get("tag", spec.pointer_tag),
-            pointer["asset_url"],
-            pointer.get("sha256"),
-        )
-    return (
-        version,
-        f"{spec.download_base}/{version}/{spec.asset_tarball}",
-        None,
-    )
-
-
-def download_skill(
-    spec: PublishedSkill, version: str | None, dest: pathlib.Path
-) -> pathlib.Path:
-    """Download + extract the spec's skill into 'dest'; return its root."""
-    tag, asset_url, sha256 = _resolve_target(spec, version)
-    tarball = dest / spec.asset_tarball
-    tarball.write_bytes(_get(asset_url, spec))
-    if sha256:
-        actual = _sha256(tarball)
-        if actual != sha256:
-            raise InstallerError.skill_checksum(spec, tag, sha256, actual)
-    extract = dest / "extract"
-    extract.mkdir()
-    with tarfile.open(tarball) as archive:
-        archive.extractall(extract, filter="data")
-    matches = list(extract.glob("*/SKILL.md"))
-    if not matches:
-        raise InstallerError.skill_no_skill_md(spec, tag)
-    return matches[0].parent
+        return install.download_skill(spec.published, version, dest)
+    except install.PointerUnavailable as exc:
+        reason = f"could not read the '{spec.pointer_tag}' latest pointer"
+        raise InstallerError._skill_download(spec, reason) from exc
+    except (install.releases.GitHubAPIError, ValueError) as exc:
+        raise InstallerError._skill_download(spec, str(exc)) from exc
 
 
 def compose_project_name(stack: pathlib.Path) -> str:
@@ -755,6 +624,14 @@ def install_skill(
 
     'skill_src' is None only when no copy will happen (dry run, or already
     installed without --force) -- the guards below return before using it.
+
+    The copy is then *defanged* via 'soliplex_skills.install.defang_skill': a
+    stack-installed skill is reachable by a Soliplex room agent and its users,
+    who must never reach upgrade machinery that rewrites files and calls out to
+    GitHub/PyPI, so its 'scripts/skill_versions.py' helper is removed and its
+    SKILL.md self-management section is rewritten to an installer-managed note
+    (naming '_INSTALLED_BY'). This was hoisted into the shared library in
+    soliplex-skills#28.
     """
     dst = stack / "backend" / "environment" / "skills" / name
     if dst.exists() and not opts.force:
@@ -762,63 +639,8 @@ def install_skill(
     if opts.dry_run:
         return ADDED
     shutil.copytree(skill_src, dst, dirs_exist_ok=True)
-    _defang_skill(dst)
+    install.defang_skill(dst, installed_by=_INSTALLED_BY)
     return ADDED
-
-
-# Both bundled skills ship a 'scripts/skill_versions.py' self-management helper
-# (list / diff / upgrade) so their *published tarballs* are self-describing
-# in a coding agent.
-#
-# But the copies we drop into a stack are reachable by a Soliplex *room* agent
-# and its users, who must never reach upgrade machinery that rewrites files and
-# calls out to GitHub/PyPI. So for every skill we install, remove the helper
-# and replace its SKILL.md section.
-#
-# The section is located by the body that references the helper: this tracks
-# each skill's own heading ("Managing this skill's version", "Checking for
-# updates", ...) without hard-coding it, and bounds the rewrite to that one
-# section so anything after it (e.g. the docs skill's "Documentation map") is
-# preserved.
-#
-# Like the download plumbing above, this strip machinery is slated to move into
-# the shared 'soliplex-skills' library (soliplex-skills#27).
-
-_INSTALLED_NOTE = """\
-{heading}
-
-This copy was installed into the Soliplex stack by the
-`soliplex-concierge-installer` skill and runs inside a room agent, not a coding
-agent. Its `scripts/skill_versions.py` self-management helper has been removed:
-do **not** try to list, diff, or upgrade this skill from inside the room. To
-update it, re-run the installer's `apply.py` (with `--force`) against this
-stack from a coding agent.
-"""
-
-
-def _defang_skill(dst: pathlib.Path) -> None:
-    """Strip the skill_versions self-update helper + its SKILL.md section."""
-    (dst / "scripts" / "skill_versions.py").unlink(missing_ok=True)
-    pycache = dst / "scripts" / "__pycache__"
-    if pycache.is_dir():
-        shutil.rmtree(pycache)
-    scripts = dst / "scripts"
-    if scripts.is_dir() and not any(scripts.iterdir()):
-        scripts.rmdir()
-
-    skill_md = dst / "SKILL.md"
-    lines = skill_md.read_text().splitlines(keepends=True)
-    heads = [i for i, line in enumerate(lines) if line.startswith("## ")]
-    for n, start in enumerate(heads):
-        end = heads[n + 1] if n + 1 < len(heads) else len(lines)
-        if "skill_versions.py" not in "".join(lines[start:end]):
-            continue
-        block = _INSTALLED_NOTE.format(heading=lines[start].rstrip("\n"))
-        if end < len(lines):  # keep a blank line before the next section
-            block += "\n"
-        lines[start:end] = [block]
-        break
-    skill_md.write_text("".join(lines))
 
 
 def install_gitea_script(stack: pathlib.Path, opts: Options) -> str:

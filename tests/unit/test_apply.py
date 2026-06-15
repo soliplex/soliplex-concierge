@@ -1,10 +1,8 @@
 import contextlib
-import hashlib
 import importlib.util
 import pathlib
 import shutil
 import sys
-import tarfile
 
 import pytest
 
@@ -166,20 +164,6 @@ _SPECS = [apply.ROOM, apply.DOCS]
 _SPEC_IDS = ["room", "docs"]
 
 
-def _make_skill_tarball(tmp_path, spec, *, with_skill_md=True):
-    """Build a '<name>/...'-rooted .tar.gz like a published skill build."""
-    root = tmp_path / "src" / spec.name
-    root.mkdir(parents=True)
-    if with_skill_md:
-        (root / "SKILL.md").write_text("---\nname: x\n---\n")
-    else:
-        (root / "README.md").write_text("no skill here\n")
-    tarball = tmp_path / spec.asset_tarball
-    with tarfile.open(tarball, "w:gz") as archive:
-        archive.add(root, arcname=spec.name)
-    return tarball
-
-
 @pytest.mark.parametrize("spec", _SPECS, ids=_SPEC_IDS)
 def test_resolve_published_skill_override(tmp_path, spec):
     (tmp_path / "SKILL.md").write_text("x")
@@ -230,122 +214,68 @@ def test_resolve_published_skill_already_installed_skips(stack):
     assert result is None
 
 
-# --- published-skill download helpers -------------------------------------
-
-
-def test_get_rejects_unsupported_scheme():
-    with pytest.raises(apply.InstallerError, match="could not download"):
-        apply._get("ftp://example.com/x", apply.ROOM)
-
-
-def test_get_reads_file_url_with_token(tmp_path, monkeypatch):
-    blob = tmp_path / "x.json"
-    blob.write_text("{}")
-    monkeypatch.setenv("GITHUB_TOKEN", "tok")
-
-    result = apply._get(blob.as_uri(), apply.ROOM)
-
-    assert result == b"{}"
-
-
-def test_get_reads_file_url_without_token(tmp_path, monkeypatch):
-    blob = tmp_path / "x.json"
-    blob.write_text("{}")
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-
-    result = apply._get(blob.as_uri(), apply.ROOM)
-
-    assert result == b"{}"
-
-
-def test_get_http_error(monkeypatch):
-    def _raise(req):
-        raise apply.urllib_error.HTTPError(req.full_url, 404, "NF", {}, None)
-
-    monkeypatch.setattr(apply.urllib_request, "urlopen", _raise)
-
-    with pytest.raises(apply.InstallerError, match="HTTP 404"):
-        apply._get("https://example.com/x", apply.ROOM)
-
-
-def test_get_url_error(monkeypatch):
-    def _raise(req):
-        raise apply.urllib_error.URLError("boom")
-
-    monkeypatch.setattr(apply.urllib_request, "urlopen", _raise)
-
-    with pytest.raises(apply.InstallerError, match="boom"):
-        apply._get("https://example.com/x", apply.ROOM)
-
-
-def test_read_pointer_ok(monkeypatch):
-    payload = b'{"tag": "t", "asset_url": "u"}'
-    monkeypatch.setattr(apply, "_get", lambda url, spec, **kw: payload)
-
-    result = apply._read_pointer(apply.ROOM)
-
-    assert result["tag"] == "t"
-
-
-def test_read_pointer_bad_manifest(monkeypatch):
-    monkeypatch.setattr(apply, "_get", lambda url, spec, **kw: b"not json")
-
-    with pytest.raises(apply.InstallerError, match="invalid manifest"):
-        apply._read_pointer(apply.ROOM)
+# --- resolve_published_skill download delegation --------------------------
 
 
 @pytest.mark.parametrize("spec", _SPECS, ids=_SPEC_IDS)
-def test_resolve_target_explicit(spec):
-    tag, url, sha256 = apply._resolve_target(spec, "v0.4")
+def test_published_property_adapts_to_library_spec(spec):
+    published = spec.published
 
-    assert tag == "v0.4"
-    assert url.endswith(f"/v0.4/{spec.asset_tarball}")
-    assert sha256 is None
+    assert isinstance(published, apply.install.PublishedSkill)
+    assert published.name == spec.name
+    assert published.owner == spec.owner
+    assert published.repo == spec.repo
+    assert published.asset_tarball == spec.asset_tarball
+    assert published.pointer_tag == spec.pointer_tag
+    assert published.pointer_manifest == spec.pointer_manifest
 
 
-@pytest.mark.parametrize("spec", _SPECS, ids=_SPEC_IDS)
-def test_download_skill_explicit_version(tmp_path, monkeypatch, spec):
-    tarball = _make_skill_tarball(tmp_path, spec)
-    monkeypatch.setattr(
-        apply, "_get", lambda url, s, **kw: tarball.read_bytes()
+def test_resolve_published_skill_downloads_via_library(
+    stack, tmp_path, monkeypatch
+):
+    root = tmp_path / apply.ROOM.name
+    root.mkdir()
+    (root / "SKILL.md").write_text("---\nname: x\n---\n")
+    calls = []
+
+    def _fake(published, version, dest):
+        calls.append((published.name, version))
+        return root
+
+    monkeypatch.setattr(apply.install, "download_skill", _fake)
+
+    result = apply.resolve_published_skill(
+        apply.ROOM, None, "v0.4", _opts(), stack, contextlib.ExitStack()
     )
-    dest = tmp_path / "dl"
-    dest.mkdir()
 
-    result = apply.download_skill(spec, "v0.4", dest)
-
-    assert (result / "SKILL.md").is_file()
+    assert result == root
+    assert calls == [(apply.ROOM.name, "v0.4")]
 
 
-def test_download_skill_checksum_mismatch(tmp_path, monkeypatch):
-    tarball = _make_skill_tarball(tmp_path, apply.ROOM)
-    monkeypatch.setattr(
-        apply,
-        "_read_pointer",
-        lambda spec: {
-            "tag": "t",
-            "asset_url": tarball.as_uri(),
-            "sha256": "dead",
-        },
-    )
-    dest = tmp_path / "dl"
-    dest.mkdir()
+def test_resolve_published_skill_pointer_unavailable(stack, monkeypatch):
+    def _boom(published, version, dest):
+        raise apply.install.PointerUnavailable(published.pointer_tag)
 
-    with pytest.raises(apply.InstallerError, match="checksum mismatch"):
-        apply.download_skill(apply.ROOM, None, dest)
+    monkeypatch.setattr(apply.install, "download_skill", _boom)
+
+    with pytest.raises(
+        apply.InstallerError, match="room-skill-latest.*pointer"
+    ):
+        apply.resolve_published_skill(
+            apply.ROOM, None, None, _opts(), stack, contextlib.ExitStack()
+        )
 
 
-def test_download_skill_no_skill_md(tmp_path, monkeypatch):
-    tarball = _make_skill_tarball(tmp_path, apply.DOCS, with_skill_md=False)
-    monkeypatch.setattr(
-        apply, "_get", lambda url, spec, **kw: tarball.read_bytes()
-    )
-    dest = tmp_path / "dl"
-    dest.mkdir()
+def test_resolve_published_skill_download_error_hint(stack, monkeypatch):
+    def _boom(published, version, dest):
+        raise apply.install.releases.UnsupportedURLScheme("ftp://x", "ftp")
 
-    with pytest.raises(apply.InstallerError, match="no SKILL.md"):
-        apply.download_skill(apply.DOCS, "v0.4", dest)
+    monkeypatch.setattr(apply.install, "download_skill", _boom)
+
+    with pytest.raises(apply.InstallerError, match="--docs-skill-dir"):
+        apply.resolve_published_skill(
+            apply.DOCS, None, "v1", _opts(), stack, contextlib.ExitStack()
+        )
 
 
 # --- compose_project_name / default_room_id ------------------------------
@@ -692,11 +622,14 @@ def test_install_skill_room_defangs_version_management(stack):
     assert not (skill_dir / "scripts" / "skill_versions.py").exists()
     skill_md = (skill_dir / "SKILL.md").read_text()
     # the section's heading survives, but its helper invocations and the
-    # source-only admonition are replaced by the installer-managed note
+    # source-only admonition are replaced by the library defang note
     assert "## Managing this skill's version" in skill_md
     assert "uv run scripts/skill_versions.py" not in skill_md
     assert "installed copies differ" not in skill_md
-    assert "re-run the installer's `apply.py`" in skill_md
+    # the library note names the installer and no longer points at apply.py
+    assert "`soliplex-concierge-installer` skill" in skill_md
+    assert "from inside the room" in skill_md
+    assert "re-run the installer" not in skill_md
 
 
 def test_install_skill_defang_bounds_to_one_section(stack, tmp_path):
@@ -723,7 +656,7 @@ def test_install_skill_defang_bounds_to_one_section(stack, tmp_path):
     assert not (skill_dir / "scripts").exists()
     assert "## Checking for updates" in skill_md  # this skill's own heading
     assert "uv run scripts/skill_versions.py" not in skill_md
-    assert "re-run the installer's `apply.py`" in skill_md
+    assert "`soliplex-concierge-installer` skill" in skill_md
     assert "## Documentation map" in skill_md  # later section preserved
     assert "- a topic" in skill_md
 
@@ -986,20 +919,16 @@ def test_main_not_a_stack(temp_dir, capsys):
     assert "error:" in capsys.readouterr().err
 
 
-def test_main_downloads_skills(stack, tmp_path, monkeypatch):
-    room_tb = _make_skill_tarball(tmp_path / "room", apply.ROOM)
-    docs_tb = _make_skill_tarball(tmp_path / "docs", apply.DOCS)
-    tarballs = {apply.ROOM.name: room_tb, apply.DOCS.name: docs_tb}
+def test_main_downloads_skills(stack, monkeypatch):
+    # the library download is faked to materialize a minimal skill tree, so
+    # main() exercises resolve -> install_skill -> defang for both skills.
+    def _fake_download(published, version, dest):
+        root = dest / published.name
+        root.mkdir(parents=True)
+        (root / "SKILL.md").write_text("---\nname: x\n---\n")
+        return root
 
-    def _pointer(spec):
-        tarball = tarballs[spec.name]
-        return {
-            "tag": f"{spec.name}-x",
-            "asset_url": tarball.as_uri(),
-            "sha256": hashlib.sha256(tarball.read_bytes()).hexdigest(),
-        }
-
-    monkeypatch.setattr(apply, "_read_pointer", _pointer)
+    monkeypatch.setattr(apply.install, "download_skill", _fake_download)
 
     rc = apply.main(["--stack-dir", str(stack), "--owner", "o", "--repo", "r"])
 
@@ -1010,10 +939,12 @@ def test_main_downloads_skills(stack, tmp_path, monkeypatch):
 
 
 def test_main_skill_download_fails(stack, capsys, monkeypatch):
-    def _boom(url, spec, **kw):
-        raise apply.InstallerError.skill_bad_scheme(spec, url)
+    def _boom(published, version, dest):
+        raise apply.install.releases.GitHubAPIError(
+            published.pointer_url(), "HTTP 404"
+        )
 
-    monkeypatch.setattr(apply, "_get", _boom)
+    monkeypatch.setattr(apply.install, "download_skill", _boom)
 
     rc = apply.main(["--stack-dir", str(stack)])
 
