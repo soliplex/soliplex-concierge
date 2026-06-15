@@ -35,7 +35,8 @@ than running the wiring script yourself:
    [`soliplex-concierge-installer`](docs/skills/soliplex-concierge-installer.md)
    release and unpack it into the agent's skills directory.
 2. **Ask the agent to wire up your stack**, giving it the stack path and your
-   Gitea owner / repo. The skill runs its bundled `scripts/apply.py` to apply
+   Gitea owner / repo. The skill runs its bundled
+   `scripts/install_concierge.py` to apply
    [what it changes](docs/tasks/rooms/setup.md#what-it-changes), idempotently.
 3. **Bring up the stack** — set real Gitea values in `.env`, then
    `docker compose build backend && docker compose up -d`.
@@ -47,8 +48,9 @@ token additionally needs the `write:issue` and `read:repository` scopes.
 
 See [Setup](docs/tasks/rooms/setup.md) for the
 [full option list](docs/tasks/rooms/setup.md#useful-flags) (version pinning,
-`--with-truststore` for an enterprise / internal CA, …), running `apply.py`
-directly, and the [manual-wiring steps](docs/tasks/rooms/setup.md#manual-wiring)
+`--with-truststore` for an enterprise / internal CA, …), running
+`install_concierge.py` directly, and the
+[manual-wiring steps](docs/tasks/rooms/setup.md#manual-wiring)
 for a non-generated installation.
 
 Once the stack is up, users file requests through the about-room — and you

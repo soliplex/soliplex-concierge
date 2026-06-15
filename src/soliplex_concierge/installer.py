@@ -1,15 +1,9 @@
-#!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.12"
-# dependencies = ["ruamel.yaml", "soliplex-skills>=0.5"]
-# ///
-"""Apply the 'soliplex-concierge' extension to a generated Soliplex stack.
+"""Wire the 'soliplex-concierge' extension into a generated Soliplex stack.
 
-This script is bundled in the 'soliplex-concierge-installer' skill and run via
-'uv run scripts/apply.py' (uv provisions the 'ruamel.yaml' dependency from the
-PEP 723 header above). It wires the extension into an existing
-'soliplex-template'-generated installation, making the same seven idempotent
-changes a human would otherwise make by hand:
+This module backs the installer skill's 'install_concierge.py' shim (run via
+'uv run scripts/install_concierge.py', which provisions 'soliplex-concierge'
+and delegates here) and the 'install-concierge' console script. It makes the
+same seven idempotent changes a human would otherwise make by hand:
 
 1. add 'soliplex-concierge' to 'backend/pyproject.toml' dependencies,
 2. add it to the 'backend/Dockerfile' 'uv add' block (the generated Dockerfile
@@ -25,8 +19,11 @@ changes a human would otherwise make by hand:
 7. write the admin 'gitea_issues.py' CLI (a thin shim over
    'soliplex_concierge.gitea_admin') into '<stack>/scripts/'.
 
-The room template lives beside this script in the bundled 'assets/' directory
-(resolved relative to __file__); the wiring encoded here mirrors
+The room template ships in the skill bundle's 'assets/' directory, beside the
+shim -- not in this installed package -- so its location is a required
+positional argument ('assets_dir'): the 'install_concierge.py' shim prepends
+its own bundled path, and the 'install-concierge' console script takes it on
+the command line. The wiring encoded here mirrors
 'assets/installation-snippet.yaml' (the human-readable reference) -- keep the
 two in sync.
 
@@ -58,11 +55,6 @@ GITEA_TOOL = "soliplex_concierge.tools.gitea.create_gitea_issue"
 GITEA_HOST = "GITEA_HOST"
 GITEA_TOKEN_SECRET = "GITEA_ACCESS_TOKEN"
 ASSET_ROOM = "about_soliplex"
-
-# Bundled assets ship beside this script under '<skill>/assets/' (this file is
-# '<skill>/scripts/apply.py'); resolve them relative to __file__ so apply.py
-# works from an unpacked release bundle with no checkout.
-ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
 
 # Neither filesystem skill installed into the stack is bundled here; each is
 # its own published GitHub-release artifact, downloaded by default from its
@@ -249,15 +241,16 @@ def resolve_stack(stack_dir: str) -> pathlib.Path:
     return stack
 
 
-def resolve_assets() -> pathlib.Path:
-    """Return the bundled 'assets/' dir (room template + snippet).
+def resolve_assets(assets_dir: pathlib.Path) -> pathlib.Path:
+    """Return *assets_dir* (room template + snippet) after a sanity check.
 
-    The assets ship beside this script under '<skill>/assets/' (see ASSETS);
-    this is a self-check that the skill bundle is intact.
+    The assets ship in the skill bundle beside the 'install_concierge.py' shim,
+    which passes their location here; this self-check confirms the bundle is
+    intact.
     """
-    if not (ASSETS / "rooms" / ASSET_ROOM).is_dir():
-        raise InstallerError.assets_missing(ASSETS)
-    return ASSETS
+    if not (assets_dir / "rooms" / ASSET_ROOM).is_dir():
+        raise InstallerError.assets_missing(assets_dir)
+    return assets_dir
 
 
 def _skill_installed(stack: pathlib.Path, name: str) -> bool:
@@ -720,11 +713,17 @@ def apply(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="soliplex-concierge-apply",
+        prog="install-concierge",
         description=(
             "Wire the soliplex-concierge extension into an existing "
             "soliplex-template-generated stack."
         ),
+    )
+    parser.add_argument(
+        "assets_dir",
+        type=pathlib.Path,
+        help="the installer skill's bundled 'assets/' directory (the room "
+        "template + installation snippet) to install from",
     )
     parser.add_argument(
         "--stack-dir",
@@ -864,7 +863,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
         stack = resolve_stack(args.stack_dir)
-        assets = resolve_assets()
+        assets = resolve_assets(args.assets_dir)
         opts = Options(
             room_id=args.room_id or default_room_id(stack),
             pin=_pin_for_version(args.version),
@@ -903,7 +902,3 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _print_summary(results, opts, stack, args.dry_run)
         return 0
-
-
-if __name__ == "__main__":  # pragma: no cover
-    sys.exit(main())

@@ -87,5 +87,5 @@ to `api.github.com`/`github.com`.
 > so the installer **strips this whole section and the
 > `scripts/skill_versions.py` helper** from the installed copy — room users must
 > never reach machinery that rewrites files and calls out to GitHub/PyPI. Update
-> an installed copy by re-running the installer's `apply.py` (with `--force`)
+> an installed copy by re-running the installer's `install_concierge.py` (with `--force`)
 > against the stack from a coding agent.

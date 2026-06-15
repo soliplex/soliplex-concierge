@@ -2,7 +2,7 @@
 name: soliplex-concierge-installer
 description: |
     Wire the `soliplex-concierge` extension into a target Soliplex stack by
-    running this skill's bundled `scripts/apply.py` (via `uv run`, no install
+    running this skill's bundled `scripts/install_concierge.py` (via `uv run`, no install
     needed). It creates the `about-<project>` room (hosting the
     `create_gitea_issue` tool and the `soliplex-concierge-room` skill) and
     merges the required `installation.yaml` entries. Use when a user wants to
@@ -17,8 +17,9 @@ metadata:
 
 You run in an external coding agent to add the **soliplex-concierge** extension
 to a Soliplex deployment. The work is done by this skill's bundled
-`scripts/apply.py`, run with `uv run` (which provisions its one dependency,
-`ruamel.yaml`, from the script's PEP 723 header — no `pip install` needed). The
+`scripts/install_concierge.py`, run with `uv run` (a thin shim that provisions
+`soliplex-concierge` from its PEP 723 header — no `pip install` needed — then
+delegates to the `soliplex_concierge.installer` module). The
 room template it installs ships beside the script under `assets/`; your job is
 to confirm the prerequisites, run it correctly, and verify the result.
 
@@ -55,7 +56,7 @@ Run the bundled script from this skill's directory with `uv run`.
 1. **Dry-run first** to preview every change without writing:
 
    ```sh
-   uv run scripts/apply.py --stack-dir /path/to/stack \
+   uv run scripts/install_concierge.py --stack-dir /path/to/stack \
        --owner <gitea-owner> --repo <gitea-repo> --dry-run
    ```
 
@@ -67,7 +68,7 @@ Run the bundled script from this skill's directory with `uv run`.
 3. Apply for real once the dry-run looks right:
 
    ```sh
-   uv run scripts/apply.py --stack-dir /path/to/stack \
+   uv run scripts/install_concierge.py --stack-dir /path/to/stack \
        --owner <gitea-owner> --repo <gitea-repo> --version <X.Y>
    ```
 

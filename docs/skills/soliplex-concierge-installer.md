@@ -20,7 +20,7 @@ agent's skills directory (where it discovers
 [Agent Skills](https://agentskills.io)); the
 [`soliplex-skills` installation guide](https://soliplex.github.io/soliplex-skills/mechanisms/installation/)
 covers fetching a published skill. Once the agent has the skill, run its bundled
-`scripts/apply.py` as shown in [Setup](../tasks/rooms/setup.md).
+`scripts/install_concierge.py` as shown in [Setup](../tasks/rooms/setup.md).
 
 **Keeping it current.** Each published copy bundles `scripts/skill_versions.py`,
 which can `list`, `diff`, and `upgrade` the installed skill against the published

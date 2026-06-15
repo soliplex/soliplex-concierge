@@ -1,35 +1,37 @@
 # Setting up the concierge
 
-Adding the concierge to an installation means creating the about-room, wiring in
-the `soliplex-concierge-room` and `soliplex-docs` skills, registering the
-`create_gitea_issue` tool, and declaring the Gitea connection. The
-**`soliplex-concierge-installer`** skill does all of this for you on a
+Adding the concierge to an installation means creating the about-room,
+wiring in the `soliplex-concierge-room` and `soliplex-docs` skills,
+registering the `create_gitea_issue` tool, and declaring the Gitea connection.
+The **`soliplex-concierge-installer`** skill does all of this for you on a
 [`soliplex-template`](https://github.com/soliplex/soliplex-template)-generated
 stack; the [manual steps](#manual-wiring) below are for any other installation.
 
 Either way you will need a Gitea repository to file requests against, and an
 access token whose account has **Write** access to it — not just Read. Gitea
-lets a Read-only account open issues but silently drops their labels, so requests
-would be filed untagged and slip past triage (issue #59). A fine-grained token
-additionally needs the `write:issue` and `read:repository` scopes.
+lets a Read-only account open issues but silently drops their labels, so
+requests would be filed untagged and slip past triage (issue #59).
+A fine-grained token additionally needs the `write:issue` and `read:repository`
+scopes.
 
 ## The installer skill (recommended)
 
 Run the `soliplex-concierge-installer` skill from an external coding agent (e.g.
-Claude Code). It runs its bundled `scripts/apply.py` with `uv run` — which
-provisions the script's one dependency (`ruamel.yaml`) from its
-[PEP 723](https://peps.python.org/pep-0723/) header, so no install step is
-needed — and applies every change idempotently.
+Claude Code). It runs its bundled `scripts/install_concierge.py` with
+`uv run` — a thin shim that provisions `soliplex-concierge` from its
+[PEP 723](https://peps.python.org/pep-0723/) header (so no install step is
+needed) and delegates to the `soliplex_concierge.installer` module — applying
+every change idempotently.
 
 Preview first with `--dry-run`, then apply:
 
 ```sh
 # dry run — report changes without writing
-uv run scripts/apply.py --stack-dir /path/to/stack \
+uv run scripts/install_concierge.py --stack-dir /path/to/stack \
     --owner <gitea-owner> --repo <gitea-repo> --dry-run
 
 # apply, pinning the dependency version
-uv run scripts/apply.py --stack-dir /path/to/stack \
+uv run scripts/install_concierge.py --stack-dir /path/to/stack \
     --owner <gitea-owner> --repo <gitea-repo> --version <X.Y>
 ```
 
@@ -48,20 +50,23 @@ It applies these idempotent edits to the stack:
 - Downloads and installs the `soliplex-concierge-room` and `soliplex-docs`
   filesystem skills into `backend/environment/skills/`.
 - Appends the `GITEA_HOST` / `GITEA_ACCESS_TOKEN` placeholders to `.env`.
-- Writes the admin `scripts/gitea_issues.py` CLI (see [Admin](../admin/index.md)).
+- Writes the admin `scripts/gitea_issues.py` CLI (see
+  [Admin](../admin/index.md)).
 
 ### Useful flags
 
 - `--version <X.Y>` — pin the dependency added to the stack; omitting it warns
   about version skew, `--version latest` opts into the newest release.
 - `--room-id` — room id to create (default `about_<compose-project-name>`).
-- `--gitea-host` / `--gitea-token` — fill real `.env` values instead of placeholders.
-- `--with-truststore` — install the `soliplex-concierge[truststore]` extra so the
-  tool verifies TLS against the OS trust store rather than certifi's bundle; use
-  when the Gitea host's certificate chains to an enterprise / internal CA (issue #46).
+- `--gitea-host` / `--gitea-token` — fill real `.env` values instead
+  of placeholders.
+- `--with-truststore` — install the `soliplex-concierge[truststore]` extra
+  so the tool verifies TLS against the OS trust store rather than `certifi`'s
+  bundle; use when the Gitea host's certificate chains to an enterprise /
+  internal CA (issue #46).
 - `--room-skill-dir` / `--docs-skill-dir` (or `--room-skill-version` /
-  `--docs-skill-version`) — install the skills from a local copy or a pinned tag
-  instead of downloading the latest.
+  `--docs-skill-version`) — install the skills from a local copy or a pinned
+  tag instead of downloading the latest.
 - `--force` — overwrite an existing room/skill.
 
 Afterwards, set the real Gitea values in `.env` and rebuild:
@@ -89,8 +94,8 @@ For a non-generated installation, do the same steps by hand.
    - register the tool-config class via `meta.tool_configs` (Soliplex resolves
      the tool by its dotted `tool_name`; no core edit is needed),
    - add the directories of the two filesystem skills the about-room uses
-     (`soliplex-concierge-room` and `soliplex-docs`) to `filesystem_skills_paths`,
-     and enable both under `skill_configs`, and
+     (`soliplex-concierge-room` and `soliplex-docs`) to
+     `filesystem_skills_paths`, and enable both under `skill_configs`, and
    - declare the `GITEA_HOST` environment variable and `GITEA_ACCESS_TOKEN`
      secret the tool reads to call the Gitea REST API (no MCP server or external
      binary is required).
@@ -103,13 +108,13 @@ For a non-generated installation, do the same steps by hand.
    `env:GITEA_OWNER`.)
 
 4. **Set the Gitea connection** — `GITEA_HOST` and the `GITEA_ACCESS_TOKEN`
-   secret (see the `.env` lines at the bottom of the snippet), using a token with
-   Write access as noted above.
+   secret (see the `.env` lines at the bottom of the snippet), using a token
+   with Write access as noted above.
 
 The about-room answers questions from the bundled `soliplex-docs` skill, so no
-RAG database is required. To *also* answer from this installation's own ingested
-content, uncomment the `skill_configs` block in the room's `room_config.yaml`,
-pointing `rag_lancedb_stem` at a database under `rag/db/` — the
-[`soliplex-template`](https://github.com/soliplex/soliplex-template) skill can
-generate and ingest one (see the
+RAG database is required. To *also* answer from this installation's own
+ingested content, uncomment the `skill_configs` block in the room's
+`room_config.yaml`, pointing `rag_lancedb_stem` at a database under `rag/db/`.
+tHe [`soliplex-template`](https://github.com/soliplex/soliplex-template) skill
+can generate and ingest one (see the
 [RAG DB docs](https://soliplex.github.io/soliplex/config/rag/)).

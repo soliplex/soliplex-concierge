@@ -66,9 +66,9 @@ jobs:
         with:
           python-version-file: "pyproject.toml"
 
-      # The 'docs' extra provides zensical (pinned via uv.lock).
+      # The 'dev' group provides zensical (pinned via uv.lock).
       - name: Install dependencies
-        run: uv sync --frozen --extra docs
+        run: uv sync --frozen
 
       # Smoke test only: --strict aborts on warnings (e.g. unresolved links or
       # footnotes). The site/ output is discarded -- this job never publishes.
