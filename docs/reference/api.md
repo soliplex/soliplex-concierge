@@ -148,7 +148,9 @@ individually-testable edits. It depends on `ruamel.yaml` and `soliplex-skills`
 
 **`class Options`** *(keyword-only dataclass)* — one apply run's resolved
 options: `room_id`, `pin`, `gitea_host`, `gitea_token`, `owner`, `repo`,
-`with_truststore`, `force`, `dry_run`.
+`local_gitea`, `with_truststore`, `force`, `dry_run`. When `local_gitea` is set,
+`apply` skips the `.env` `GITEA_HOST` / `GITEA_ACCESS_TOKEN` write (the stack's
+`scripts/init_gitea.py` owns those).
 
 **`class InstallerError(Exception)`** — a problem applying the extension; `main`
 maps it to exit code `2`. Built via message-constructing classmethods
@@ -179,6 +181,10 @@ maps it to exit code `2`. Built via message-constructing classmethods
   `assets/` dir (room template + snippet).
 - `compose_project_name(stack) -> str` / `default_room_id(stack) -> str` — the
   compose project name, and the default `about_<project>` room id.
+- `has_local_gitea(stack) -> bool` — whether `docker-compose.yml` defines a local
+  `gitea` service (by name or a `gitea/gitea*` image). When true (and not
+  `--no-local-gitea`), `main` defaults the room's owner/repo to
+  `LOCAL_GITEA_OWNER` / `LOCAL_GITEA_REPO`.
 
 **Edits** — pure `(text, …) -> (new_text, action)` functions, so `--dry-run` is
 just "compute, don't write"; `action` is `ADDED` or `UNCHANGED`:
@@ -204,5 +210,7 @@ just "compute, don't write"; `action` is `ADDED` or `UNCHANGED`:
 **Constants** — `ADDED` / `UNCHANGED` (action strings); `SKILL_NAME` and
 `STACK_MARKERS`; the wiring constants `DIST`, `TOOL_CONFIG`, `GITEA_TOOL`,
 `GITEA_HOST`, `GITEA_TOKEN_SECRET`, `ASSET_ROOM`; `DEFAULT_GITEA_HOST` /
-`DEFAULT_GITEA_TOKEN`; and `GITEA_ADMIN_MIN` (the `soliplex-concierge` version
+`DEFAULT_GITEA_TOKEN`; `LOCAL_GITEA_OWNER` / `LOCAL_GITEA_REPO` (the service
+account and repo `soliplex-template`'s `init_gitea.py` provisions, defaulted into
+the room when a local Gitea is detected); and `GITEA_ADMIN_MIN` (the `soliplex-concierge` version
 floor pinned into the generated `gitea_issues.py` when `--version` is omitted).
