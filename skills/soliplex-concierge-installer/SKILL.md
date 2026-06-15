@@ -78,6 +78,8 @@ Run the bundled script from this skill's directory with `uv run`.
 - `--owner` / `--repo` — Gitea owner and repository for filed issues.
 - `--gitea-host` / `--gitea-token` — fill real `.env` values instead of the
   `GITEA_HOST` / `GITEA_ACCESS_TOKEN` placeholders.
+- `--no-local-gitea` — skip local-Gitea auto-detection (see below) and keep the
+  external-Gitea defaults (placeholder `.env` values and room `owner`/`repo`).
 - `--version <X.Y>` — pin the `soliplex-concierge` dependency added to the
   stack. Omitting it leaves the dependency unpinned and prints a version-skew
   warning; `--version latest` opts into the newest release without the warning.
@@ -107,7 +109,8 @@ Run the bundled script from this skill's directory with `uv run`.
    the directory, `id:`, and the `room_paths` entry),
 5. downloads + copies the `soliplex-concierge-room` and `soliplex-docs`
    filesystem skills into `skills/`,
-6. adds `GITEA_HOST` / `GITEA_ACCESS_TOKEN` placeholders to `.env`, and
+6. adds `GITEA_HOST` / `GITEA_ACCESS_TOKEN` placeholders to `.env` (skipped for a
+   local-Gitea stack — see below), and
 7. writes the admin `gitea_issues.py` request-triage CLI into `scripts/`
    (a thin shim over `soliplex_concierge.gitea_admin`; run later with
    `uv run scripts/gitea_issues.py …`). With `--with-truststore`, its PEP 723
@@ -120,6 +123,17 @@ at the `soliplex-template` skill for generating one).
 
 Re-running is safe: each edit is skipped if already present (use `--force` to
 overwrite the copied rooms / skills / `scripts/gitea_issues.py`).
+
+## Local Gitea service
+
+When the stack was generated with `include_gitea`, its `docker-compose.yml`
+defines a `gitea` service (backed by Postgres) and ships `scripts/init_gitea.py`.
+The installer detects this and, rather than emitting placeholders, wires the
+room's `create_gitea_issue` tool to `soliplex-admin/soliplex-requests` (the
+account + repo that shim creates) and leaves `.env` for `init_gitea.py` to
+populate. Order: run the installer → `docker compose up -d` →
+`uv run scripts/init_gitea.py` → `docker compose up -d backend`. Override with
+`--owner`/`--repo`, or opt out with `--no-local-gitea`.
 
 ## Verify
 
