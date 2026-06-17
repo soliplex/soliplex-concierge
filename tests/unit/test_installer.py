@@ -157,7 +157,7 @@ def test_resolve_stack_ok(stack):
 def test_resolve_stack_missing_marker(stack, marker):
     (stack / marker).unlink()
 
-    with pytest.raises(installer.InstallerError, match=marker):
+    with pytest.raises(installer.NotAStack):
         installer.resolve_stack(str(stack))
 
 
@@ -200,7 +200,7 @@ def test_resolve_assets_ok():
 
 
 def test_resolve_assets_missing(temp_dir):
-    with pytest.raises(installer.InstallerError, match="assets"):
+    with pytest.raises(installer.AssetsMissing):
         installer.resolve_assets(temp_dir)
 
 
@@ -225,7 +225,7 @@ def test_resolve_published_skill_override(tmp_path, spec):
 
 @pytest.mark.parametrize("spec", _SPECS, ids=_SPEC_IDS)
 def test_resolve_published_skill_override_missing(temp_dir, spec):
-    with pytest.raises(installer.InstallerError, match=spec.dir_flag):
+    with pytest.raises(installer.BadSkillDirectory):
         installer.resolve_published_skill(
             spec,
             str(temp_dir),
@@ -305,7 +305,7 @@ def test_resolve_published_skill_pointer_unavailable(stack, monkeypatch):
     monkeypatch.setattr(installer.install, "download_skill", _boom)
 
     with pytest.raises(
-        installer.InstallerError, match="room-skill-latest.*pointer"
+        installer.SkillDownloadFailed, match="room-skill-latest.*pointer"
     ):
         installer.resolve_published_skill(
             installer.ROOM, None, None, _opts(), stack, contextlib.ExitStack()
@@ -318,7 +318,9 @@ def test_resolve_published_skill_download_error_hint(stack, monkeypatch):
 
     monkeypatch.setattr(installer.install, "download_skill", _boom)
 
-    with pytest.raises(installer.InstallerError, match="--docs-skill-dir"):
+    with pytest.raises(
+        installer.SkillDownloadFailed, match="--docs-skill-dir"
+    ):
         installer.resolve_published_skill(
             installer.DOCS, None, "v1", _opts(), stack, contextlib.ExitStack()
         )
@@ -406,7 +408,7 @@ def test_add_pyproject_dep_empty_array_indent():
 def test_add_pyproject_dep_bad():
     text = '[project]\ndependencies = ["soliplex"]\n'
 
-    with pytest.raises(installer.InstallerError, match="dependencies"):
+    with pytest.raises(installer.BadPyProject):
         installer.add_pyproject_dep(text)
 
 
@@ -458,7 +460,7 @@ def test_add_dockerfile_dep_truststore_unchanged_when_bare_present():
 
 
 def test_add_dockerfile_dep_bad():
-    with pytest.raises(installer.InstallerError, match="Dockerfile"):
+    with pytest.raises(installer.BadDockerfile):
         installer.add_dockerfile_dep("RUN echo no uv add here\n")
 
 
@@ -544,9 +546,7 @@ def test_merge_installation_appends_to_existing_tool_configs():
 
 
 def test_merge_installation_aborts_on_active_skill_whitelist():
-    with pytest.raises(
-        installer.InstallerError, match="confirm-skill-whitelist"
-    ):
+    with pytest.raises(installer.SkillWhitelistActive):
         installer.merge_installation(_INSTALLATION_FS_WHITELIST)
 
 
