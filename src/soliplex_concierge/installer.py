@@ -159,59 +159,69 @@ _UVADD_RE = re.compile(r"^(\s*)soliplex\s*\\\s*$")
 class InstallerError(Exception):
     """A problem applying the extension; the CLI maps it to exit code 2."""
 
-    @classmethod
-    def not_a_stack(cls, stack: pathlib.Path, missing: str) -> InstallerError:
-        return cls(
+
+class NotAStack(InstallerError):
+    def __init__(self, stack: pathlib.Path, missing: str):
+        self.stack = stack
+        self.missing = missing
+        super().__init__(
             f"{stack} is not a generated Soliplex stack: missing "
             f"'{missing}' (pass --stack-dir to point at the stack root)"
         )
 
-    @classmethod
-    def assets_missing(cls, assets: pathlib.Path) -> InstallerError:
-        return cls(
+
+class AssetsMissing(InstallerError):
+    def __init__(self, assets: pathlib.Path):
+        self.assets = assets
+        super().__init__(
             f"bundled assets not found under {assets}: expected "
             f"'rooms/{ASSET_ROOM}/' beside this script (is the skill bundle "
             "intact?)"
         )
 
-    @classmethod
-    def _skill_download(
-        cls, spec: PublishedSkill, reason: str
-    ) -> InstallerError:
-        return cls(
+
+class SkillDownloadFailed(InstallerError):
+    def __init__(self, spec: PublishedSkill, reason: str):
+        self.spec = spec
+        self.reason = reason
+        super().__init__(
             f"could not download the '{spec.name}' skill ({reason}); pass "
             f"{spec.dir_flag} to install from a local copy instead"
         )
 
-    @classmethod
-    def bad_skill_dir(
-        cls, spec: PublishedSkill, path: pathlib.Path
-    ) -> InstallerError:
-        return cls(
+
+class BadSkillDirectory(InstallerError):
+    def __init__(self, spec: PublishedSkill, path: pathlib.Path):
+        self.spec = spec
+        self.path = path
+        super().__init__(
             f"{spec.dir_flag} {path} is not a skill directory "
             "(no SKILL.md found)"
         )
 
-    @classmethod
-    def bad_pyproject(cls) -> InstallerError:
-        return cls(
+
+class BadPyProject(InstallerError):
+    def __init__(self):
+        super().__init__(
             "could not find a 'dependencies = [' block in "
             "backend/pyproject.toml to extend"
         )
 
-    @classmethod
-    def bad_dockerfile(cls) -> InstallerError:
-        return cls(
+
+class BadDockerfile(InstallerError):
+    def __init__(self):
+        super().__init__(
             "could not find the 'soliplex \\' line in the backend/Dockerfile "
             "'uv add' block to extend"
         )
 
-    @classmethod
-    def skill_whitelist_active(
-        cls, kind: str, entries: list[str]
-    ) -> InstallerError:
+
+class SkillWhitelistActive(InstallerError):
+    def __init__(self, kind: str, entries: list[str]):
+        self.kind = kind
+        self.entries = entries
         listed = ", ".join(entries) or "(none)"
-        return cls(
+        super().__init__(
             f"installation.yaml has an explicit '{kind}' skill_configs "
             f"whitelist ({listed}); re-run with --confirm-skill-whitelist to "
             "add the soliplex-concierge skills to it"
@@ -257,9 +267,7 @@ def _dump(yaml: YAML, data: object, path: pathlib.Path) -> None:
 
 def resolve_stack(stack_dir: str) -> pathlib.Path:
     """Return the resolved stack root, or raise if it is not a stack."""
-    return installation.resolve_stack(
-        stack_dir, STACK_MARKERS, InstallerError.not_a_stack
-    )
+    return installation.resolve_stack(stack_dir, STACK_MARKERS, NotAStack)
 
 
 def resolve_assets(assets_dir: pathlib.Path) -> pathlib.Path:
@@ -270,7 +278,7 @@ def resolve_assets(assets_dir: pathlib.Path) -> pathlib.Path:
     intact.
     """
     if not (assets_dir / "rooms" / ASSET_ROOM).is_dir():
-        raise InstallerError.assets_missing(assets_dir)
+        raise AssetsMissing(assets_dir)
     return assets_dir
 
 
@@ -301,7 +309,7 @@ def resolve_published_skill(
     if override is not None:
         path = pathlib.Path(override).resolve()
         if not (path / "SKILL.md").is_file():
-            raise InstallerError.bad_skill_dir(spec, path)
+            raise BadSkillDirectory(spec, path)
         return path
     if opts.dry_run or (_skill_installed(stack, spec.name) and not opts.force):
         return None
@@ -312,9 +320,9 @@ def resolve_published_skill(
         return install.download_skill(spec.published, version, dest)
     except install.PointerUnavailable as exc:
         reason = f"could not read the '{spec.pointer_tag}' latest pointer"
-        raise InstallerError._skill_download(spec, reason) from exc
+        raise SkillDownloadFailed(spec, reason) from exc
     except (install.releases.GitHubAPIError, ValueError) as exc:
-        raise InstallerError._skill_download(spec, str(exc)) from exc
+        raise SkillDownloadFailed(spec, str(exc)) from exc
 
 
 def compose_project_name(stack: pathlib.Path) -> str:
@@ -427,7 +435,7 @@ def add_pyproject_dep(
         None,
     )
     if open_idx is None:
-        raise InstallerError.bad_pyproject()
+        raise BadPyProject()
 
     dist = _dist_requirement(with_truststore)
     requirement = f"{dist} {pin}" if pin else dist
@@ -451,7 +459,7 @@ def add_dockerfile_dep(
             token = f"{dist}{pin.replace(' ', '')}" if pin else dist
             lines.insert(i + 1, f"{match.group(1)}{token} \\\n")
             return "".join(lines), ADDED
-    raise InstallerError.bad_dockerfile()
+    raise BadDockerfile()
 
 
 def update_env(text: str, host: str, token: str) -> tuple[str, str]:
@@ -517,9 +525,7 @@ def merge_installation(
             )
         )
     except installation.WhitelistActive as exc:
-        raise InstallerError.skill_whitelist_active(
-            exc.kind, exc.entries
-        ) from exc
+        raise SkillWhitelistActive(kind=exc.kind, entries=exc.entries) from exc
     return text, results
 
 
