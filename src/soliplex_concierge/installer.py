@@ -45,6 +45,9 @@ import tempfile
 import tomllib
 
 from ruamel.yaml import YAML
+from soliplex_plumber import installation
+from soliplex_plumber import rooms
+from soliplex_plumber import sections
 from soliplex_skills import install
 
 # --- the constants that define the wiring ---------------------------------
@@ -129,17 +132,21 @@ DEFAULT_GITEA_TOKEN = "replace-me"
 LOCAL_GITEA_OWNER = "soliplex-admin"
 LOCAL_GITEA_REPO = "soliplex-requests"
 
-# Files that mark a directory as a generated Soliplex stack.
+# Files that mark a directory as a generated Soliplex stack: plumber's shared
+# pair (docker-compose.yml + installation.yaml) plus the three the installer
+# also edits.
 STACK_MARKERS = (
-    "docker-compose.yml",
+    *sections.STACK_MARKERS,
     "backend/pyproject.toml",
     "backend/Dockerfile",
-    "backend/environment/installation.yaml",
     ".env",
 )
 
-ADDED = "added"
-UNCHANGED = "unchanged"
+# The per-target action a step reports. Sourced from plumber (a StrEnum) so the
+# installer and plumber's editors speak the same vocabulary.
+ADDED = installation.TargetAction.ADDED
+UNCHANGED = installation.TargetAction.UNCHANGED
+COVERED = installation.TargetAction.COVERED
 
 _CANON_DIST = re.sub(r"[-_.]+", "-", DIST).lower()
 # Matches a requirement's leading distribution name; '*' so it always matches
@@ -200,10 +207,14 @@ class InstallerError(Exception):
         )
 
     @classmethod
-    def bad_installation(cls, section: str) -> InstallerError:
+    def skill_whitelist_active(
+        cls, kind: str, entries: list[str]
+    ) -> InstallerError:
+        listed = ", ".join(entries) or "(none)"
         return cls(
-            f"could not find a '{section}:' block in "
-            "backend/environment/installation.yaml to extend"
+            f"installation.yaml has an explicit '{kind}' skill_configs "
+            f"whitelist ({listed}); re-run with --confirm-skill-whitelist to "
+            "add the soliplex-concierge skills to it"
         )
 
 
@@ -219,6 +230,7 @@ class Options:
     repo: str | None = None
     local_gitea: bool = False
     with_truststore: bool = False
+    confirm_skill_whitelist: bool = False
     force: bool = False
     dry_run: bool = False
 
@@ -245,11 +257,9 @@ def _dump(yaml: YAML, data: object, path: pathlib.Path) -> None:
 
 def resolve_stack(stack_dir: str) -> pathlib.Path:
     """Return the resolved stack root, or raise if it is not a stack."""
-    stack = pathlib.Path(stack_dir).resolve()
-    for marker in STACK_MARKERS:
-        if not (stack / marker).is_file():
-            raise InstallerError.not_a_stack(stack, marker)
-    return stack
+    return installation.resolve_stack(
+        stack_dir, STACK_MARKERS, InstallerError.not_a_stack
+    )
 
 
 def resolve_assets(assets_dir: pathlib.Path) -> pathlib.Path:
@@ -465,147 +475,52 @@ def update_env(text: str, host: str, token: str) -> tuple[str, str]:
 
 # --- installation.yaml merge ----------------------------------------------
 #
-# Surgical, line-based insertion (mirrors the soliplex-template skill's
-# 'wire_room_stem'): each entry is inserted right after its 'key:' line, so
-# nothing else in the file -- comments, indentation, unrelated sections such
-# as 'agent_configs' or 'sandbox_config' -- is reformatted. A round-trip YAML
-# load/dump would normalize the whole document; we deliberately avoid it here.
-
-_META_RE = re.compile(r"^meta:\s*$")
-_META_TOOL_CONFIGS_RE = re.compile(r"^(\s+)tool_configs:\s*$")
-_TOP_KEY_RE = re.compile(r"^[^\s#]")  # a column-0 key (ends a nested block)
-
-# Per-section: anchor (the 'key:' line), idempotency probe, and the block to
-# insert (already indented, with trailing newlines).
-_ENVIRONMENT_RE = re.compile(r"^environment:\s*$")
-_SECRETS_RE = re.compile(r"^secrets:\s*$")
-_SKILL_CONFIGS_RE = re.compile(r"^skill_configs:\s*$")
-_ROOM_PATHS_RE = re.compile(r"^room_paths:\s*$")
-
-_HAS_TOOL_CONFIG = re.compile(re.escape(TOOL_CONFIG))
-_HAS_GITEA_HOST = re.compile(
-    r'^\s*-\s*["\']?' + re.escape(GITEA_HOST) + r'["\']?\s*$'
-)
-_HAS_GITEA_SECRET = re.compile(
-    r'secret_name:\s*["\']?' + re.escape(GITEA_TOKEN_SECRET)
-)
-_HAS_SKILL = re.compile(r'skill_name:\s*["\']?' + re.escape(SKILL_NAME))
-_HAS_DOCS_SKILL = re.compile(r'skill_name:\s*["\']?' + re.escape(DOCS.name))
-
-_GITEA_HOST_BLOCK = [f'  - "{GITEA_HOST}"\n']
-_GITEA_SECRET_BLOCK = [
-    f'  - secret_name: "{GITEA_TOKEN_SECRET}"\n',
-    "    sources:\n",
-    '      - kind: "env_var"\n',
-    f'        env_var_name: "{GITEA_TOKEN_SECRET}"\n',
-]
-_SKILL_BLOCK = [
-    f'  - skill_name: "{SKILL_NAME}"\n',
-    '    kind: "filesystem"\n',
-]
-_DOCS_SKILL_BLOCK = [
-    f'  - skill_name: "{DOCS.name}"\n',
-    '    kind: "filesystem"\n',
-]
+# The concierge-specific entries are composed over the stack's
+# installation.yaml via plumber's section editors (comment-preserving,
+# section-scoped). room_paths is *not* here -- it is wired by the room
+# install (install_room_from). The
+# 'skill_configs' entries go through the per-kind whitelist editor: on a
+# permissive stack they are COVERED (the skills are auto-discovered under
+# ./skills) and nothing is added; an explicit 'filesystem' whitelist makes
+# plumber raise WhitelistActive, which we surface as a confirm-or-abort.
 
 
-def _find(lines: list[str], anchor: re.Pattern) -> int | None:
-    return next(
-        (i for i, line in enumerate(lines) if anchor.match(line)), None
-    )
-
-
-def _has(lines: list[str], probe: re.Pattern) -> bool:
-    return any(probe.search(line) for line in lines)
-
-
-def _add_list_entry(
-    lines: list[str],
-    anchor: re.Pattern,
-    probe: re.Pattern,
-    block: list[str],
-    section: str,
-) -> str:
-    """Insert 'block' as the first item under a top-level 'key:' list."""
-    if _has(lines, probe):
-        return UNCHANGED
-    idx = _find(lines, anchor)
-    if idx is None:
-        raise InstallerError.bad_installation(section)
-    lines[idx + 1 : idx + 1] = block
-    return ADDED
-
-
-def _add_meta_tool_config(lines: list[str]) -> str:
-    """Register the tool-config class under 'meta.tool_configs'.
-
-    Appends to an existing 'tool_configs:' under 'meta:' when present,
-    otherwise creates that nested block right after the 'meta:' line.
-    """
-    if _has(lines, _HAS_TOOL_CONFIG):
-        return UNCHANGED
-    meta_idx = _find(lines, _META_RE)
-    if meta_idx is None:
-        raise InstallerError.bad_installation("meta")
-    item = f'- "{TOOL_CONFIG}"'
-    for i in range(meta_idx + 1, len(lines)):
-        if _TOP_KEY_RE.match(lines[i]):  # left the meta block
-            break
-        existing = _META_TOOL_CONFIGS_RE.match(lines[i])
-        if existing:
-            lines[i + 1 : i + 1] = [f"{existing.group(1)}  {item}\n"]
-            return ADDED
-    lines[meta_idx + 1 : meta_idx + 1] = [
-        "  tool_configs:\n",
-        f"    {item}\n",
-    ]
-    return ADDED
-
-
-def merge_installation(text: str, room_id: str) -> tuple[str, dict[str, str]]:
-    """Add the five extension entries to installation.yaml text, surgically."""
-    lines = text.splitlines(keepends=True)
-    entry = f"./rooms/{room_id}"
-    room_probe = re.compile(r'-\s*["\']?' + re.escape(entry) + r'["\']?\s*$')
-    results = {
-        "installation: meta.tool_configs": _add_meta_tool_config(lines),
-        "installation: environment": _add_list_entry(
-            lines,
-            _ENVIRONMENT_RE,
-            _HAS_GITEA_HOST,
-            _GITEA_HOST_BLOCK,
-            "environment",
-        ),
-        "installation: secrets": _add_list_entry(
-            lines,
-            _SECRETS_RE,
-            _HAS_GITEA_SECRET,
-            _GITEA_SECRET_BLOCK,
-            "secrets",
-        ),
-        "installation: skill_configs": _add_list_entry(
-            lines,
-            _SKILL_CONFIGS_RE,
-            _HAS_SKILL,
-            _SKILL_BLOCK,
-            "skill_configs",
-        ),
-        "installation: skill_configs (docs)": _add_list_entry(
-            lines,
-            _SKILL_CONFIGS_RE,
-            _HAS_DOCS_SKILL,
-            _DOCS_SKILL_BLOCK,
-            "skill_configs",
-        ),
-        "installation: room_paths": _add_list_entry(
-            lines,
-            _ROOM_PATHS_RE,
-            room_probe,
-            [f'  - "{entry}"\n'],
-            "room_paths",
-        ),
-    }
-    return "".join(lines), results
+def merge_installation(
+    text: str, *, confirm_skill_whitelist: bool = False
+) -> tuple[str, dict[str, installation.TargetAction]]:
+    """Add the concierge's installation.yaml entries to ``text``."""
+    results: dict[str, installation.TargetAction] = {}
+    try:
+        text, results["installation: meta.tool_configs"] = (
+            installation.add_meta_tool_config(text, TOOL_CONFIG)
+        )
+        text, results["installation: environment"] = (
+            installation.add_environment(text, GITEA_HOST)
+        )
+        text, results["installation: secrets"] = installation.add_secret(
+            text, GITEA_TOKEN_SECRET
+        )
+        text, results["installation: skill_configs"] = (
+            installation.add_skill_config(
+                text,
+                SKILL_NAME,
+                kind="filesystem",
+                confirm=confirm_skill_whitelist,
+            )
+        )
+        text, results["installation: skill_configs (docs)"] = (
+            installation.add_skill_config(
+                text,
+                DOCS.name,
+                kind="filesystem",
+                confirm=confirm_skill_whitelist,
+            )
+        )
+    except installation.WhitelistActive as exc:
+        raise InstallerError.skill_whitelist_active(
+            exc.kind, exc.entries
+        ) from exc
+    return text, results
 
 
 # --- file installs ---------------------------------------------------------
@@ -626,17 +541,30 @@ def _patch_room_config(path: pathlib.Path, opts: Options) -> None:
 
 def install_room(
     assets: pathlib.Path, stack: pathlib.Path, opts: Options
-) -> str:
-    """Copy the room template to 'rooms/<room_id>/' and rename + rewire it."""
-    dst = stack / "backend" / "environment" / "rooms" / opts.room_id
-    if dst.exists() and not opts.force:
-        return UNCHANGED
-    if opts.dry_run:
-        return ADDED
-    src = assets / "rooms" / ASSET_ROOM
-    shutil.copytree(src, dst, dirs_exist_ok=True)
-    _patch_room_config(dst / "room_config.yaml", opts)
-    return ADDED
+) -> tuple[installation.TargetAction, installation.TargetAction]:
+    """Copy the room template into the stack and wire its room_paths entry.
+
+    Delegates the copytree + room_paths edit to plumber's ``install_room_from``
+    (the about room always lives under ``./rooms``), then patches the copied
+    ``room_config.yaml``. Returns ``(room-dir action, room_paths action)``.
+    Catching ``RoomExists`` (not the broader ``AddRoomError``) keeps the
+    install idempotent while letting a misconfigured parent surface as an
+    error.
+    """
+    try:
+        installed = rooms.install_room_from(
+            stack,
+            opts.room_id,
+            assets / "rooms" / ASSET_ROOM,
+            parent_path="./rooms",
+            force=opts.force,
+            dry_run=opts.dry_run,
+        )
+    except rooms.RoomExists:
+        return UNCHANGED, UNCHANGED
+    if not opts.dry_run:
+        _patch_room_config(installed.config_path, opts)
+    return ADDED, installed.path_action
 
 
 def install_skill(
@@ -715,12 +643,16 @@ def apply(
     results["backend/Dockerfile"] = action
 
     inst = stack / "backend" / "environment" / "installation.yaml"
-    new, inst_results = merge_installation(inst.read_text(), opts.room_id)
+    new, inst_results = merge_installation(
+        inst.read_text(), confirm_skill_whitelist=opts.confirm_skill_whitelist
+    )
     results.update(inst_results)
-    changed = any(a != UNCHANGED for a in inst_results.values())
+    changed = any(a == ADDED for a in inst_results.values())
     _write_if(inst, new, ADDED if changed else UNCHANGED, opts.dry_run)
 
-    results[f"rooms/{opts.room_id}"] = install_room(assets, stack, opts)
+    room_action, room_paths_action = install_room(assets, stack, opts)
+    results[f"rooms/{opts.room_id}"] = room_action
+    results["installation: room_paths"] = room_paths_action
     results[f"skills/{ROOM.name}"] = install_skill(
         ROOM.name, room_skill, stack, opts
     )
@@ -842,6 +774,17 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--confirm-skill-whitelist",
+        action="store_true",
+        help=(
+            "if installation.yaml already has an explicit filesystem "
+            "'skill_configs' whitelist, add the soliplex-concierge skills to "
+            "it (otherwise the install aborts rather than narrow your "
+            "curated whitelist). On a stack without such a whitelist this "
+            "has no effect -- the skills are auto-discovered."
+        ),
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="overwrite the room/skill if they already exist",
@@ -942,6 +885,7 @@ def main(argv: list[str] | None = None) -> int:
             repo=repo,
             local_gitea=local_gitea,
             with_truststore=args.with_truststore,
+            confirm_skill_whitelist=args.confirm_skill_whitelist,
             force=args.force,
             dry_run=args.dry_run,
         )

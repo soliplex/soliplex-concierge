@@ -73,10 +73,6 @@ sandbox_config:
     environments_path: /sandbox/environments
     workdirs_path: /sandbox/workdirs
 
-skill_configs:
-  - skill_name: "bare-bones"
-    kind: "filesystem"
-
 room_paths:
   - "./rooms/chat"
 """
@@ -94,8 +90,25 @@ environment:
 secrets:
   - secret_name: "URL_SAFE_TOKEN_SECRET"
 
+room_paths:
+  - "./rooms/chat"
+"""
+
+# Variant with an explicit *filesystem* skill_configs whitelist active: adding
+# the concierge skills would narrow it, so the install aborts unless confirmed.
+_INSTALLATION_FS_WHITELIST = """\
+meta:
+  # nothing registered yet
+
+environment:
+  - "OLLAMA_BASE_URL"
+
+secrets:
+  - secret_name: "URL_SAFE_TOKEN_SECRET"
+
 skill_configs:
   - skill_name: "bare-bones"
+    kind: "filesystem"
 
 room_paths:
   - "./rooms/chat"
@@ -478,11 +491,15 @@ def _loads(text):
 
 
 def test_merge_installation_adds():
-    new_text, results = installer.merge_installation(
-        _INSTALLATION, "about_concierge-test"
-    )
+    new_text, results = installer.merge_installation(_INSTALLATION)
 
-    assert set(results.values()) == {installer.ADDED}
+    assert results["installation: meta.tool_configs"] == installer.ADDED
+    assert results["installation: environment"] == installer.ADDED
+    assert results["installation: secrets"] == installer.ADDED
+    # A permissive stack auto-discovers the skills (installed under ./skills),
+    # so the whitelist entries are COVERED -- nothing is added.
+    assert results["installation: skill_configs"] == installer.COVERED
+    assert results["installation: skill_configs (docs)"] == installer.COVERED
     data = _loads(new_text)
     assert installer.TOOL_CONFIG in data["meta"]["tool_configs"]
     assert installer.GITEA_HOST in data["environment"]
@@ -490,19 +507,13 @@ def test_merge_installation_adds():
         s.get("secret_name") == installer.GITEA_TOKEN_SECRET
         for s in data["secrets"]
     )
-    assert any(
-        s.get("skill_name") == installer.SKILL_NAME
-        for s in data["skill_configs"]
-    )
-    assert any(
-        s.get("skill_name") == installer.DOCS.name
-        for s in data["skill_configs"]
-    )
-    assert "./rooms/about_concierge-test" in data["room_paths"]
+    # room_paths is wired by the room install, not merge_installation.
+    assert "installation: room_paths" not in results
+    assert "skill_configs" not in data  # permissive: section left absent
 
 
 def test_merge_installation_leaves_other_sections_verbatim():
-    new_text, _ = installer.merge_installation(_INSTALLATION, "about_x")
+    new_text, _ = installer.merge_installation(_INSTALLATION)
 
     # Unrelated sections are byte-identical -- no reindent, no reflow.
     assert '  - id: "default_chat"\n    model_name: "gemma4:26b"' in new_text
@@ -511,33 +522,20 @@ def test_merge_installation_leaves_other_sections_verbatim():
         "    environments_path: /sandbox/environments\n"
         "    workdirs_path: /sandbox/workdirs" in new_text
     )
-    # Pre-existing list items are preserved alongside the new ones.
-    assert '  - skill_name: "bare-bones"' in new_text
-    assert '  - "OLLAMA_BASE_URL"' in new_text
+    assert '  - "OLLAMA_BASE_URL"' in new_text  # pre-existing item preserved
 
 
 def test_merge_installation_idempotent():
-    once, _ = installer.merge_installation(_INSTALLATION, "about_x")
+    once, _ = installer.merge_installation(_INSTALLATION)
 
-    twice, results = installer.merge_installation(once, "about_x")
+    twice, results = installer.merge_installation(once)
 
-    assert set(results.values()) == {installer.UNCHANGED}
+    assert set(results.values()) == {installer.UNCHANGED, installer.COVERED}
     assert twice == once
 
 
-def test_add_meta_tool_config_creates_when_meta_ends_file():
-    lines = ["meta:\n", "  # only a comment\n"]
-
-    action = installer._add_meta_tool_config(lines)
-
-    assert action == installer.ADDED
-    assert "  tool_configs:\n" in lines
-
-
 def test_merge_installation_appends_to_existing_tool_configs():
-    new_text, results = installer.merge_installation(
-        _INSTALLATION_META_TC, "about_x"
-    )
+    new_text, results = installer.merge_installation(_INSTALLATION_META_TC)
 
     tcs = _loads(new_text)["meta"]["tool_configs"]
     assert results["installation: meta.tool_configs"] == installer.ADDED
@@ -545,25 +543,23 @@ def test_merge_installation_appends_to_existing_tool_configs():
     assert "some.Existing.ToolConfig" in tcs
 
 
-@pytest.mark.parametrize(
-    "anchor,section",
-    [
-        ("meta:", "meta"),
-        ("environment:", "environment"),
-        ("secrets:", "secrets"),
-        ("skill_configs:", "skill_configs"),
-        ("room_paths:", "room_paths"),
-    ],
-)
-def test_merge_installation_missing_section(anchor, section):
-    text = "\n".join(
-        line
-        for line in _INSTALLATION.splitlines()
-        if not line.startswith(anchor)
+def test_merge_installation_aborts_on_active_skill_whitelist():
+    with pytest.raises(
+        installer.InstallerError, match="confirm-skill-whitelist"
+    ):
+        installer.merge_installation(_INSTALLATION_FS_WHITELIST)
+
+
+def test_merge_installation_confirm_adds_to_active_whitelist():
+    new_text, results = installer.merge_installation(
+        _INSTALLATION_FS_WHITELIST, confirm_skill_whitelist=True
     )
 
-    with pytest.raises(installer.InstallerError, match=section):
-        installer.merge_installation(text, "about_x")
+    assert results["installation: skill_configs"] == installer.ADDED
+    names = [s.get("skill_name") for s in _loads(new_text)["skill_configs"]]
+    assert installer.SKILL_NAME in names
+    assert installer.DOCS.name in names
+    assert "bare-bones" in names  # the operator's entry is preserved
 
 
 # --- _patch_room_config ---------------------------------------------------
@@ -611,28 +607,34 @@ def _skills(stack):
 
 
 def test_install_room_added(stack):
-    action = installer.install_room(ASSETS, stack, _opts())
+    room_action, room_paths_action = installer.install_room(
+        ASSETS, stack, _opts()
+    )
 
     rooms = stack / "backend" / "environment" / "rooms"
     cfg = _load(rooms / "about_concierge-test" / "room_config.yaml")
-    assert action == installer.ADDED
+    assert room_action == installer.ADDED
     assert cfg["id"] == "about_concierge-test"
+    # the enumerated room_paths gains the new room (via install_room_from)
+    assert room_paths_action == installer.ADDED
+    inst = _load(stack / "backend" / "environment" / "installation.yaml")
+    assert "./rooms/about_concierge-test" in inst["room_paths"]
 
 
 def test_install_room_unchanged(stack):
     rooms = stack / "backend" / "environment" / "rooms"
     (rooms / "about_concierge-test").mkdir()
 
-    action = installer.install_room(ASSETS, stack, _opts())
+    room_action, _ = installer.install_room(ASSETS, stack, _opts())
 
-    assert action == installer.UNCHANGED
+    assert room_action == installer.UNCHANGED
 
 
 def test_install_room_dry_run(stack):
-    action = installer.install_room(ASSETS, stack, _opts(dry_run=True))
+    room_action, _ = installer.install_room(ASSETS, stack, _opts(dry_run=True))
 
     rooms = stack / "backend" / "environment" / "rooms"
-    assert action == installer.ADDED
+    assert room_action == installer.ADDED
     assert not (rooms / "about_concierge-test").exists()
 
 
@@ -640,9 +642,9 @@ def test_install_room_force(stack):
     rooms = stack / "backend" / "environment" / "rooms"
     (rooms / "about_concierge-test").mkdir()
 
-    action = installer.install_room(ASSETS, stack, _opts(force=True))
+    room_action, _ = installer.install_room(ASSETS, stack, _opts(force=True))
 
-    assert action == installer.ADDED
+    assert room_action == installer.ADDED
     assert (rooms / "about_concierge-test" / "room_config.yaml").is_file()
 
 
@@ -878,7 +880,9 @@ def test_main_idempotent(stack, docs_skill):
 
     results = installer.apply(stack, ASSETS, ROOM_SKILL, docs_skill, opts)
 
-    assert set(results.values()) == {installer.UNCHANGED}
+    # Re-run: everything already present (UNCHANGED); the permissive
+    # skill_configs entries stay COVERED.
+    assert set(results.values()) == {installer.UNCHANGED, installer.COVERED}
 
 
 def test_main_room_id_override(stack, docs_skill):

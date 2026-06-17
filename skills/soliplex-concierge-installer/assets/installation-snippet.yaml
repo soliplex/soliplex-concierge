@@ -31,6 +31,11 @@ filesystem_skills_paths:
   - "/path/to/soliplex-concierge/skills/soliplex-concierge-room"
   - "/path/to/skills/soliplex-docs"
 
+# Only needed if you maintain an explicit filesystem `skill_configs` whitelist:
+# a whitelist loads ONLY the skills it lists, so the about-room's skills must be
+# added to it. With no `skill_configs` (the default), every discovered filesystem
+# skill is loaded, so these entries are unnecessary. The installer adds them only
+# when a whitelist is already present (and you pass `--confirm-skill-whitelist`).
 skill_configs:
   - skill_name: "soliplex-concierge-room"
     kind: "filesystem"
