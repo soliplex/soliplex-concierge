@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["soliplex-concierge>=0.8"]
+# dependencies = ["soliplex-concierge>=0.9"]
 # ///
 """Apply the 'soliplex-concierge' extension to a generated Soliplex stack.
 

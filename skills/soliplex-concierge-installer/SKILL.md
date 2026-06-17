@@ -102,11 +102,16 @@ Run the bundled script from this skill's directory with `uv run`.
 1. adds `soliplex-concierge` to `backend/pyproject.toml` dependencies,
 2. adds it to the `backend/Dockerfile` `uv add` block (the generated Dockerfile
    does `uv init --bare` and ignores the pyproject deps, so both are needed),
-3. merges six `installation.yaml` entries (`meta.tool_configs`, `environment`,
-   `secrets`, two `skill_configs` — `soliplex-concierge-room` and
-   `soliplex-docs` — and `room_paths`),
+3. merges the `installation.yaml` entries it needs (`meta.tool_configs`,
+   `environment`, `secrets`). The two `skill_configs` entries
+   (`soliplex-concierge-room`, `soliplex-docs`) are added **only if the stack
+   has an explicit filesystem `skill_configs` whitelist** — on a typical stack
+   `skill_configs` is permissive, so the skills (installed under `./skills`) are
+   auto-discovered and no entry is needed; if a whitelist *is* present, the
+   install aborts unless you pass `--confirm-skill-whitelist` (so it never
+   silently narrows your curated whitelist),
 4. copies the `about_soliplex` room template into `rooms/<room-id>/` (renaming
-   the directory, `id:`, and the `room_paths` entry),
+   the directory and `id:`) and wires its `room_paths` entry,
 5. downloads + copies the `soliplex-concierge-room` and `soliplex-docs`
    filesystem skills into `skills/`,
 6. adds `GITEA_HOST` / `GITEA_ACCESS_TOKEN` placeholders to `.env` (skipped for a
