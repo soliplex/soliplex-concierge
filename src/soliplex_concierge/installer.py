@@ -559,9 +559,9 @@ def install_room(
     """
     try:
         installed = rooms.install_room_from(
-            stack,
-            opts.room_id,
-            assets / "rooms" / ASSET_ROOM,
+            project=stack,
+            room_id=opts.room_id,
+            src_dir=assets / "rooms" / ASSET_ROOM,
             parent_path="./rooms",
             force=opts.force,
             dry_run=opts.dry_run,
