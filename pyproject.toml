@@ -15,11 +15,9 @@ classifiers = [
 ]
 dependencies = [
     "httpx",
-    "pydantic",
-    "pydantic-ai-slim >= 1.100, < 2.0",
     "pyyaml",
     "ruamel.yaml",              # `soliplex_concierge.installer`
-    "soliplex",
+    "soliplex >= 0.74",
     "soliplex-plumber >= 0.2.1",  # installer: rooms + installation editors
     "soliplex-skills >= 0.5",   # `soliplex_concierge.installer`
 ]
