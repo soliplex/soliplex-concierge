@@ -40,7 +40,7 @@ jobs:
           payload: |
             {
               "channel": "#soliplex",
-              "username": "soliplex",
+              "username": "soliplex-concierge",
               "text": ${{ toJSON(format(':x: *{0}* failed on `{1}`:{4}{2}{4}{3}', github.event.workflow_run.name, github.event.workflow_run.head_branch, github.event.workflow_run.display_title, github.event.workflow_run.html_url, env.NEWLINE)) }},
               "icon_emoji": ":ghost:"
             }
