@@ -3440,7 +3440,7 @@ wheels = [
 
 [[package]]
 name = "soliplex-concierge"
-version = "0.10"
+version = "0.10.1"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
