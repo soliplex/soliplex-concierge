@@ -1152,6 +1152,8 @@ helpers. Each value is a <code>{"color": ..., "description": ...}</code> mapping
 <li><code>ISSUE_TYPE_LABELS: dict[str, dict[str, str]]</code> — <code>new-room</code>, <code>room-access</code>.</li>
 <li><code>DECISION_LABELS: dict[str, dict[str, str]]</code> — <code>approved</code>, <code>denied</code>.</li>
 <li><code>REQUEST_LABELS: dict[str, dict[str, str]]</code> — the union of the two above.</li>
+<li><code>LABEL_PAGE_SIZE</code> / <code>MAX_LABEL_PAGES</code> — paging constants for walking a
+  repository's label listing.</li>
 </ul>
 <h2 id="soliplex_conciergetls"><code>soliplex_concierge.tls</code></h2>
 <ul>
@@ -1167,8 +1169,10 @@ helpers. Each value is a <code>{"color": ..., "description": ...}</code> mapping
 <p>The tool the about-room calls to file a request. <code>ctx</code> is the pydantic-ai
 <code>RunContext</code>; <code>request_type</code> is <code>"new-room"</code> or <code>"room-access"</code>. The target
 repository is fixed by the room's <code>CreateGiteaIssueToolConfig</code>. It ensures the
-type label exists, files the issue, attaches the requesting user's profile, and
-returns the issue number and URL.</p>
+type label exists — reusing the repository's existing label, found by walking
+every page of its label listing, and creating one only when it is truly absent —
+files the issue, attaches the requesting user's profile, and returns the issue
+number and URL.</p>
 <p><strong>Exceptions</strong></p>
 <ul>
 <li><code>UnknownRequestType(ValueError)</code> — <code>request_type</code> has no matching issue-type
@@ -1199,8 +1203,8 @@ parameters.</p>
 </ul>
 <p><strong>Labels</strong></p>
 <ul>
-<li><code>list_labels(host, token, owner, repo) -&gt; list[dict]</code> — labels defined on the
-  repository.</li>
+<li><code>list_labels(host, token, owner, repo) -&gt; list[dict]</code> — every label defined
+  on the repository, walking Gitea's paginated listing.</li>
 <li><code>create_label(host, token, owner, repo, name, color, description) -&gt; dict</code> —
   create a label.</li>
 <li><code>add_labels_to_issue(host, token, owner, repo, number, label_ids) -&gt; list[dict]</code>
