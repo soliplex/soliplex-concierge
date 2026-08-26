@@ -61,9 +61,14 @@ def _resp(payload=None, error=None):
     return response
 
 
-def _patch_async_client(get_response, post_responses):
+def _patch_async_client(get_responses, post_responses):
+    """Patch httpx.AsyncClient; get/post yield the given responses in order.
+
+    The label lookup walks Gitea's paginated listing, so 'get_responses' is a
+    sequence: one response per label page the lookup is expected to fetch.
+    """
     client = mock.AsyncMock()
-    client.get.return_value = get_response
+    client.get.side_effect = list(get_responses)
     client.post.side_effect = list(post_responses)
 
     client_cm = mock.AsyncMock()
@@ -87,7 +92,7 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
         }
     )
     asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
-    patched_client, client = _patch_async_client(labels, [issue, asset])
+    patched_client, client = _patch_async_client([labels], [issue, asset])
     patched_verify = mock.patch.object(gitea.tls, "httpx_verify")
 
     with (
@@ -107,7 +112,11 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
     assert found.title == "New room request: marketing"
 
     p_client.assert_called_once_with(verify=p_verify.return_value)
-    client.get.assert_awaited_once_with(f"{REPO}/labels", headers=HEADERS)
+    client.get.assert_awaited_once_with(
+        f"{REPO}/labels",
+        headers=HEADERS,
+        params={"page": 1, "limit": gitea.LABEL_PAGE_SIZE},
+    )
     issue_call, asset_call = client.post.await_args_list
     assert issue_call == mock.call(
         f"{REPO}/issues",
@@ -147,7 +156,7 @@ async def test_create_gitea_issue_honors_configured_attachment_name(ctx):
         }
     )
     asset = _resp({"name": "user-profile.yaml.txt"})
-    patched_client, client = _patch_async_client(labels, [issue, asset])
+    patched_client, client = _patch_async_client([labels], [issue, asset])
 
     with patched_client:
         await gitea.create_gitea_issue(
@@ -185,7 +194,7 @@ async def test_create_gitea_issue_excludes_configured_claims(ctx):
         }
     )
     asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
-    patched_client, client = _patch_async_client(labels, [issue, asset])
+    patched_client, client = _patch_async_client([labels], [issue, asset])
 
     with patched_client:
         await gitea.create_gitea_issue(
@@ -229,7 +238,7 @@ async def test_create_gitea_issue_creates_missing_label(ctx):
     )
     asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
     posts = [created, issue, asset]
-    patched_client, client = _patch_async_client(labels, posts)
+    patched_client, client = _patch_async_client([labels], posts)
 
     with patched_client:
         found = await gitea.create_gitea_issue(
@@ -240,6 +249,11 @@ async def test_create_gitea_issue_creates_missing_label(ctx):
         )
 
     assert found.number == 8
+    client.get.assert_awaited_once_with(
+        f"{REPO}/labels",
+        headers=HEADERS,
+        params={"page": 1, "limit": gitea.LABEL_PAGE_SIZE},
+    )
     create_call, issue_call, _asset_call = client.post.await_args_list
     assert create_call == mock.call(
         f"{REPO}/labels",
@@ -254,8 +268,86 @@ async def test_create_gitea_issue_creates_missing_label(ctx):
 
 
 @pytest.mark.anyio
+async def test_create_gitea_issue_reuses_label_from_a_later_page(ctx):
+    # the canonical label sits past the first page of the label listing
+    first_page = _resp(
+        [
+            {"name": f"filler-{n}", "id": n}
+            for n in range(gitea.LABEL_PAGE_SIZE)
+        ]
+    )
+    second_page = _resp([{"name": "new-room", "id": 5}])
+    issue = _resp(
+        {
+            "number": 7,
+            "html_url": f"{REPO}/issues/7",
+            "title": "New room request: marketing",
+            "labels": [{"name": "new-room"}],
+        }
+    )
+    asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
+    patched_client, client = _patch_async_client(
+        [first_page, second_page], [issue, asset]
+    )
+
+    with patched_client:
+        found = await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="New room request: marketing",
+            body="Requested by Phreddy.",
+            request_type="new-room",
+        )
+
+    assert found.number == 7
+    assert client.get.await_args_list == [
+        mock.call(
+            f"{REPO}/labels",
+            headers=HEADERS,
+            params={"page": page, "limit": gitea.LABEL_PAGE_SIZE},
+        )
+        for page in (1, 2)
+    ]
+    # the existing label was reused: no label was manufactured (issue #95)
+    issue_call, _asset_call = client.post.await_args_list
+    assert issue_call.kwargs["json"]["labels"] == [5]
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_bounds_the_label_page_walk(ctx):
+    # a server that ignored 'page' would otherwise be walked forever
+    page = [{"name": f"filler-{n}", "id": n} for n in range(3)]
+    pages = [_resp(page) for _ in range(gitea.MAX_LABEL_PAGES)]
+    created = _resp({"name": "new-room", "id": 5})
+    issue = _resp(
+        {
+            "number": 7,
+            "html_url": f"{REPO}/issues/7",
+            "title": "New room request: marketing",
+            "labels": [{"name": "new-room"}],
+        }
+    )
+    asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
+    patched_client, client = _patch_async_client(
+        pages, [created, issue, asset]
+    )
+
+    with patched_client:
+        found = await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="New room request: marketing",
+            body="Requested by Phreddy.",
+            request_type="new-room",
+        )
+
+    assert found.number == 7
+    assert client.get.await_count == gitea.MAX_LABEL_PAGES
+    create_call, _issue_call, _asset_call = client.post.await_args_list
+    assert create_call.args[0] == f"{REPO}/labels"
+
+
+@pytest.mark.anyio
 async def test_create_gitea_issue_rejects_unknown_request_type(ctx):
-    patched_client, client = _patch_async_client(_resp([]), [])
+    patched_client, client = _patch_async_client([_resp([])], [])
 
     with patched_client, pytest.raises(gitea.UnknownRequestType) as exc:
         await gitea.create_gitea_issue(
@@ -274,7 +366,7 @@ async def test_create_gitea_issue_rejects_unknown_request_type(ctx):
 @pytest.mark.anyio
 async def test_create_gitea_issue_rejects_anonymous_user(ctx):
     ctx.deps.user = None
-    patched_client, client = _patch_async_client(_resp([]), [])
+    patched_client, client = _patch_async_client([_resp([])], [])
 
     with patched_client, pytest.raises(gitea.AnonymousUser) as exc:
         await gitea.create_gitea_issue(
@@ -296,7 +388,7 @@ async def test_create_gitea_issue_raises_on_http_error(ctx):
             "401 Unauthorized", request=mock.Mock(), response=mock.Mock()
         )
     )
-    patched_client, _client = _patch_async_client(labels, [issue])
+    patched_client, _client = _patch_async_client([labels], [issue])
 
     with patched_client, pytest.raises(httpx.HTTPStatusError):
         await gitea.create_gitea_issue(
@@ -323,7 +415,7 @@ async def test_create_gitea_issue_raises_on_attachment_error(ctx):
             "413 Payload Too Large", request=mock.Mock(), response=mock.Mock()
         )
     )
-    patched_client, _client = _patch_async_client(labels, [issue, asset])
+    patched_client, _client = _patch_async_client([labels], [issue, asset])
 
     with patched_client, pytest.raises(httpx.HTTPStatusError):
         await gitea.create_gitea_issue(
@@ -345,7 +437,7 @@ async def test_create_gitea_issue_raises_when_label_dropped(ctx):
             "labels": [],
         }
     )
-    patched_client, client = _patch_async_client(labels, [issue])
+    patched_client, client = _patch_async_client([labels], [issue])
 
     with patched_client, pytest.raises(gitea.LabelNotApplied) as exc:
         await gitea.create_gitea_issue(

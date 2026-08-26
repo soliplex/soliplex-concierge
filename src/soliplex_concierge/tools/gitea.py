@@ -15,6 +15,8 @@ from soliplex import models
 from soliplex_concierge import config
 from soliplex_concierge import tls
 from soliplex_concierge.labels import ISSUE_TYPE_LABELS
+from soliplex_concierge.labels import LABEL_PAGE_SIZE
+from soliplex_concierge.labels import MAX_LABEL_PAGES
 
 
 class UnknownRequestType(ValueError):
@@ -70,6 +72,34 @@ class CreatedGiteaIssue(pydantic.BaseModel):
     title: str
 
 
+async def _find_label(
+    client: httpx.AsyncClient,
+    repo_url: str,
+    headers: dict[str, str],
+    name: str,
+) -> int | None:
+    """Return the id of the named repo label, or None if it is not defined.
+
+    Walks the repository's paginated label listing rather than trusting the
+    first page: a canonical label sitting past the page boundary must not be
+    mistaken for a missing one (see 'soliplex_concierge.labels').
+    """
+    for page in range(1, MAX_LABEL_PAGES + 1):
+        response = await client.get(
+            f"{repo_url}/labels",
+            headers=headers,
+            params={"page": page, "limit": LABEL_PAGE_SIZE},
+        )
+        response.raise_for_status()
+        labels = response.json()
+        if not labels:
+            return None
+        for label in labels:
+            if label["name"] == name:
+                return label["id"]
+    return None
+
+
 async def _ensure_label(
     client: httpx.AsyncClient,
     repo_url: str,
@@ -77,11 +107,9 @@ async def _ensure_label(
     name: str,
 ) -> int:
     """Return the id of the named repo label, creating it if it is absent."""
-    response = await client.get(f"{repo_url}/labels", headers=headers)
-    response.raise_for_status()
-    for label in response.json():
-        if label["name"] == name:
-            return label["id"]
+    label_id = await _find_label(client, repo_url, headers, name)
+    if label_id is not None:
+        return label_id
 
     spec = ISSUE_TYPE_LABELS[name]
     response = await client.post(

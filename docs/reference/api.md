@@ -48,6 +48,8 @@ helpers. Each value is a `{"color": ..., "description": ...}` mapping.
 - `ISSUE_TYPE_LABELS: dict[str, dict[str, str]]` — `new-room`, `room-access`.
 - `DECISION_LABELS: dict[str, dict[str, str]]` — `approved`, `denied`.
 - `REQUEST_LABELS: dict[str, dict[str, str]]` — the union of the two above.
+- `LABEL_PAGE_SIZE` / `MAX_LABEL_PAGES` — paging constants for walking a
+  repository's label listing.
 
 ## `soliplex_concierge.tls`
 
@@ -67,8 +69,10 @@ The room-side tool that files a request as a Gitea issue.
 The tool the about-room calls to file a request. `ctx` is the pydantic-ai
 `RunContext`; `request_type` is `"new-room"` or `"room-access"`. The target
 repository is fixed by the room's `CreateGiteaIssueToolConfig`. It ensures the
-type label exists, files the issue, attaches the requesting user's profile, and
-returns the issue number and URL.
+type label exists — reusing the repository's existing label, found by walking
+every page of its label listing, and creating one only when it is truly absent —
+files the issue, attaches the requesting user's profile, and returns the issue
+number and URL.
 
 **Exceptions**
 
@@ -102,8 +106,8 @@ parameters.
 
 **Labels**
 
-- `list_labels(host, token, owner, repo) -> list[dict]` — labels defined on the
-  repository.
+- `list_labels(host, token, owner, repo) -> list[dict]` — every label defined
+  on the repository, walking Gitea's paginated listing.
 - `create_label(host, token, owner, repo, name, color, description) -> dict` —
   create a label.
 - `add_labels_to_issue(host, token, owner, repo, number, label_ids) -> list[dict]`
