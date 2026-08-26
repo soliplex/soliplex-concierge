@@ -37,6 +37,8 @@ import sys
 
 import httpx
 
+from soliplex_concierge.labels import LABEL_PAGE_SIZE
+from soliplex_concierge.labels import MAX_LABEL_PAGES
 from soliplex_concierge.labels import REQUEST_LABELS as LABELS
 from soliplex_concierge.tls import httpx_verify
 
@@ -129,14 +131,27 @@ def close_issue(
 
 
 def list_labels(host: str, token: str, owner: str, repo: str) -> list[dict]:
-    """Return the labels defined on the repository."""
+    """Return every label defined on the repository.
+
+    Walks Gitea's paginated label listing: stopping at the first page would
+    report a canonical label past the page boundary as missing, so 'init'
+    would create a duplicate of it and the decision helpers would refuse to
+    apply it (see 'soliplex_concierge.labels').
+    """
+    labels: list[dict] = []
     with httpx.Client(verify=_VERIFY) as client:
-        response = client.get(
-            _labels_url(host, owner, repo),
-            headers=_headers(token),
-        )
-    response.raise_for_status()
-    return response.json()
+        for page in range(1, MAX_LABEL_PAGES + 1):
+            response = client.get(
+                _labels_url(host, owner, repo),
+                headers=_headers(token),
+                params={"page": page, "limit": LABEL_PAGE_SIZE},
+            )
+            response.raise_for_status()
+            batch = response.json()
+            if not batch:
+                break
+            labels.extend(batch)
+    return labels
 
 
 def create_label(

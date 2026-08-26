@@ -265,13 +265,44 @@ def _patch_client_seq(get=(), post=(), patch=()):
 
 
 def test_list_labels():
-    patched, client = _patch_client([{"name": "approved", "id": 1}])
+    patched, client = _patch_client_seq(
+        get=[
+            [{"name": "approved", "id": 1}],
+            [{"name": "denied", "id": 2}],
+            [],
+        ]
+    )
 
     with patched:
         result = gitea_admin.list_labels(HOST, TOKEN, OWNER, REPO)
 
-    assert result == [{"name": "approved", "id": 1}]
-    client.get.assert_called_once_with(LABELS_URL, headers=HEADERS)
+    # every page is walked, so a label past the first is not reported missing
+    assert result == [
+        {"name": "approved", "id": 1},
+        {"name": "denied", "id": 2},
+    ]
+    assert client.get.call_args_list == [
+        mock.call(
+            LABELS_URL,
+            headers=HEADERS,
+            params={"page": page, "limit": gitea_admin.LABEL_PAGE_SIZE},
+        )
+        for page in (1, 2, 3)
+    ]
+
+
+def test_list_labels_bounds_the_page_walk():
+    # a server that ignored 'page' would otherwise be walked forever
+    page = [{"name": "approved", "id": 1}]
+    patched, client = _patch_client_seq(
+        get=[page] * gitea_admin.MAX_LABEL_PAGES
+    )
+
+    with patched:
+        result = gitea_admin.list_labels(HOST, TOKEN, OWNER, REPO)
+
+    assert client.get.call_count == gitea_admin.MAX_LABEL_PAGES
+    assert result == page * gitea_admin.MAX_LABEL_PAGES
 
 
 def test_create_label():
@@ -311,8 +342,8 @@ def test_add_labels_to_issue():
 
 
 def test_resolve_label_ids():
-    patched, _client = _patch_client(
-        [{"name": "approved", "id": 5}, {"name": "denied", "id": 6}]
+    patched, _client = _patch_client_seq(
+        get=[[{"name": "approved", "id": 5}, {"name": "denied", "id": 6}], []]
     )
 
     with patched:
@@ -324,7 +355,9 @@ def test_resolve_label_ids():
 
 
 def test_resolve_label_ids_missing_raises():
-    patched, _client = _patch_client([{"name": "approved", "id": 5}])
+    patched, _client = _patch_client_seq(
+        get=[[{"name": "approved", "id": 5}], []]
+    )
 
     with patched, pytest.raises(ValueError, match="init"):
         gitea_admin._resolve_label_ids(HOST, TOKEN, OWNER, REPO, ["denied"])
@@ -344,7 +377,7 @@ def test_init_labels_all_missing():
 
 def test_init_labels_partial():
     patched, client = _patch_client_seq(
-        get=[[{"name": "approved", "id": 9}]],
+        get=[[{"name": "approved", "id": 9}], []],
         post=[{"id": 1}, {"id": 2}, {"id": 3}],
     )
 
@@ -361,7 +394,7 @@ def test_init_labels_partial():
 
 def test_approve_issue_with_body():
     patched, client = _patch_client_seq(
-        get=[[{"name": "approved", "id": 5}]],
+        get=[[{"name": "approved", "id": 5}], []],
         post=[[{"name": "approved"}], {"html_url": "c"}],
         patch=[{"number": 7, "state": "closed"}],
     )
@@ -388,7 +421,7 @@ def test_approve_issue_with_body():
 
 def test_deny_issue_without_body():
     patched, client = _patch_client_seq(
-        get=[[{"name": "denied", "id": 6}]],
+        get=[[{"name": "denied", "id": 6}], []],
         post=[[{"name": "denied"}], {"html_url": "c"}],
         patch=[{"number": 8, "state": "closed"}],
     )
@@ -470,7 +503,7 @@ def test_main_search_empty(capsys):
 
 def test_main_approve(capsys):
     patched, _client = _patch_client_seq(
-        get=[[{"name": "approved", "id": 5}]],
+        get=[[{"name": "approved", "id": 5}], []],
         post=[[{"name": "approved"}], {"html_url": "c"}],
         patch=[{"number": 7, "state": "closed"}],
     )
@@ -484,7 +517,7 @@ def test_main_approve(capsys):
 
 def test_main_deny(capsys):
     patched, _client = _patch_client_seq(
-        get=[[{"name": "denied", "id": 6}]],
+        get=[[{"name": "denied", "id": 6}], []],
         post=[[{"name": "denied"}], {"html_url": "c"}],
         patch=[{"number": 8, "state": "closed"}],
     )

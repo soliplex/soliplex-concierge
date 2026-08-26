@@ -13,7 +13,11 @@ import time
 import httpx
 import pytest
 
-GITEA_IMAGE = "gitea/gitea:1.22"
+# Track the Gitea a 'soliplex-template'-generated stack deploys: behavior the
+# tests rely on is version-dependent (1.22 returned a repo's whole label list
+# from an unparameterized 'GET /labels', 1.26 applies its default paging), so
+# an older pin here would mask real bugs (issue #95).
+GITEA_IMAGE = "docker.gitea.com/gitea:1.26.0"
 CONTAINER_NAME = "soliplex-concierge-gitea-test"
 ADMIN_USER = "concierge"
 ADMIN_EMAIL = "concierge@example.com"
