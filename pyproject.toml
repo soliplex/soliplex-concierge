@@ -8,18 +8,18 @@ version = "0.11dev0"
 description = "Soliplex extension for LLM-driven room access / creation requests."
 authors = [{ name = "Enfold", email = "info@enfoldsystems.net" }]
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "httpx",
+    "httpx2 >= 2.12.0",             # PYSEC-2026-3846
     "pyyaml",
-    "ruamel.yaml",              # `soliplex_concierge.installer`
-    "soliplex >= 0.74",
-    "soliplex-plumber >= 0.2.1",  # installer: rooms + installation editors
-    "soliplex-skills >= 0.5",   # `soliplex_concierge.installer`
+    "ruamel.yaml",                  # `soliplex_concierge.installer`
+    "soliplex >= 0.79",
+    "soliplex-plumber >= 0.2.1",    # installer: rooms + installation editors
+    "soliplex-skills >= 0.5",       # `soliplex_concierge.installer`
 ]
 
 [project.optional-dependencies]
