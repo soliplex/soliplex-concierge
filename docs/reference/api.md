@@ -32,7 +32,16 @@ Dataclass describing the `create_gitea_issue` tool for a room. Configured keys:
 - `exclude_claims: list[str]` — profile fields to drop before attaching.
 
 `owner` / `repo` / `host` / `token` are exposed as **properties** that resolve
-Soliplex `env:` / `secret:` interpolation markers lazily at tool-call time.
+Soliplex `env:` / `secret:` interpolation markers lazily at tool-call time,
+via `soliplex.config.interpolation.resolve_field`.
+
+Each backing field declares its
+[interpolation contract](https://soliplex.github.io/soliplex/config/interpolation/)
+-- `env:` markers for `owner` / `repo` / `host`, `secret:` markers for
+`token`, embedded anywhere within the value -- so `soliplex-cli audit`
+reports a marker naming something the installation does not declare,
+instead of leaving it to fail on the first tool call. Requires
+Soliplex >= 0.80.
 
 - `from_yaml(installation_config, config_path, config_dict)` *(classmethod)* —
   build the config from a room's YAML, mapping the public `owner` / `repo` /

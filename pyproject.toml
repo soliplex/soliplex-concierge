@@ -17,7 +17,7 @@ dependencies = [
     "httpx2 >= 2.12.0",             # PYSEC-2026-3846
     "pyyaml",
     "ruamel.yaml",                  # `soliplex_concierge.installer`
-    "soliplex >= 0.79",
+    "soliplex >= 0.80",
     "soliplex-plumber >= 0.2.1",    # installer: rooms + installation editors
     "soliplex-skills >= 0.5",       # `soliplex_concierge.installer`
 ]
