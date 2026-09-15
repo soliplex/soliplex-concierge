@@ -14,6 +14,7 @@ import dataclasses
 import pathlib
 import typing
 
+from soliplex.config import interpolation as config_interp
 from soliplex.config import tools as config_tools
 
 CGI_TOOL_NAME = "soliplex_concierge.tools.gitea.create_gitea_issue"
@@ -36,16 +37,30 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
     # carry Soliplex interpolation markers (e.g. 'env:GITEA_OWNER'); the
     # 'owner' / 'repo' properties resolve them lazily at tool-call time, just
     # like 'host' below.
-    _owner: str
-    _repo: str
+    _owner: str = config_interp.env_embedded_field(
+        public_name="owner",
+        accessor="owner",
+    )
+    _repo: str = config_interp.env_embedded_field(
+        public_name="repo",
+        accessor="repo",
+    )
 
     # The Gitea base URL and access token, as Soliplex interpolation strings:
     # '_host' carries an 'env:' marker and '_token' a 'secret:' marker. The
     # 'host' / 'token' properties resolve them lazily at tool-call time (the
     # installation's environment and secrets are not resolved until after room
     # configs -- and thus tool configs -- are constructed).
-    _host: str = "env:GITEA_HOST"
-    _token: str = "secret:GITEA_ACCESS_TOKEN"
+    _host: str = config_interp.env_embedded_field(
+        default="env:GITEA_HOST",
+        public_name="host",
+        accessor="host",
+    )
+    _token: str = config_interp.secret_embedded_field(
+        default="secret:GITEA_ACCESS_TOKEN",
+        public_name="token",
+        accessor="token",
+    )
 
     # Name of the YAML file the requesting user's profile is attached under.
     # The extension must be one Gitea's '[attachment] ALLOWED_TYPES' permits.
@@ -57,19 +72,19 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
 
     @property
     def owner(self) -> str:
-        return self._installation_config.interpolate_environment(self._owner)
+        return config_interp.resolve_field(self, "_owner")
 
     @property
     def repo(self) -> str:
-        return self._installation_config.interpolate_environment(self._repo)
+        return config_interp.resolve_field(self, "_repo")
 
     @property
     def host(self) -> str:
-        return self._installation_config.interpolate_environment(self._host)
+        return config_interp.resolve_field(self, "_host")
 
     @property
     def token(self) -> str:
-        return self._installation_config.interpolate_secrets(self._token)
+        return config_interp.resolve_field(self, "_token")
 
     # Public 'config_dict' keys mapped to the private fields backing the
     # lazily-interpolated 'owner' / 'repo' / 'host' / 'token' properties.

@@ -1,3 +1,6 @@
+import pytest
+from soliplex.config import interpolation as config_interp
+
 from soliplex_concierge import config
 
 
@@ -185,3 +188,38 @@ def test_cgi_token_interpolates_secrets(installation_config, temp_dir):
     installation_config.interpolate_secrets.assert_called_once_with(
         "secret:GITEA_ACCESS_TOKEN"
     )
+
+
+@pytest.mark.parametrize(
+    "field_name, exp_kinds, exp_public_name",
+    [
+        ("_owner", config_interp.MarkerKind.ENVIRONMENT, "owner"),
+        ("_repo", config_interp.MarkerKind.ENVIRONMENT, "repo"),
+        ("_host", config_interp.MarkerKind.ENVIRONMENT, "host"),
+        ("_token", config_interp.MarkerKind.SECRET, "token"),
+    ],
+)
+def test_cgi_declares_its_interpolation_contract(
+    field_name,
+    exp_kinds,
+    exp_public_name,
+):
+    """Pin what 'soliplex-cli audit' reads for each resolving field."""
+    klass = config.CreateGiteaIssueToolConfig
+
+    found = config_interp.spec_for(klass, field_name)
+
+    assert found.kinds is exp_kinds
+    assert found.arity is config_interp.MarkerArity.EMBEDDED
+    assert found.shape is config_interp.ValueShape.SCALAR
+    assert found.public_name == exp_public_name
+    assert found.accessor == exp_public_name
+
+
+def test_cgi_opts_in_to_the_interpolation_checks():
+    """A class declaring none of its own is skipped by the audit."""
+    klass = config.CreateGiteaIssueToolConfig
+
+    found = dict(config_interp.iter_own_specs(klass))
+
+    assert sorted(found) == ["_host", "_owner", "_repo", "_token"]
