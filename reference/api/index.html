@@ -1137,7 +1137,15 @@ helpers.</p>
 <li><code>exclude_claims: list[str]</code> — profile fields to drop before attaching.</li>
 </ul>
 <p><code>owner</code> / <code>repo</code> / <code>host</code> / <code>token</code> are exposed as <strong>properties</strong> that resolve
-Soliplex <code>env:</code> / <code>secret:</code> interpolation markers lazily at tool-call time.</p>
+Soliplex <code>env:</code> / <code>secret:</code> interpolation markers lazily at tool-call time,
+via <code>soliplex.config.interpolation.resolve_field</code>.</p>
+<p>Each backing field declares its
+<a href="https://soliplex.github.io/soliplex/config/interpolation/">interpolation contract</a>
+-- <code>env:</code> markers for <code>owner</code> / <code>repo</code> / <code>host</code>, <code>secret:</code> markers for
+<code>token</code>, embedded anywhere within the value -- so <code>soliplex-cli audit</code>
+reports a marker naming something the installation does not declare,
+instead of leaving it to fail on the first tool call. Requires
+Soliplex &gt;= 0.80.</p>
 <ul>
 <li><code>from_yaml(installation_config, config_path, config_dict)</code> <em>(classmethod)</em> —
   build the config from a room's YAML, mapping the public <code>owner</code> / <code>repo</code> /
