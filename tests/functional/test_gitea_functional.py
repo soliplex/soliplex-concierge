@@ -143,3 +143,35 @@ async def test_create_gitea_issue_reuses_a_label_past_the_first_page(
         )
     ]
     assert names.count("new-room") == 1
+
+
+@pytest.mark.needs_docker
+def test_create_gitea_issue_sync_against_live_gitea(gitea_server):
+    issue = gitea.create_gitea_issue_sync(
+        host=gitea_server["host"],
+        token=gitea_server["token"],
+        owner=gitea_server["owner"],
+        repo=gitea_server["repo"],
+        user=USER,
+        title="New room request: marketing",
+        body="Filed by the room provisioner.",
+        request_type="new-room",
+    )
+
+    repo_api = _repo_api(gitea_server)
+    headers = {"Authorization": f"token {gitea_server['token']}"}
+    verify = httpx.get(
+        f"{repo_api}/issues/{issue.number}", headers=headers, timeout=10
+    )
+    assert verify.status_code == 200
+    assert verify.json()["title"] == "New room request: marketing"
+    assert "new-room" in {label["name"] for label in verify.json()["labels"]}
+    assets = httpx.get(
+        f"{repo_api}/issues/{issue.number}/assets",
+        headers=headers,
+        timeout=10,
+    )
+    assert assets.status_code == 200
+    assert {asset["name"] for asset in assets.json()} == {
+        config.DEFAULT_PROFILE_ATTACHMENT_NAME
+    }

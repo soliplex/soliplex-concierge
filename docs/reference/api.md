@@ -83,6 +83,16 @@ every page of its label listing, and creating one only when it is truly absent �
 files the issue, attaches the requesting user's profile, and returns the issue
 number and URL.
 
+**`create_gitea_issue_sync(*, host, token, owner, repo, user, title, body, request_type, profile_attachment_name="user-profile.yaml", exclude_claims=()) -> CreatedGiteaIssue`**
+
+The synchronous counterpart of `create_gitea_issue`, for callers outside any
+agent run (e.g. a room provisioner). What the tool reads from its run context
+is passed in explicitly: the connection and profile settings its
+`CreateGiteaIssueToolConfig` supplies, and the requesting `user` (a
+`soliplex.models.UserProfile`, or a mapping of the user's claims). It files the
+same issue the tool does — the two share one implementation — and raises the
+same `UnknownRequestType` / `LabelNotApplied`.
+
 **Exceptions**
 
 - `UnknownRequestType(ValueError)` — `request_type` has no matching issue-type
