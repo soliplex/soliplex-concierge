@@ -69,7 +69,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version-file: "pyproject.toml"
+          python-version: "3.13"
 
       # The 'dev' group provides 'skills-ref' (the agentskills validator) used
       # by build_skills.py.
