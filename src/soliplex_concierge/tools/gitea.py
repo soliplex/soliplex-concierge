@@ -5,6 +5,11 @@ repository is fixed by the room's tool configuration, so the agent cannot
 file against an arbitrary repository.
 """
 
+import contextlib
+import typing
+from collections.abc import Iterable
+from collections.abc import Mapping
+
 import httpx
 import pydantic
 import pydantic_ai
@@ -72,12 +77,20 @@ class CreatedGiteaIssue(pydantic.BaseModel):
     title: str
 
 
-async def _find_label(
-    client: httpx.AsyncClient,
+# The request sequence that files an issue is written once, sans-IO: each
+# step is a generator that yields '(method, url, kwargs)' for every HTTP call
+# it needs and is sent back the response. '_drive_sync' / '_drive_async' run
+# it against an 'httpx.Client' / 'httpx.AsyncClient', so the room tool and
+# its synchronous counterpart cannot drift apart.
+_Request = tuple[str, str, dict[str, typing.Any]]
+_Steps = typing.Generator[_Request, httpx.Response, typing.Any]
+
+
+def _find_label(
     repo_url: str,
     headers: dict[str, str],
     name: str,
-) -> int | None:
+) -> _Steps:
     """Return the id of the named repo label, or None if it is not defined.
 
     Walks the repository's paginated label listing rather than trusting the
@@ -85,10 +98,13 @@ async def _find_label(
     mistaken for a missing one (see 'soliplex_concierge.labels').
     """
     for page in range(1, MAX_LABEL_PAGES + 1):
-        response = await client.get(
+        response = yield (
+            "get",
             f"{repo_url}/labels",
-            headers=headers,
-            params={"page": page, "limit": LABEL_PAGE_SIZE},
+            {
+                "headers": headers,
+                "params": {"page": page, "limit": LABEL_PAGE_SIZE},
+            },
         )
         response.raise_for_status()
         labels = response.json()
@@ -100,62 +116,222 @@ async def _find_label(
     return None
 
 
-async def _ensure_label(
-    client: httpx.AsyncClient,
+def _ensure_label(
     repo_url: str,
     headers: dict[str, str],
     name: str,
-) -> int:
+) -> _Steps:
     """Return the id of the named repo label, creating it if it is absent."""
-    label_id = await _find_label(client, repo_url, headers, name)
+    label_id = yield from _find_label(repo_url, headers, name)
     if label_id is not None:
         return label_id
 
     spec = ISSUE_TYPE_LABELS[name]
-    response = await client.post(
+    response = yield (
+        "post",
         f"{repo_url}/labels",
-        headers=headers,
-        json={
-            "name": name,
-            "color": spec["color"],
-            "description": spec["description"],
+        {
+            "headers": headers,
+            "json": {
+                "name": name,
+                "color": spec["color"],
+                "description": spec["description"],
+            },
         },
     )
     response.raise_for_status()
     return response.json()["id"]
 
 
-async def _attach_user_profile(
-    client: httpx.AsyncClient,
+def _attach_user_profile(
     repo_url: str,
     headers: dict[str, str],
     number: int,
-    user: models.UserProfile,
+    claims: dict[str, typing.Any],
     name: str,
     exclude_claims: list[str],
-) -> None:
+) -> _Steps:
     """Attach the requesting user's profile to the issue as a YAML file.
 
     Fields named in 'exclude_claims' are dropped from the profile before
     conversion to the YAML used for the attachment.
     """
-    claims = user.model_dump()
+    claims = dict(claims)
     for claim in exclude_claims:
         claims.pop(claim, None)
     content = yaml.safe_dump(claims, sort_keys=False)
-    response = await client.post(
+    response = yield (
+        "post",
         f"{repo_url}/issues/{number}/assets",
-        headers=headers,
-        params={"name": name},
-        files={
-            "attachment": (
-                name,
-                content.encode("utf-8"),
-                "application/x-yaml",
-            )
+        {
+            "headers": headers,
+            "params": {"name": name},
+            "files": {
+                "attachment": (
+                    name,
+                    content.encode("utf-8"),
+                    "application/x-yaml",
+                )
+            },
         },
     )
     response.raise_for_status()
+
+
+def _file_issue(
+    *,
+    host: str,
+    token: str,
+    owner: str,
+    repo: str,
+    profile_attachment_name: str,
+    exclude_claims: list[str],
+    claims: dict[str, typing.Any],
+    title: str,
+    body: str,
+    request_type: str,
+) -> _Steps:
+    """Ensure the type label, file the issue, and attach the user profile."""
+    repo_url = f"{host.rstrip('/')}/api/v1/repos/{owner}/{repo}"
+    headers = {"Authorization": f"token {token}"}
+
+    label_id = yield from _ensure_label(repo_url, headers, request_type)
+    response = yield (
+        "post",
+        f"{repo_url}/issues",
+        {
+            "headers": headers,
+            "json": {"title": title, "body": body, "labels": [label_id]},
+        },
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    applied = {label["name"] for label in data.get("labels", [])}
+    if request_type not in applied:
+        raise LabelNotApplied(request_type, data["number"], data["html_url"])
+
+    yield from _attach_user_profile(
+        repo_url,
+        headers,
+        data["number"],
+        claims,
+        profile_attachment_name,
+        exclude_claims,
+    )
+
+    return CreatedGiteaIssue(
+        number=data["number"],
+        url=data["html_url"],
+        title=data["title"],
+    )
+
+
+def _drive_sync(client: httpx.Client, steps: _Steps) -> typing.Any:
+    """Run 'steps' to completion, issuing its requests via 'client'.
+
+    An error raised by a request is thrown into 'steps' at the 'yield' that
+    asked for it, so the step sees (and its frames appear in the traceback
+    of) its own failure; 'steps' is closed however the drive ends.
+    """
+    with contextlib.closing(steps):
+        try:
+            method, url, kwargs = next(steps)
+            while True:
+                try:
+                    response = getattr(client, method)(url, **kwargs)
+                except Exception as exc:
+                    method, url, kwargs = steps.throw(exc)
+                else:
+                    method, url, kwargs = steps.send(response)
+        except StopIteration as stop:
+            return stop.value
+
+
+async def _drive_async(client: httpx.AsyncClient, steps: _Steps) -> typing.Any:
+    """Run 'steps' to completion, awaiting its requests via 'client'.
+
+    See '_drive_sync': request errors are thrown into 'steps', which is
+    closed however the drive ends (including on cancellation).
+    """
+    with contextlib.closing(steps):
+        try:
+            method, url, kwargs = next(steps)
+            while True:
+                try:
+                    response = await getattr(client, method)(url, **kwargs)
+                except Exception as exc:
+                    method, url, kwargs = steps.throw(exc)
+                else:
+                    method, url, kwargs = steps.send(response)
+        except StopIteration as stop:
+            return stop.value
+
+
+def create_gitea_issue_sync(
+    *,
+    host: str,
+    token: str,
+    owner: str,
+    repo: str,
+    user: models.UserProfile | Mapping[str, typing.Any],
+    title: str,
+    body: str,
+    request_type: str,
+    profile_attachment_name: str = config.DEFAULT_PROFILE_ATTACHMENT_NAME,
+    exclude_claims: Iterable[str] = (),
+) -> CreatedGiteaIssue:
+    """File a room request as a Gitea issue, outside any agent run.
+
+    The synchronous counterpart of the 'create_gitea_issue' room tool, for
+    callers (e.g. a room provisioner) with no pydantic-ai run context: the
+    connection and profile settings the tool reads from its config, and the
+    requesting user it reads from the run's dependencies, are passed in
+    explicitly. The issue filed is the same one the tool would file.
+
+    Args:
+        host: the Gitea base URL, e.g. 'https://gitea.example.com'.
+        token: a Gitea access token with Write access to the repository.
+        owner: the tracking repository's owner.
+        repo: the tracking repository's name.
+        user: the requesting user's profile, or a mapping of their claims;
+            attached to the issue as a YAML file.
+        title: the issue title.
+        body: the issue body (Markdown).
+        request_type: 'new-room' or 'room-access'.
+        profile_attachment_name: filename the profile is attached under.
+        exclude_claims: claims dropped from the profile before attaching it.
+
+    Returns:
+        CreatedGiteaIssue: the 'number', 'url', and 'title' of the new issue.
+
+    Raises:
+        UnknownRequestType: if 'request_type' is not a known issue-type label.
+        LabelNotApplied: if the created issue did not receive its type label
+            (typically the Gitea account lacks Write access to the repo).
+    """
+    if request_type not in ISSUE_TYPE_LABELS:
+        raise UnknownRequestType(request_type, set(ISSUE_TYPE_LABELS))
+
+    if isinstance(user, models.UserProfile):
+        claims = user.model_dump()
+    else:
+        claims = dict(user)
+
+    steps = _file_issue(
+        host=host,
+        token=token,
+        owner=owner,
+        repo=repo,
+        profile_attachment_name=profile_attachment_name,
+        exclude_claims=list(exclude_claims),
+        claims=claims,
+        title=title,
+        body=body,
+        request_type=request_type,
+    )
+    with httpx.Client(verify=tls.httpx_verify()) as client:
+        return _drive_sync(client, steps)
 
 
 async def create_gitea_issue(
@@ -203,42 +379,17 @@ async def create_gitea_issue(
 
     tool_config = ctx.deps.tool_configs[config.CGI_TOOL_KIND]
 
-    host = tool_config.host
-    token = tool_config.token
-    repo_url = (
-        f"{host.rstrip('/')}"
-        f"/api/v1/repos/{tool_config.owner}/{tool_config.repo}"
+    steps = _file_issue(
+        host=tool_config.host,
+        token=tool_config.token,
+        owner=tool_config.owner,
+        repo=tool_config.repo,
+        profile_attachment_name=tool_config.profile_attachment_name,
+        exclude_claims=tool_config.exclude_claims,
+        claims=ctx.deps.user.model_dump(),
+        title=title,
+        body=body,
+        request_type=request_type,
     )
-    headers = {"Authorization": f"token {token}"}
-
     async with httpx.AsyncClient(verify=tls.httpx_verify()) as client:
-        label_id = await _ensure_label(client, repo_url, headers, request_type)
-        response = await client.post(
-            f"{repo_url}/issues",
-            headers=headers,
-            json={"title": title, "body": body, "labels": [label_id]},
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        applied = {label["name"] for label in data.get("labels", [])}
-        if request_type not in applied:
-            raise LabelNotApplied(
-                request_type, data["number"], data["html_url"]
-            )
-
-        await _attach_user_profile(
-            client,
-            repo_url,
-            headers,
-            data["number"],
-            ctx.deps.user,
-            tool_config.profile_attachment_name,
-            tool_config.exclude_claims,
-        )
-
-    return CreatedGiteaIssue(
-        number=data["number"],
-        url=data["html_url"],
-        title=data["title"],
-    )
+        return await _drive_async(client, steps)
