@@ -17,7 +17,7 @@ dependencies = [
     "httpx2 >= 2.12.0",             # PYSEC-2026-3846
     "pyyaml",
     "ruamel.yaml",                  # `soliplex_concierge.installer`
-    "soliplex >= 0.80",
+    "soliplex >= 0.87",
     "soliplex-plumber >= 0.2.1",    # installer: rooms + installation editors
     "soliplex-skills >= 0.5",       # `soliplex_concierge.installer`
 ]
@@ -32,7 +32,7 @@ install-concierge = "soliplex_concierge.installer:main"
 
 [dependency-groups]
 dev = [
-    "anyio >= 4.12.1, < 4.13",
+    "anyio >= 4.14.2, < 4.15",
     "coverage >= 7.13.5, < 7.14",
     "pytest >= 9.0.2, < 9.1",
     "pytest-cov >= 7.0.0, < 7.1",
