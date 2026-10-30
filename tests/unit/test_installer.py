@@ -2,6 +2,7 @@ import contextlib
 import importlib.util
 import pathlib
 import shutil
+from unittest import mock
 
 import pytest
 
@@ -282,27 +283,30 @@ def test_resolve_published_skill_downloads_via_library(
     root = tmp_path / installer.ROOM.name
     root.mkdir()
     (root / "SKILL.md").write_text("---\nname: x\n---\n")
-    calls = []
+    download = mock.Mock(return_value=root)
 
-    def _fake(published, version, dest):
-        calls.append((published.name, version))
-        return root
-
-    monkeypatch.setattr(installer.install, "download_skill", _fake)
+    monkeypatch.setattr(installer.install, "download_skill", download)
 
     result = installer.resolve_published_skill(
         installer.ROOM, None, "v0.4", _opts(), stack, contextlib.ExitStack()
     )
 
     assert result == root
-    assert calls == [(installer.ROOM.name, "v0.4")]
+    download.assert_called_once_with(
+        installer.ROOM.published, "v0.4", mock.ANY
+    )
 
 
 def test_resolve_published_skill_pointer_unavailable(stack, monkeypatch):
-    def _boom(published, version, dest):
-        raise installer.install.PointerUnavailable(published.pointer_tag)
-
-    monkeypatch.setattr(installer.install, "download_skill", _boom)
+    monkeypatch.setattr(
+        installer.install,
+        "download_skill",
+        mock.Mock(
+            side_effect=installer.install.PointerUnavailable(
+                installer.ROOM.pointer_tag
+            )
+        ),
+    )
 
     with pytest.raises(
         installer.SkillDownloadFailed, match="room-skill-latest.*pointer"
@@ -313,10 +317,15 @@ def test_resolve_published_skill_pointer_unavailable(stack, monkeypatch):
 
 
 def test_resolve_published_skill_download_error_hint(stack, monkeypatch):
-    def _boom(published, version, dest):
-        raise installer.install.releases.UnsupportedURLScheme("ftp://x", "ftp")
-
-    monkeypatch.setattr(installer.install, "download_skill", _boom)
+    monkeypatch.setattr(
+        installer.install,
+        "download_skill",
+        mock.Mock(
+            side_effect=installer.install.releases.UnsupportedURLScheme(
+                "ftp://x", "ftp"
+            )
+        ),
+    )
 
     with pytest.raises(
         installer.SkillDownloadFailed, match="--docs-skill-dir"
@@ -1062,13 +1071,17 @@ def test_main_not_a_stack(temp_dir, capsys):
 def test_main_downloads_skills(stack, monkeypatch):
     # the library download is faked to materialize a minimal skill tree, so
     # main() exercises resolve -> install_skill -> defang for both skills.
-    def _fake_download(published, version, dest):
+    def _materialize(published, version, dest):
         root = dest / published.name
         root.mkdir(parents=True)
         (root / "SKILL.md").write_text("---\nname: x\n---\n")
         return root
 
-    monkeypatch.setattr(installer.install, "download_skill", _fake_download)
+    monkeypatch.setattr(
+        installer.install,
+        "download_skill",
+        mock.Mock(side_effect=_materialize),
+    )
 
     rc = _main(["--stack-dir", str(stack), "--owner", "o", "--repo", "r"])
 
@@ -1079,12 +1092,15 @@ def test_main_downloads_skills(stack, monkeypatch):
 
 
 def test_main_skill_download_fails(stack, capsys, monkeypatch):
-    def _boom(published, version, dest):
-        raise installer.install.releases.GitHubAPIError(
-            published.pointer_url(), "HTTP 404"
-        )
-
-    monkeypatch.setattr(installer.install, "download_skill", _boom)
+    monkeypatch.setattr(
+        installer.install,
+        "download_skill",
+        mock.Mock(
+            side_effect=installer.install.releases.GitHubAPIError(
+                installer.ROOM.published.pointer_url(), "HTTP 404"
+            )
+        ),
+    )
 
     rc = _main(["--stack-dir", str(stack)])
 

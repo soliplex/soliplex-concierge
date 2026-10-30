@@ -27,7 +27,9 @@ def built(monkeypatch):
 
 def test_main_builds_named_skill(built, monkeypatch):
     monkeypatch.setattr(
-        build_skills.build, "git_head_commit", lambda repo: "feedface"
+        build_skills.build,
+        "git_head_commit",
+        mock.Mock(return_value="feedface"),
     )
 
     rc = build_skills.main(["--skill", "soliplex-concierge-room"])
@@ -45,10 +47,14 @@ def test_main_builds_named_skill(built, monkeypatch):
 
 def test_main_builds_all_discovered(built, monkeypatch):
     monkeypatch.setattr(
-        build_skills.build, "discover_skills", lambda skills_dir: ["a", "b"]
+        build_skills.build,
+        "discover_skills",
+        mock.Mock(return_value=["a", "b"]),
     )
     monkeypatch.setattr(
-        build_skills.build, "git_head_commit", lambda repo: "feedface"
+        build_skills.build,
+        "git_head_commit",
+        mock.Mock(return_value="feedface"),
     )
 
     rc = build_skills.main([])
@@ -119,7 +125,9 @@ def test_main_reports_build_error(built, monkeypatch, capsys):
         "soliplex-concierge-room", ["bad frontmatter"]
     )
     monkeypatch.setattr(
-        build_skills.build, "git_head_commit", lambda repo: "abc1234"
+        build_skills.build,
+        "git_head_commit",
+        mock.Mock(return_value="abc1234"),
     )
 
     rc = build_skills.main(["--skill", "soliplex-concierge-room"])
