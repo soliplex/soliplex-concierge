@@ -1151,6 +1151,8 @@ helpers.</p>
   dotted names and kinds of the <code>request_room</code> and <code>check_room_request</code> tools.</li>
 <li><code>DEFAULT_PROVISIONER_URL: str</code> — the room provisioner service of a
   <code>soliplex-template</code> stack (<code>"http://soliplex-provisioner:8090"</code>).</li>
+<li><code>DEFAULT_REQUEST_ROOM_TIMEOUT: float</code> — how long <code>request_room</code> waits for
+  the service's answer (<code>120.0</code> seconds).</li>
 </ul>
 <p><strong><code>class CreateGiteaIssueToolConfig(soliplex.config.tools.ToolConfig)</code></strong></p>
 <p>Dataclass describing the <code>create_gitea_issue</code> tool for a room. Configured keys:</p>
@@ -1181,10 +1183,12 @@ Soliplex &gt;= 0.80.</p>
 </ul>
 <p><strong><code>class RequestRoomToolConfig</code></strong> / <strong><code>class CheckRoomRequestToolConfig</code></strong></p>
 <p>Dataclasses describing the <code>request_room</code> and <code>check_room_request</code> tools for
-a room. One configured key:</p>
+a room. Configured keys:</p>
 <ul>
 <li><code>service_url</code> — the room provisioner service's base URL (default
   <code>DEFAULT_PROVISIONER_URL</code>).</li>
+<li><code>request_timeout</code> (<code>RequestRoomToolConfig</code> only) — seconds to wait for the
+  service's answer to a room request (default <code>DEFAULT_REQUEST_ROOM_TIMEOUT</code>).</li>
 </ul>
 <h2 id="soliplex_conciergelabels"><code>soliplex_concierge.labels</code></h2>
 <p>Canonical Gitea request-label catalog, shared by the room tool and the admin
@@ -1250,7 +1254,10 @@ user's claims (<code>service_claims(user)</code>: the profile's claims, less <co
 <p><strong><code>async request_room(ctx, name, description=None, slug=None) -&gt; RoomRequestAccepted</code></strong></p>
 <p>Sends <code>POST /rooms</code>. Returns <code>RoomRequestAccepted(status="accepted",
 room_id, issue_url)</code> when the service is creating the room, and
-<code>RoomRequestAccepted(status="not_admitted")</code> when it does not admit the user.</p>
+<code>RoomRequestAccepted(status="not_admitted")</code> when it does not admit the user.
+When the service does not answer within <code>request_timeout</code>, it asks once
+more; a <code>409</code> naming the room (<code>"room_id"</code>) then returns
+<code>RoomRequestAccepted(status="already_requested", room_id)</code>.</p>
 <p><strong><code>async check_room_request(ctx, room_id) -&gt; RoomRequestState</code></strong></p>
 <p>Sends <code>GET /rooms/{room_id}</code>. Returns the request's <code>room_id</code>, <code>state</code>
 (<code>pending</code>, <code>live</code>, <code>incomplete</code> or <code>failed</code>), <code>issue_url</code>, <code>incomplete</code>
@@ -1267,6 +1274,11 @@ steps and <code>error</code>.</p>
 <li><code>ServiceUnavailable(pydantic_ai.ToolFailed)</code> /
   <code>ServiceFailed(pydantic_ai.ToolFailed)</code> — the service could not be reached,
   or failed.</li>
+<li><code>ServiceTimedOut(pydantic_ai.ToolFailed)</code> — the service did not answer a
+  <code>check_room_request</code> in time.</li>
+<li><code>RequestTimedOut(pydantic_ai.ToolFailed)</code> — the service answered neither a
+  room request nor its retry; the room may still be created, so the message
+  tells the model not to file an issue.</li>
 <li><code>SigningSecretMissing(pydantic_ai.ToolFailed)</code> — the installation has no
   <code>URL_SAFE_TOKEN_SECRET</code>.</li>
 <li><code>AnonymousUser(pydantic_ai.ToolFailed)</code> — no user profile is attached to the
