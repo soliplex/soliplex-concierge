@@ -223,3 +223,54 @@ def test_cgi_opts_in_to_the_interpolation_checks():
     found = dict(config_interp.iter_own_specs(klass))
 
     assert sorted(found) == ["_host", "_owner", "_repo", "_token"]
+
+
+@pytest.mark.parametrize(
+    "klass, kind, tool_name",
+    [
+        (
+            config.RequestRoomToolConfig,
+            config.RR_TOOL_KIND,
+            config.RR_TOOL_NAME,
+        ),
+        (
+            config.CheckRoomRequestToolConfig,
+            config.CRR_TOOL_KIND,
+            config.CRR_TOOL_NAME,
+        ),
+    ],
+)
+def test_provisioner_tool_config_defaults(
+    installation_config, temp_dir, klass, kind, tool_name
+):
+    config_path = temp_dir / "rooms" / "test" / "room_config.yaml"
+
+    tool_config = klass.from_yaml(
+        installation_config=installation_config,
+        config_path=config_path,
+        config_dict={"tool_name": tool_name},
+    )
+
+    assert tool_config.kind == kind
+    assert tool_config.tool_name == tool_name
+    assert tool_config.service_url == config.DEFAULT_PROVISIONER_URL
+    assert (
+        tool_config.get_extra_parameters()["service_url"]
+        == config.DEFAULT_PROVISIONER_URL
+    )
+
+
+def test_request_room_tool_config_service_url(installation_config, temp_dir):
+    config_path = temp_dir / "rooms" / "test" / "room_config.yaml"
+    config_dict = {
+        "tool_name": config.RR_TOOL_NAME,
+        "service_url": "https://provisioner.example.com",
+    }
+
+    tool_config = config.RequestRoomToolConfig.from_yaml(
+        installation_config=installation_config,
+        config_path=config_path,
+        config_dict=config_dict,
+    )
+
+    assert tool_config.service_url == "https://provisioner.example.com"
