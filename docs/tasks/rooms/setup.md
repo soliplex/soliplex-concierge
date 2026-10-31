@@ -46,9 +46,11 @@ uv run scripts/install_concierge.py --stack-dir /path/to/stack \
 
 It applies these idempotent edits to the stack:
 
-- Adds `soliplex-concierge` to `backend/pyproject.toml` **and** the
-  `backend/Dockerfile` `uv add` block (the generated Dockerfile ignores the
-  `pyproject.toml` deps, so both are needed).
+- Adds `soliplex-concierge` to `backend/pyproject.toml`, **and** to the list
+  of packages the backend image installs: `backend/requirements.txt` in a
+  stack built on a soliplex release image, or the `backend/Dockerfile`
+  `uv add` block in an older stack (whose Dockerfile ignores the
+  `pyproject.toml` deps).
 - Merges six entries into `backend/environment/installation.yaml`:
   `meta.tool_configs` (the three tool-config classes), `environment`,
   `secrets`, two `skill_configs` — for `soliplex-concierge-room` and

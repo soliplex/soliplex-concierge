@@ -49,6 +49,15 @@ RUN \\
     uv sync
 """
 
+# A stack built on a soliplex release image: its Dockerfile has no 'uv add'
+# block, and extra packages go in 'backend/requirements.txt'.
+_REQUIREMENTS = """\
+# Extra PyPI dependencies for this stack's backend image, one requirement per
+# line (pip requirements syntax), e.g.:
+#
+#   cowsay
+"""
+
 # 'meta:' is comment-only (no real tool_configs) to exercise the create
 # branch. 'agent_configs' and the 4-space-indented 'sandbox_config' are
 # unrelated sections used to prove the surgical merge never reformats them.
@@ -473,6 +482,66 @@ def test_add_dockerfile_dep_bad():
         installer.add_dockerfile_dep("RUN echo no uv add here\n")
 
 
+# --- add_requirements_dep -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "pin,with_truststore,expected",
+    [
+        (None, False, "soliplex-concierge"),
+        ("== 0.2", False, "soliplex-concierge==0.2"),
+        (None, True, "soliplex-concierge[truststore]"),
+        ("== 0.2", True, "soliplex-concierge[truststore]==0.2"),
+    ],
+)
+def test_add_requirements_dep_added(pin, with_truststore, expected):
+    new_text, action = installer.add_requirements_dep(
+        _REQUIREMENTS, pin, with_truststore
+    )
+
+    assert action == installer.ADDED
+    assert new_text == f"{_REQUIREMENTS}{expected}\n"
+
+
+@pytest.mark.parametrize("base", ["cowsay\n", "cowsay", ""])
+def test_add_requirements_dep_appends_on_its_own_line(base):
+    new_text, action = installer.add_requirements_dep(base)
+
+    assert action == installer.ADDED
+    assert new_text.splitlines() == [*base.splitlines(), "soliplex-concierge"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "soliplex-concierge",
+        "soliplex_concierge[truststore] >= 0.12",
+        "Soliplex.Concierge==0.13  # pinned for the release",
+    ],
+)
+def test_add_requirements_dep_unchanged(line):
+    text = f"{_REQUIREMENTS}cowsay\n{line}\n"
+
+    new_text, action = installer.add_requirements_dep(text)
+
+    assert action == installer.UNCHANGED
+    assert new_text == text
+
+
+def test_add_requirements_dep_ignores_comments_and_options():
+    text = (
+        f"{_REQUIREMENTS}"
+        "#   soliplex-concierge\n"
+        "--index-url https://pypi.example.com/simple\n"
+        "-r soliplex-concierge.txt\n"
+    )
+
+    new_text, action = installer.add_requirements_dep(text)
+
+    assert action == installer.ADDED
+    assert new_text == f"{text}soliplex-concierge\n"
+
+
 # --- update_env -----------------------------------------------------------
 
 
@@ -847,6 +916,32 @@ def test_install_gitea_script_force(stack):
 
 
 # --- main / apply end-to-end ----------------------------------------------
+
+
+def test_main_applies_to_a_requirements_txt_stack(stack, docs_skill):
+    backend = stack / "backend"
+    dockerfile = "FROM ghcr.io/soliplex/soliplex-postgres:0.89\n"
+    (backend / "Dockerfile").write_text(dockerfile)
+    (backend / "requirements.txt").write_text(_REQUIREMENTS)
+
+    rc = _main(
+        [
+            "--stack-dir",
+            str(stack),
+            "--room-skill-dir",
+            str(ROOM_SKILL),
+            "--docs-skill-dir",
+            str(docs_skill),
+            "--version",
+            "0.13",
+        ]
+    )
+
+    assert rc == 0
+    assert (backend / "requirements.txt").read_text() == (
+        f"{_REQUIREMENTS}soliplex-concierge==0.13\n"
+    )
+    assert (backend / "Dockerfile").read_text() == dockerfile
 
 
 def test_main_applies(stack, docs_skill, capsys):

@@ -6,8 +6,11 @@ and delegates here) and the 'install-concierge' console script. It makes the
 same seven idempotent changes a human would otherwise make by hand:
 
 1. add 'soliplex-concierge' to 'backend/pyproject.toml' dependencies,
-2. add it to the 'backend/Dockerfile' 'uv add' block (the generated Dockerfile
-   does 'uv init --bare' and ignores the pyproject deps, so both are needed),
+2. add it to 'backend/requirements.txt', which a stack built on a soliplex
+   release image installs its extra packages from -- or, in an older stack
+   without that file, to the 'backend/Dockerfile' 'uv add' block (that
+   Dockerfile does 'uv init --bare' and ignores the pyproject deps, so both
+   are needed),
 3. merge six entries into 'backend/environment/installation.yaml'
    (meta.tool_configs -- the 'create_gitea_issue', 'request_room' and
    'check_room_request' tool configs -- environment, secrets, two
@@ -453,6 +456,28 @@ def add_pyproject_dep(
     return "".join(lines), ADDED
 
 
+def add_requirements_dep(
+    text: str, pin: str | None = None, with_truststore: bool = False
+) -> tuple[str, str]:
+    """Add 'soliplex-concierge' to 'backend/requirements.txt'.
+
+    Stacks built on a soliplex release image install their extra packages
+    from that file. A requirement already naming the distribution (with or
+    without an extra or a pin) is left as it is; comments and option lines
+    ('-r', '--index-url', ...) are not requirements.
+    """
+    for line in text.splitlines():
+        requirement = line.split("#", 1)[0].strip()
+        if requirement and not requirement.startswith("-"):
+            if _dist_name(requirement) == _CANON_DIST:
+                return text, UNCHANGED
+
+    dist = _dist_requirement(with_truststore)
+    requirement = f"{dist}{pin.replace(' ', '')}" if pin else dist
+    sep = "\n" if text and not text.endswith("\n") else ""
+    return f"{text}{sep}{requirement}\n", ADDED
+
+
 def add_dockerfile_dep(
     text: str, pin: str | None = None, with_truststore: bool = False
 ) -> tuple[str, str]:
@@ -654,12 +679,23 @@ def apply(
     _write_if(pyproject, new, action, opts.dry_run)
     results["backend/pyproject.toml"] = action
 
-    dockerfile = stack / "backend" / "Dockerfile"
-    new, action = add_dockerfile_dep(
-        dockerfile.read_text(), opts.pin, opts.with_truststore
-    )
-    _write_if(dockerfile, new, action, opts.dry_run)
-    results["backend/Dockerfile"] = action
+    # A stack built on a soliplex release image installs extra packages from
+    # 'backend/requirements.txt'; older stacks, from the Dockerfile's
+    # 'uv add' block.
+    requirements = stack / "backend" / "requirements.txt"
+    if requirements.exists():
+        new, action = add_requirements_dep(
+            requirements.read_text(), opts.pin, opts.with_truststore
+        )
+        _write_if(requirements, new, action, opts.dry_run)
+        results["backend/requirements.txt"] = action
+    else:
+        dockerfile = stack / "backend" / "Dockerfile"
+        new, action = add_dockerfile_dep(
+            dockerfile.read_text(), opts.pin, opts.with_truststore
+        )
+        _write_if(dockerfile, new, action, opts.dry_run)
+        results["backend/Dockerfile"] = action
 
     inst = stack / "backend" / "environment" / "installation.yaml"
     new, inst_results = merge_installation(
