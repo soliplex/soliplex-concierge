@@ -23,6 +23,8 @@ Tool-configuration types registered with a Soliplex installation under
   dotted names and kinds of the `request_room` and `check_room_request` tools.
 - `DEFAULT_PROVISIONER_URL: str` — the room provisioner service of a
   `soliplex-template` stack (`"http://soliplex-provisioner:8090"`).
+- `DEFAULT_REQUEST_ROOM_TIMEOUT: float` — how long `request_room` waits for
+  the service's answer (`120.0` seconds).
 
 **`class CreateGiteaIssueToolConfig(soliplex.config.tools.ToolConfig)`**
 
@@ -56,10 +58,12 @@ Soliplex >= 0.80.
 **`class RequestRoomToolConfig`** / **`class CheckRoomRequestToolConfig`**
 
 Dataclasses describing the `request_room` and `check_room_request` tools for
-a room. One configured key:
+a room. Configured keys:
 
 - `service_url` — the room provisioner service's base URL (default
   `DEFAULT_PROVISIONER_URL`).
+- `request_timeout` (`RequestRoomToolConfig` only) — seconds to wait for the
+  service's answer to a room request (default `DEFAULT_REQUEST_ROOM_TIMEOUT`).
 
 ## `soliplex_concierge.labels`
 
@@ -136,6 +140,9 @@ user's claims (`service_claims(user)`: the profile's claims, less `iat` /
 Sends `POST /rooms`. Returns `RoomRequestAccepted(status="accepted",
 room_id, issue_url)` when the service is creating the room, and
 `RoomRequestAccepted(status="not_admitted")` when it does not admit the user.
+When the service does not answer within `request_timeout`, it asks once
+more; a `409` naming the room (`"room_id"`) then returns
+`RoomRequestAccepted(status="already_requested", room_id)`.
 
 **`async check_room_request(ctx, room_id) -> RoomRequestState`**
 
@@ -155,6 +162,11 @@ steps and `error`.
 - `ServiceUnavailable(pydantic_ai.ToolFailed)` /
   `ServiceFailed(pydantic_ai.ToolFailed)` — the service could not be reached,
   or failed.
+- `ServiceTimedOut(pydantic_ai.ToolFailed)` — the service did not answer a
+  `check_room_request` in time.
+- `RequestTimedOut(pydantic_ai.ToolFailed)` — the service answered neither a
+  room request nor its retry; the room may still be created, so the message
+  tells the model not to file an issue.
 - `SigningSecretMissing(pydantic_ai.ToolFailed)` — the installation has no
   `URL_SAFE_TOKEN_SECRET`.
 - `AnonymousUser(pydantic_ai.ToolFailed)` — no user profile is attached to the

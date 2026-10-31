@@ -30,7 +30,9 @@ private room for a requester in one step and files its tracking issue itself.
 For a new room, the room agent first asks for the room's name and purpose, then
 calls `request_room`:
 
-- **Accepted** — the room is being created, private to the user. The agent
+- **Accepted** (or **already requested**, when an earlier attempt of the
+  same request reached the provisioner) — the room is being created, private
+  to the user. The agent
   reports its id and tracking issue, and checks on it with
   `check_room_request` when asked: `pending`, `live` (refresh the room list),
   `incomplete` (an administrator must finish some steps) or `failed`.
@@ -40,6 +42,10 @@ calls `request_room`:
 - **Failed** — a name already taken sends the agent back to the user for
   another; when the provisioner cannot take the request at all (for example,
   a stack without the service), the agent files it as an issue.
+- **No answer** — the tool waits up to `request_timeout` seconds (120 by
+  default), then asks once more. When the provisioner still does not
+  answer, the room may yet be created, so the agent tells the user to look
+  for it shortly, and files no issue.
 
 The tools act as the user: each call carries a short-lived service token
 holding the user's claims, signed with the installation's
