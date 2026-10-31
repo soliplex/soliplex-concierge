@@ -5,10 +5,11 @@
 # ///
 """Read and resolve Soliplex room-request issues on a Gitea repository.
 
-Thin entry point: `uv run` provisions `soliplex-concierge` (and httpx) from the
-inline metadata above, then this delegates to `soliplex_concierge.gitea_admin`,
-where all the logic lives (shared with the copy the `-installer` skill drops
-into a stack's `scripts/`). Run `gitea_issues.py --help` for the subcommands.
+Thin entry point: `uv run` provisions `soliplex-concierge` (and httpx2) from
+the inline metadata above, then this delegates to
+`soliplex_concierge.gitea_admin`, where all the logic lives (shared with the
+copy the `-installer` skill drops into a stack's `scripts/`).
+Run `gitea_issues.py --help` for the subcommands.
 """
 
 import sys

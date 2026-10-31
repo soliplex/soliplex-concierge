@@ -3,7 +3,7 @@
 This is the implementation behind the `soliplex-concierge-admin` skill's
 `gitea_issues.py` shim (and the copy the `-installer` skill drops into a
 stack's `scripts/`). It runs in an external coding agent (NOT inside the
-Soliplex server) and talks to the Gitea REST API directly with httpx. It
+Soliplex server) and talks to the Gitea REST API directly with httpx2. It
 mirrors the auth and URL conventions of the room's `create_gitea_issue` tool
 (`Authorization: token <token>`, `/api/v1/repos/{owner}/{repo}/issues...`) and
 shares its request-label catalog (`soliplex_concierge.labels`).
@@ -35,14 +35,14 @@ import argparse
 import os
 import sys
 
-import httpx
+import httpx2
 
 from soliplex_concierge.labels import LABEL_PAGE_SIZE
 from soliplex_concierge.labels import MAX_LABEL_PAGES
 from soliplex_concierge.labels import REQUEST_LABELS as LABELS
 from soliplex_concierge.tls import httpx_verify
 
-# httpx 'verify' value: an OS-trust-store SSLContext when 'truststore' is
+# httpx2 'verify' value: an OS-trust-store SSLContext when 'truststore' is
 # present (run with 'uv run --with truststore ...' behind an enterprise CA),
 # else certifi. Built once and reused across every client below.
 _VERIFY = httpx_verify()
@@ -72,7 +72,7 @@ def list_issues(
     params: dict[str, str] = {"state": state, "type": "issues"}
     if labels:
         params["labels"] = ",".join(labels)
-    with httpx.Client(verify=_VERIFY) as client:
+    with httpx2.Client(verify=_VERIFY) as client:
         response = client.get(
             _issues_url(host, owner, repo),
             headers=_headers(token),
@@ -86,7 +86,7 @@ def get_issue(
     host: str, token: str, owner: str, repo: str, number: int
 ) -> dict:
     """Return a single issue's full payload."""
-    with httpx.Client(verify=_VERIFY) as client:
+    with httpx2.Client(verify=_VERIFY) as client:
         response = client.get(
             f"{_issues_url(host, owner, repo)}/{number}",
             headers=_headers(token),
@@ -99,7 +99,7 @@ def comment_issue(
     host: str, token: str, owner: str, repo: str, number: int, body: str
 ) -> dict:
     """Add a comment to an issue and return the created comment."""
-    with httpx.Client(verify=_VERIFY) as client:
+    with httpx2.Client(verify=_VERIFY) as client:
         response = client.post(
             f"{_issues_url(host, owner, repo)}/{number}/comments",
             headers=_headers(token),
@@ -120,7 +120,7 @@ def close_issue(
     """Optionally comment, then mark the issue closed; return the issue."""
     if body:
         comment_issue(host, token, owner, repo, number, body)
-    with httpx.Client(verify=_VERIFY) as client:
+    with httpx2.Client(verify=_VERIFY) as client:
         response = client.patch(
             f"{_issues_url(host, owner, repo)}/{number}",
             headers=_headers(token),
@@ -139,7 +139,7 @@ def list_labels(host: str, token: str, owner: str, repo: str) -> list[dict]:
     apply it (see 'soliplex_concierge.labels').
     """
     labels: list[dict] = []
-    with httpx.Client(verify=_VERIFY) as client:
+    with httpx2.Client(verify=_VERIFY) as client:
         for page in range(1, MAX_LABEL_PAGES + 1):
             response = client.get(
                 _labels_url(host, owner, repo),
@@ -164,7 +164,7 @@ def create_label(
     description: str,
 ) -> dict:
     """Create a label on the repository and return it."""
-    with httpx.Client(verify=_VERIFY) as client:
+    with httpx2.Client(verify=_VERIFY) as client:
         response = client.post(
             _labels_url(host, owner, repo),
             headers=_headers(token),
@@ -183,7 +183,7 @@ def add_labels_to_issue(
     label_ids: list[int],
 ) -> list[dict]:
     """Attach the given label ids to an issue; return its labels."""
-    with httpx.Client(verify=_VERIFY) as client:
+    with httpx2.Client(verify=_VERIFY) as client:
         response = client.post(
             f"{_issues_url(host, owner, repo)}/{number}/labels",
             headers=_headers(token),

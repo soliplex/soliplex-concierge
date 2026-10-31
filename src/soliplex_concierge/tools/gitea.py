@@ -10,7 +10,7 @@ import typing
 from collections.abc import Iterable
 from collections.abc import Mapping
 
-import httpx
+import httpx2
 import pydantic
 import pydantic_ai
 import yaml
@@ -80,10 +80,10 @@ class CreatedGiteaIssue(pydantic.BaseModel):
 # The request sequence that files an issue is written once, sans-IO: each
 # step is a generator that yields '(method, url, kwargs)' for every HTTP call
 # it needs and is sent back the response. '_drive_sync' / '_drive_async' run
-# it against an 'httpx.Client' / 'httpx.AsyncClient', so the room tool and
+# it against an 'httpx2.Client' / 'httpx2.AsyncClient', so the room tool and
 # its synchronous counterpart cannot drift apart.
 _Request = tuple[str, str, dict[str, typing.Any]]
-_Steps = typing.Generator[_Request, httpx.Response, typing.Any]
+_Steps = typing.Generator[_Request, httpx2.Response, typing.Any]
 
 
 def _find_label(
@@ -227,7 +227,7 @@ def _file_issue(
     )
 
 
-def _drive_sync(client: httpx.Client, steps: _Steps) -> typing.Any:
+def _drive_sync(client: httpx2.Client, steps: _Steps) -> typing.Any:
     """Run 'steps' to completion, issuing its requests via 'client'.
 
     An error raised by a request is thrown into 'steps' at the 'yield' that
@@ -248,7 +248,9 @@ def _drive_sync(client: httpx.Client, steps: _Steps) -> typing.Any:
             return stop.value
 
 
-async def _drive_async(client: httpx.AsyncClient, steps: _Steps) -> typing.Any:
+async def _drive_async(
+    client: httpx2.AsyncClient, steps: _Steps
+) -> typing.Any:
     """Run 'steps' to completion, awaiting its requests via 'client'.
 
     See '_drive_sync': request errors are thrown into 'steps', which is
@@ -330,7 +332,7 @@ def create_gitea_issue_sync(
         body=body,
         request_type=request_type,
     )
-    with httpx.Client(verify=tls.httpx_verify()) as client:
+    with httpx2.Client(verify=tls.httpx_verify()) as client:
         return _drive_sync(client, steps)
 
 
@@ -391,5 +393,5 @@ async def create_gitea_issue(
         body=body,
         request_type=request_type,
     )
-    async with httpx.AsyncClient(verify=tls.httpx_verify()) as client:
+    async with httpx2.AsyncClient(verify=tls.httpx_verify()) as client:
         return await _drive_async(client, steps)
