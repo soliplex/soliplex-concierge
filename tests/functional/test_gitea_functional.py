@@ -1,6 +1,6 @@
 from unittest import mock
 
-import httpx
+import httpx2
 import pytest
 from soliplex import agents
 from soliplex import models
@@ -60,7 +60,7 @@ async def test_create_gitea_issue_against_live_gitea(gitea_server, ctx):
     assert issue.url.endswith(
         f"/{gitea_server['owner']}/{gitea_server['repo']}/issues/1"
     )
-    verify = httpx.get(
+    verify = httpx2.get(
         f"{gitea_server['host']}/api/v1/repos"
         f"/{gitea_server['owner']}/{gitea_server['repo']}/issues/1",
         headers={"Authorization": f"token {gitea_server['token']}"},
@@ -73,7 +73,7 @@ async def test_create_gitea_issue_against_live_gitea(gitea_server, ctx):
         label["name"] for label in verify.json()["labels"]
     }
     # the requesting user's profile was attached as a YAML file
-    assets = httpx.get(
+    assets = httpx2.get(
         f"{gitea_server['host']}/api/v1/repos"
         f"/{gitea_server['owner']}/{gitea_server['repo']}/issues/1/assets",
         headers={"Authorization": f"token {gitea_server['token']}"},
@@ -101,7 +101,7 @@ async def test_create_gitea_issue_reuses_a_label_past_the_first_page(
     # Seed the filler labels first and the canonical one last, so it lands
     # past the first page whether Gitea orders labels by name or by creation.
     for filler in range(gitea.LABEL_PAGE_SIZE + 10):
-        response = httpx.post(
+        response = httpx2.post(
             f"{repo_api}/labels",
             headers=headers,
             json={"name": f"aaa-filler-{filler:03d}", "color": "#cccccc"},
@@ -109,7 +109,7 @@ async def test_create_gitea_issue_reuses_a_label_past_the_first_page(
         )
         response.raise_for_status()
     spec = gitea.ISSUE_TYPE_LABELS["new-room"]
-    seeded = httpx.post(
+    seeded = httpx2.post(
         f"{repo_api}/labels",
         headers=headers,
         json={"name": "new-room", **spec},
@@ -125,7 +125,7 @@ async def test_create_gitea_issue_reuses_a_label_past_the_first_page(
         request_type="new-room",
     )
 
-    verify = httpx.get(
+    verify = httpx2.get(
         f"{repo_api}/issues/{issue.number}",
         headers=headers,
         timeout=10,
@@ -160,13 +160,13 @@ def test_create_gitea_issue_sync_against_live_gitea(gitea_server):
 
     repo_api = _repo_api(gitea_server)
     headers = {"Authorization": f"token {gitea_server['token']}"}
-    verify = httpx.get(
+    verify = httpx2.get(
         f"{repo_api}/issues/{issue.number}", headers=headers, timeout=10
     )
     assert verify.status_code == 200
     assert verify.json()["title"] == "New room request: marketing"
     assert "new-room" in {label["name"] for label in verify.json()["labels"]}
-    assets = httpx.get(
+    assets = httpx2.get(
         f"{repo_api}/issues/{issue.number}/assets",
         headers=headers,
         timeout=10,

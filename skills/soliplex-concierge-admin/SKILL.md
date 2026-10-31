@@ -38,7 +38,7 @@ connection via flags or the environment:
 
 `scripts/gitea_issues.py` is a [PEP 723](https://peps.python.org/pep-0723/)
 script: run it with `uv run`, which provisions its `soliplex-concierge`
-dependency (and `httpx`) automatically from the inline metadata. It just needs
+dependency (and `httpx2`) automatically from the inline metadata. It just needs
 `uv` on the `PATH`. It is a thin shim over `soliplex_concierge.gitea_admin`,
 where the logic lives. The `soliplex-concierge-installer` skill drops an
 identical copy into the target stack at `<stack>/scripts/gitea_issues.py`, so

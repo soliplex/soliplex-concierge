@@ -15,7 +15,7 @@ that talks to the Gitea REST API directly. The
 [installer](../rooms/setup.md) also drops an identical copy into the stack at
 `<stack>/scripts/gitea_issues.py`, so you can run the same CLI from the deployed
 stack directory. It is a [PEP 723](https://peps.python.org/pep-0723/) script:
-run it with `uv run`, which provisions its `soliplex-concierge` (and `httpx`)
+run it with `uv run`, which provisions its `soliplex-concierge` (and `httpx2`)
 dependency automatically — it only needs `uv` on the `PATH`.
 
 Provide the Gitea connection via flags or the environment:

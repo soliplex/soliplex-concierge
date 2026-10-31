@@ -27,7 +27,7 @@ HEADERS = {"Authorization": f"token {TOKEN}"}
 
 
 def _patch_client(payload):
-    """Patch the module's httpx.Client; return (patcher, sync client mock)."""
+    """Patch the module's httpx2.Client; return (patcher, sync client mock)."""
     response = mock.Mock()
     response.raise_for_status = mock.Mock()
     response.json.return_value = payload
@@ -42,7 +42,7 @@ def _patch_client(payload):
     client_cm.__exit__.return_value = False
 
     ctor = mock.Mock(return_value=client_cm)
-    return mock.patch.object(gitea_admin.httpx, "Client", ctor), client
+    return mock.patch.object(gitea_admin.httpx2, "Client", ctor), client
 
 
 # --- HTTP helpers ---------------------------------------------------------
@@ -246,9 +246,9 @@ def _response(payload):
 
 
 def _patch_client_seq(get=(), post=(), patch=()):
-    """Patch httpx.Client so get/post/patch yield a sequence of payloads.
+    """Patch httpx2.Client so get/post/patch yield a sequence of payloads.
 
-    Every `httpx.Client()` context in the module reuses the one client mock,
+    Every `httpx2.Client()` context in the module reuses the one client mock,
     so the side_effect lists are consumed in call order across helpers.
     """
     client = mock.Mock()
@@ -261,7 +261,7 @@ def _patch_client_seq(get=(), post=(), patch=()):
     client_cm.__exit__.return_value = False
 
     ctor = mock.Mock(return_value=client_cm)
-    return mock.patch.object(gitea_admin.httpx, "Client", ctor), client
+    return mock.patch.object(gitea_admin.httpx2, "Client", ctor), client
 
 
 def test_list_labels():

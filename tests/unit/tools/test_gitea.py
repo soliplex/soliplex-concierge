@@ -3,7 +3,7 @@ import inspect
 import traceback
 from unittest import mock
 
-import httpx
+import httpx2
 import pytest
 from soliplex import agents
 from soliplex import installation
@@ -65,7 +65,7 @@ def _resp(payload=None, error=None):
 
 
 def _patch_async_client(get_responses, post_responses):
-    """Patch httpx.AsyncClient; get/post yield the given responses in order.
+    """Patch httpx2.AsyncClient; get/post yield the given responses in order.
 
     The label lookup walks Gitea's paginated listing, so 'get_responses' is a
     sequence: one response per label page the lookup is expected to fetch.
@@ -79,7 +79,7 @@ def _patch_async_client(get_responses, post_responses):
     client_cm.__aexit__.return_value = False
 
     async_client = mock.Mock(return_value=client_cm)
-    patcher = mock.patch.object(gitea.httpx, "AsyncClient", async_client)
+    patcher = mock.patch.object(gitea.httpx2, "AsyncClient", async_client)
     return patcher, client
 
 
@@ -387,13 +387,13 @@ async def test_create_gitea_issue_rejects_anonymous_user(ctx):
 async def test_create_gitea_issue_raises_on_http_error(ctx):
     labels = _resp([{"name": "new-room", "id": 5}])
     issue = _resp(
-        error=httpx.HTTPStatusError(
+        error=httpx2.HTTPStatusError(
             "401 Unauthorized", request=mock.Mock(), response=mock.Mock()
         )
     )
     patched_client, _client = _patch_async_client([labels], [issue])
 
-    with patched_client, pytest.raises(httpx.HTTPStatusError):
+    with patched_client, pytest.raises(httpx2.HTTPStatusError):
         await gitea.create_gitea_issue(
             ctx=ctx,
             title="New room request: marketing",
@@ -414,13 +414,13 @@ async def test_create_gitea_issue_raises_on_attachment_error(ctx):
         }
     )
     asset = _resp(
-        error=httpx.HTTPStatusError(
+        error=httpx2.HTTPStatusError(
             "413 Payload Too Large", request=mock.Mock(), response=mock.Mock()
         )
     )
     patched_client, _client = _patch_async_client([labels], [issue, asset])
 
-    with patched_client, pytest.raises(httpx.HTTPStatusError):
+    with patched_client, pytest.raises(httpx2.HTTPStatusError):
         await gitea.create_gitea_issue(
             ctx=ctx,
             title="New room request: marketing",
@@ -468,7 +468,7 @@ SYNC_KWARGS = {
 
 
 def _patch_sync_client(get_responses, post_responses):
-    """Patch httpx.Client; get/post return the given responses in order."""
+    """Patch httpx2.Client; get/post return the given responses in order."""
     client = mock.Mock()
     client.get.side_effect = list(get_responses)
     client.post.side_effect = list(post_responses)
@@ -478,7 +478,7 @@ def _patch_sync_client(get_responses, post_responses):
     client_cm.__exit__.return_value = False
 
     sync_client = mock.Mock(return_value=client_cm)
-    patcher = mock.patch.object(gitea.httpx, "Client", sync_client)
+    patcher = mock.patch.object(gitea.httpx2, "Client", sync_client)
     return patcher, client
 
 
@@ -646,13 +646,13 @@ def test_create_gitea_issue_sync_rejects_unknown_request_type():
 def test_create_gitea_issue_sync_raises_on_http_error():
     labels = _resp([{"name": "new-room", "id": 5}])
     issue = _resp(
-        error=httpx.HTTPStatusError(
+        error=httpx2.HTTPStatusError(
             "401 Unauthorized", request=mock.Mock(), response=mock.Mock()
         )
     )
     patched_client, _client = _patch_sync_client([labels], [issue])
 
-    with patched_client, pytest.raises(httpx.HTTPStatusError):
+    with patched_client, pytest.raises(httpx2.HTTPStatusError):
         gitea.create_gitea_issue_sync(
             **SYNC_KWARGS,
             title="New room request: marketing",
@@ -687,7 +687,7 @@ def test_create_gitea_issue_sync_raises_when_label_dropped():
     assert issue_call.args[0] == f"{REPO}/issues"
 
 
-CONNECT_ERROR = httpx.ConnectError("connection refused")
+CONNECT_ERROR = httpx2.ConnectError("connection refused")
 
 
 def _observed_steps(observer):
@@ -702,7 +702,7 @@ def _observed_steps(observer):
 @pytest.mark.parametrize(
     "error, seen_type",
     [
-        (CONNECT_ERROR, httpx.ConnectError),
+        (CONNECT_ERROR, httpx2.ConnectError),
         (KeyboardInterrupt(), GeneratorExit),
     ],
     ids=["thrown", "closed"],
@@ -724,7 +724,7 @@ def test_drive_sync_ends_steps_on_request_error(error, seen_type):
 @pytest.mark.parametrize(
     "error, seen_type",
     [
-        (CONNECT_ERROR, httpx.ConnectError),
+        (CONNECT_ERROR, httpx2.ConnectError),
         (asyncio.CancelledError(), GeneratorExit),
     ],
     ids=["thrown", "closed"],
@@ -747,7 +747,7 @@ async def test_drive_async_ends_steps_on_request_error(error, seen_type):
 def test_create_gitea_issue_sync_traces_request_error_to_its_step():
     patched_client, _client = _patch_sync_client([CONNECT_ERROR], [])
 
-    with patched_client, pytest.raises(httpx.ConnectError) as exc:
+    with patched_client, pytest.raises(httpx2.ConnectError) as exc:
         gitea.create_gitea_issue_sync(
             **SYNC_KWARGS,
             title="New room request: marketing",

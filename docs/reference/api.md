@@ -62,9 +62,9 @@ helpers. Each value is a `{"color": ..., "description": ...}` mapping.
 
 ## `soliplex_concierge.tls`
 
-- `httpx_verify()` — return an httpx `verify` value honoring the OS trust store
+- `httpx_verify()` — return an httpx2 `verify` value honoring the OS trust store
   when the optional `truststore` package is installed (an
-  `ssl.SSLContext`), otherwise `True` (httpx's certifi default). See issue #46.
+  `ssl.SSLContext`), otherwise `True` (httpx2's certifi default). See issue #46.
 
 ## `soliplex_concierge.tools.gitea`
 
@@ -105,7 +105,7 @@ same `UnknownRequestType` / `LabelNotApplied`.
 ## `soliplex_concierge.gitea_admin`
 
 The implementation behind the admin `gitea_issues.py` CLI. Every function talks
-to the Gitea REST API over httpx and takes the connection as its leading
+to the Gitea REST API over httpx2 and takes the connection as its leading
 arguments — `host`, `token`, `owner`, `repo` — followed by the operation's own
 parameters.
 

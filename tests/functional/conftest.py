@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import time
 
-import httpx
+import httpx2
 import pytest
 
 # Track the Gitea a 'soliplex-template'-generated stack deploys: behavior the
@@ -60,10 +60,10 @@ def _wait_for_gitea(base_url, timeout=90):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            resp = httpx.get(f"{base_url}/api/v1/version", timeout=2)
+            resp = httpx2.get(f"{base_url}/api/v1/version", timeout=2)
             if resp.status_code == 200:
                 return
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             pass
         time.sleep(1)
     pytest.fail("gitea did not become ready in time")
@@ -128,7 +128,7 @@ def gitea_server():
             "--must-change-password=false",
         )
 
-        token_resp = httpx.post(
+        token_resp = httpx2.post(
             f"{base_url}/api/v1/users/{ADMIN_USER}/tokens",
             auth=(ADMIN_USER, admin_password),
             json={
@@ -142,7 +142,7 @@ def gitea_server():
 
         # Provision the repo with admin basic auth (full rights); the scoped
         # token is reserved for the tool under test (issue creation).
-        repo_resp = httpx.post(
+        repo_resp = httpx2.post(
             f"{base_url}/api/v1/user/repos",
             auth=(ADMIN_USER, admin_password),
             json={"name": REPO_NAME, "auto_init": True, "private": False},
