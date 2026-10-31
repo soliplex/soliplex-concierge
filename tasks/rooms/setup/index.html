@@ -1213,9 +1213,11 @@ every change idempotently.</p>
 <h3 id="what-it-changes">What it changes</h3>
 <p>It applies these idempotent edits to the stack:</p>
 <ul>
-<li>Adds <code>soliplex-concierge</code> to <code>backend/pyproject.toml</code> <strong>and</strong> the
-  <code>backend/Dockerfile</code> <code>uv add</code> block (the generated Dockerfile ignores the
-  <code>pyproject.toml</code> deps, so both are needed).</li>
+<li>Adds <code>soliplex-concierge</code> to <code>backend/pyproject.toml</code>, <strong>and</strong> to the list
+  of packages the backend image installs: <code>backend/requirements.txt</code> in a
+  stack built on a soliplex release image, or the <code>backend/Dockerfile</code>
+  <code>uv add</code> block in an older stack (whose Dockerfile ignores the
+  <code>pyproject.toml</code> deps).</li>
 <li>Merges six entries into <code>backend/environment/installation.yaml</code>:
   <code>meta.tool_configs</code> (the three tool-config classes), <code>environment</code>,
   <code>secrets</code>, two <code>skill_configs</code> — for <code>soliplex-concierge-room</code> and

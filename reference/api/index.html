@@ -1370,10 +1370,14 @@ maps it to exit code <code>2</code>. Built via message-constructing classmethods
 <p><strong>Edits</strong> — pure <code>(text, …) -&gt; (new_text, action)</code> functions, so <code>--dry-run</code> is
 just "compute, don't write"; <code>action</code> is <code>ADDED</code> or <code>UNCHANGED</code>:</p>
 <ul>
-<li><code>add_pyproject_dep(text, pin=None, with_truststore=False)</code> /
-  <code>add_dockerfile_dep(text, pin=None, with_truststore=False)</code> — add the
-  <code>soliplex-concierge</code> dependency to <code>backend/pyproject.toml</code> and to the
-  <code>backend/Dockerfile</code> <code>uv add</code> block.</li>
+<li><code>add_pyproject_dep(text, pin=None, with_truststore=False)</code> — add the
+  <code>soliplex-concierge</code> dependency to <code>backend/pyproject.toml</code>.</li>
+<li><code>add_requirements_dep(text, pin=None, with_truststore=False)</code> — add it to
+  <code>backend/requirements.txt</code>, which a stack built on a soliplex release image
+  installs its extra packages from.</li>
+<li><code>add_dockerfile_dep(text, pin=None, with_truststore=False)</code> — add it to the
+  <code>backend/Dockerfile</code> <code>uv add</code> block, in an older stack without
+  <code>backend/requirements.txt</code>.</li>
 <li><code>merge_installation(text, room_id) -&gt; (new_text, {target: action})</code> —
   surgically merge the six <code>installation.yaml</code> entries.</li>
 <li><code>update_env(text, host, token)</code> — add the <code>GITEA_HOST</code> / <code>GITEA_ACCESS_TOKEN</code>
