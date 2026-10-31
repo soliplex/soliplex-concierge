@@ -1,7 +1,20 @@
 # Resolving a new-room request
 
 A new-room request (the `new-room` label) asks for a room that does not yet
-exist. Resolving it is two jobs: read the spec the requester provided, then
+exist.
+
+On a stack running a room provisioner, the concierge has the provisioner
+create a room on the spot for a user it admits. The provisioner files that
+request's issue itself (its body records the **Room id** being created), then
+comments on and closes it once the room is live. Such an issue left open needs
+a look:
+
+- with a provisioner comment: the comment says what failed, or which steps
+  remain
+- with no comment: the provisioner stopped mid-run
+
+The rest of this page covers a request the concierge filed for an
+administrator to carry out. Resolving it is two jobs: read the spec the requester provided, then
 build the room with the [`soliplex-template`](https://github.com/soliplex/soliplex-template)
 skill. The `soliplex-concierge-admin` skill handles the first job and records
 the outcome; `soliplex-template` does the provisioning.

@@ -7,7 +7,10 @@ installation. It answers two kinds of need:
 - **Questions about Soliplex** — grounded in the `soliplex-docs` skill (and
   optionally this installation's own RAG database).
 - **Room requests** — a **new room**, or **access** to an existing private
-  room, filed as a tracking issue for an administrator to resolve.
+  room. A new room is created on the spot for a user the stack's room
+  provisioner admits (see [New rooms on request](#new-rooms-on-request));
+  every other request is filed as a tracking issue for an administrator to
+  resolve.
 
 Filing a request is a collaboration between three actors, all behind the single
 chat the user sees:
@@ -17,8 +20,34 @@ chat the user sees:
 | **Room agent** | the about-room's chat agent | talks to the user, gathers details, files the issue |
 | **`soliplex-concierge-room` skill** | a filesystem skill, run as a sub-agent | formats the gathered details into an issue draft |
 | **`create_gitea_issue` tool** | a Python tool bound to the room | files the draft on the fixed tracking repository |
+| **`request_room` / `check_room_request` tools** | Python tools bound to the room | ask the stack's room provisioner to create a room, and check on it |
+
+## New rooms on request
+
+A [`soliplex-template`](https://github.com/soliplex/soliplex-template) stack
+runs a room provisioner service, `soliplex-provisioner`, which creates a
+private room for a requester in one step and files its tracking issue itself.
+For a new room, the room agent first asks for the room's name and purpose, then
+calls `request_room`:
+
+- **Accepted** — the room is being created, private to the user. The agent
+  reports its id and tracking issue, and checks on it with
+  `check_room_request` when asked: `pending`, `live` (refresh the room list),
+  `incomplete` (an administrator must finish some steps) or `failed`.
+- **Not admitted** — the provisioner admits only admins, and users granted
+  WRITE on the reserved room id `__provision__`. For anyone else, the agent
+  files the request as an issue, as below.
+- **Failed** — a name already taken sends the agent back to the user for
+  another; when the provisioner cannot take the request at all (for example,
+  a stack without the service), the agent files it as an issue.
+
+The tools act as the user: each call carries a short-lived service token
+holding the user's claims, signed with the installation's
+`URL_SAFE_TOKEN_SECRET`.
 
 ## The request flow
+
+Every request the provisioner does not take is filed as an issue:
 
 1. **The user asks** for a new room or for access to a private one.
 
