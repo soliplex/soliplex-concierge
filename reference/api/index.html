@@ -1205,7 +1205,14 @@ helpers. Each value is a <code>{"color": ..., "description": ...}</code> mapping
 <h2 id="soliplex_conciergetoolsgitea"><code>soliplex_concierge.tools.gitea</code></h2>
 <p>The room-side tool that files a request as a Gitea issue.</p>
 <p><strong><code>class CreatedGiteaIssue(pydantic.BaseModel)</code></strong> — the created issue:
-<code>number: int</code>, <code>url: str</code>, <code>title: str</code>.</p>
+<code>number: int</code>, <code>url: str</code>, <code>title: str</code>, and <code>profile</code>, how the requesting
+user's profile was recorded on it:</p>
+<ul>
+<li><code>"attached"</code> — as the YAML attachment</li>
+<li><code>"commented"</code> — as a comment holding the YAML, Gitea having refused the
+  attachment</li>
+<li><code>"missing"</code> — not at all, Gitea having refused the comment too</li>
+</ul>
 <p><strong><code>async create_gitea_issue(ctx, title, body, request_type) -&gt; CreatedGiteaIssue</code></strong></p>
 <p>The tool the about-room calls to file a request. <code>ctx</code> is the pydantic-ai
 <code>RunContext</code>; <code>request_type</code> is <code>"new-room"</code> or <code>"room-access"</code>. The target
@@ -1213,7 +1220,9 @@ repository is fixed by the room's <code>CreateGiteaIssueToolConfig</code>. It en
 type label exists — reusing the repository's existing label, found by walking
 every page of its label listing, and creating one only when it is truly absent —
 files the issue, attaches the requesting user's profile, and returns the issue
-number and URL.</p>
+number and URL. Once the issue exists, recording the profile is best-effort:
+when Gitea refuses the attachment, the profile is commented on the issue
+instead, and the issue is returned either way.</p>
 <p><strong><code>create_gitea_issue_sync(*, host, token, owner, repo, user, title, body, request_type, profile_attachment_name="user-profile.yaml", exclude_claims=()) -&gt; CreatedGiteaIssue</code></strong></p>
 <p>The synchronous counterpart of <code>create_gitea_issue</code>, for callers outside any
 agent run (e.g. a room provisioner). What the tool reads from its run context

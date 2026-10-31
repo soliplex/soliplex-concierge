@@ -1121,7 +1121,9 @@ holding the user's claims, signed with the installation's
      creating it if needed, and tags the issue with it;</li>
 <li><strong>attaches the requesting user's profile</strong> to the issue as a YAML file
      (<code>user-profile.yaml</code> by default), so the requester's identity is recorded
-     without the agent transcribing it — see <a href="../admin/room_access/">Room access</a>;</li>
+     without the agent transcribing it — see <a href="../admin/room_access/">Room access</a>.
+     If Gitea refuses the attachment (e.g. its <code>[attachment] ALLOWED_TYPES</code>
+     lacks <code>.yaml</code>), the profile goes into a comment on the issue instead;</li>
 <li>
 <p>returns the issue number and URL.</p>
 </li>

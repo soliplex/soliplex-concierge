@@ -1117,7 +1117,8 @@ user profile</strong>, not the body: when the concierge filed the issue,
 (<code>user-profile.yaml</code> by default). It holds the OIDC claims Soliplex knows about
 the user — typically their <code>email</code> and <code>preferred_username</code> — which are exactly
 the discriminators you grant against below.</p>
-<p>Open the attachment from the issue to read the claims. (An installation may set
+<p>Open the attachment from the issue to read the claims. If Gitea refused the
+attachment, the profile is in a comment on the issue instead, as a YAML block. (An installation may set
 <code>exclude_claims</code> on the tool to keep selected fields — e.g. <code>email</code> — out of the
 tracking repo; if the discriminator you need was excluded, fall back to the
 other, or ask the requester.)</p>
