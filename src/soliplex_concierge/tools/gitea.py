@@ -69,12 +69,21 @@ class LabelNotApplied(RuntimeError):
         )
 
 
+# How the requesting user's profile was recorded on their issue:
+# - 'attached': as the YAML attachment
+# - 'commented': as a comment holding the YAML, Gitea having refused the
+#   attachment
+# - 'missing': not at all, Gitea having refused the comment too
+ProfileRecord = typing.Literal["attached", "commented", "missing"]
+
+
 class CreatedGiteaIssue(pydantic.BaseModel):
     """A Gitea issue created on behalf of a room request."""
 
     number: int
     url: str
     title: str
+    profile: ProfileRecord = "attached"
 
 
 # The request sequence that files an issue is written once, sans-IO: each
@@ -143,7 +152,14 @@ def _ensure_label(
     return response.json()["id"]
 
 
-def _attach_user_profile(
+def _failure(error: Exception) -> str:
+    """A short description of a failed request, for an issue comment."""
+    if isinstance(error, httpx2.HTTPStatusError):
+        return f"HTTP {error.response.status_code}"
+    return type(error).__name__
+
+
+def _record_user_profile(
     repo_url: str,
     headers: dict[str, str],
     number: int,
@@ -151,31 +167,55 @@ def _attach_user_profile(
     name: str,
     exclude_claims: list[str],
 ) -> _Steps:
-    """Attach the requesting user's profile to the issue as a YAML file.
+    """Record the requesting user's profile on the issue; return how.
 
-    Fields named in 'exclude_claims' are dropped from the profile before
-    conversion to the YAML used for the attachment.
+    Attaches it as a YAML file. When Gitea refuses the attachment (e.g. a
+    server whose '[attachment] ALLOWED_TYPES' lacks the name's extension),
+    comments it on the issue instead, as a fenced YAML block; when Gitea
+    refuses that too, the issue keeps no profile. Fields named in
+    'exclude_claims' are dropped from the profile first. Returns a
+    'ProfileRecord'.
     """
     claims = dict(claims)
     for claim in exclude_claims:
         claims.pop(claim, None)
     content = yaml.safe_dump(claims, sort_keys=False)
-    response = yield (
-        "post",
-        f"{repo_url}/issues/{number}/assets",
-        {
-            "headers": headers,
-            "params": {"name": name},
-            "files": {
-                "attachment": (
-                    name,
-                    content.encode("utf-8"),
-                    "application/x-yaml",
-                )
+    try:
+        response = yield (
+            "post",
+            f"{repo_url}/issues/{number}/assets",
+            {
+                "headers": headers,
+                "params": {"name": name},
+                "files": {
+                    "attachment": (
+                        name,
+                        content.encode("utf-8"),
+                        "application/x-yaml",
+                    )
+                },
             },
-        },
+        )
+        response.raise_for_status()
+    except httpx2.HTTPError as error:
+        attach_error = error
+    else:
+        return "attached"
+
+    body = (
+        f"The requester's profile (attaching it as `{name}` failed: "
+        f"{_failure(attach_error)}):\n\n```yaml\n{content}```\n"
     )
-    response.raise_for_status()
+    try:
+        response = yield (
+            "post",
+            f"{repo_url}/issues/{number}/comments",
+            {"headers": headers, "json": {"body": body}},
+        )
+        response.raise_for_status()
+    except httpx2.HTTPError:
+        return "missing"
+    return "commented"
 
 
 def _file_issue(
@@ -191,7 +231,11 @@ def _file_issue(
     body: str,
     request_type: str,
 ) -> _Steps:
-    """Ensure the type label, file the issue, and attach the user profile."""
+    """Ensure the type label, file the issue, and record the user profile.
+
+    Once the issue exists, recording the profile is best-effort (see
+    '_record_user_profile'): the issue is returned however that goes.
+    """
     repo_url = f"{host.rstrip('/')}/api/v1/repos/{owner}/{repo}"
     headers = {"Authorization": f"token {token}"}
 
@@ -211,7 +255,7 @@ def _file_issue(
     if request_type not in applied:
         raise LabelNotApplied(request_type, data["number"], data["html_url"])
 
-    yield from _attach_user_profile(
+    profile = yield from _record_user_profile(
         repo_url,
         headers,
         data["number"],
@@ -224,6 +268,7 @@ def _file_issue(
         number=data["number"],
         url=data["html_url"],
         title=data["title"],
+        profile=profile,
     )
 
 
@@ -297,7 +342,8 @@ def create_gitea_issue_sync(
         owner: the tracking repository's owner.
         repo: the tracking repository's name.
         user: the requesting user's profile, or a mapping of their claims;
-            attached to the issue as a YAML file.
+            attached to the issue as a YAML file (or, when Gitea refuses
+            the attachment, commented on it).
         title: the issue title.
         body: the issue body (Markdown).
         request_type: 'new-room' or 'room-access'.
@@ -305,7 +351,9 @@ def create_gitea_issue_sync(
         exclude_claims: claims dropped from the profile before attaching it.
 
     Returns:
-        CreatedGiteaIssue: the 'number', 'url', and 'title' of the new issue.
+        CreatedGiteaIssue: the 'number', 'url', and 'title' of the new issue,
+            and how its 'profile' was recorded ('attached', 'commented' or
+            'missing').
 
     Raises:
         UnknownRequestType: if 'request_type' is not a known issue-type label.
@@ -353,9 +401,12 @@ async def create_gitea_issue(
     administrators to triage it.
 
     The requesting user's profile is attached to the issue as a YAML
-    file, so you need not transcribe their identity into the 'body'.
+    file (or commented on it), so you need not transcribe their identity
+    into the 'body'.
 
-    Report the returned issue number and URL back to the user.
+    Report the returned issue number and URL back to the user. If the
+    returned 'profile' is 'missing', also tell them the issue does not
+    record who they are, so an administrator may ask.
 
     Args:
         title: the issue title.
@@ -365,7 +416,9 @@ async def create_gitea_issue(
             (the 'TYPE:' line returned by the room-request concierge skill).
 
     Returns:
-        CreatedGiteaIssue: the 'number', 'url', and 'title' of the new issue.
+        CreatedGiteaIssue: the 'number', 'url', and 'title' of the new issue,
+            and how its 'profile' was recorded ('attached', 'commented' or
+            'missing').
 
     Raises:
         UnknownRequestType: if 'request_type' is not a known issue-type label.

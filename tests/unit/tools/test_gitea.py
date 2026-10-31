@@ -113,6 +113,7 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
     assert found.number == 7
     assert found.url == f"{REPO}/issues/7"
     assert found.title == "New room request: marketing"
+    assert found.profile == "attached"
 
     p_client.assert_called_once_with(verify=p_verify.return_value)
     client.get.assert_awaited_once_with(
@@ -402,10 +403,8 @@ async def test_create_gitea_issue_raises_on_http_error(ctx):
         )
 
 
-@pytest.mark.anyio
-async def test_create_gitea_issue_raises_on_attachment_error(ctx):
-    labels = _resp([{"name": "new-room", "id": 5}])
-    issue = _resp(
+def _issue_resp():
+    return _resp(
         {
             "number": 7,
             "html_url": f"{REPO}/issues/7",
@@ -413,20 +412,93 @@ async def test_create_gitea_issue_raises_on_attachment_error(ctx):
             "labels": [{"name": "new-room"}],
         }
     )
-    asset = _resp(
-        error=httpx2.HTTPStatusError(
-            "413 Payload Too Large", request=mock.Mock(), response=mock.Mock()
-        )
-    )
-    patched_client, _client = _patch_async_client([labels], [issue, asset])
 
-    with patched_client, pytest.raises(httpx2.HTTPStatusError):
-        await gitea.create_gitea_issue(
+
+def _status_error(code):
+    return httpx2.HTTPStatusError(
+        f"{code} Error",
+        request=mock.Mock(),
+        response=mock.Mock(status_code=code),
+    )
+
+
+# The comment recording the profile when Gitea refuses the attachment.
+PROFILE_COMMENT = (
+    "The requester's profile (attaching it as `user-profile.yaml` failed: "
+    "{failure}):\n\n```yaml\n" + PROFILE_YAML + "```\n"
+)
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_comments_a_refused_profile(ctx):
+    labels = _resp([{"name": "new-room", "id": 5}])
+    asset = _resp(error=_status_error(422))
+    comment = _resp({"id": 1})
+    patched_client, client = _patch_async_client(
+        [labels], [_issue_resp(), asset, comment]
+    )
+
+    with patched_client:
+        found = await gitea.create_gitea_issue(
             ctx=ctx,
             title="New room request: marketing",
             body="Requested by Phreddy.",
             request_type="new-room",
         )
+
+    assert found.number == 7
+    assert found.profile == "commented"
+    *_, comment_call = client.post.await_args_list
+    assert comment_call == mock.call(
+        f"{REPO}/issues/7/comments",
+        headers=HEADERS,
+        json={"body": PROFILE_COMMENT.format(failure="HTTP 422")},
+    )
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_returns_the_issue_without_a_profile(ctx):
+    labels = _resp([{"name": "new-room", "id": 5}])
+    asset = _resp(error=_status_error(413))
+    comment = _resp(error=_status_error(403))
+    patched_client, client = _patch_async_client(
+        [labels], [_issue_resp(), asset, comment]
+    )
+
+    with patched_client:
+        found = await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="New room request: marketing",
+            body="Requested by Phreddy.",
+            request_type="new-room",
+        )
+
+    assert found.number == 7
+    assert found.url == f"{REPO}/issues/7"
+    assert found.profile == "missing"
+    assert client.post.await_count == 3
+
+
+def test_create_gitea_issue_sync_comments_a_profile_lost_in_transit():
+    labels = _resp([{"name": "new-room", "id": 5}])
+    comment = _resp({"id": 1})
+    patched_client, client = _patch_sync_client(
+        [labels], [_issue_resp(), CONNECT_ERROR, comment]
+    )
+
+    with patched_client:
+        found = gitea.create_gitea_issue_sync(
+            **SYNC_KWARGS,
+            title="New room request: marketing",
+            body="Requested by Phreddy.",
+            request_type="new-room",
+        )
+
+    assert found.profile == "commented"
+    *_, comment_call = client.post.call_args_list
+    assert comment_call.kwargs["json"] == {
+        "body": PROFILE_COMMENT.format(failure="ConnectError")
+    }
 
 
 @pytest.mark.anyio

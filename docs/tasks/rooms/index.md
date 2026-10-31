@@ -81,7 +81,9 @@ Every request the provisioner does not take is filed as an issue:
      creating it if needed, and tags the issue with it;
    - **attaches the requesting user's profile** to the issue as a YAML file
      (`user-profile.yaml` by default), so the requester's identity is recorded
-     without the agent transcribing it — see [Room access](../admin/room_access.md);
+     without the agent transcribing it — see [Room access](../admin/room_access.md).
+     If Gitea refuses the attachment (e.g. its `[attachment] ALLOWED_TYPES`
+     lacks `.yaml`), the profile goes into a comment on the issue instead;
    - returns the issue number and URL.
 
 5. **The room agent reports** the issue number and link back to the user. If the
