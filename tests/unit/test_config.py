@@ -274,3 +274,33 @@ def test_request_room_tool_config_service_url(installation_config, temp_dir):
     )
 
     assert tool_config.service_url == "https://provisioner.example.com"
+
+
+def test_request_room_tool_config_request_timeout(
+    installation_config, temp_dir
+):
+    config_path = temp_dir / "rooms" / "test" / "room_config.yaml"
+    config_dict = {"tool_name": config.RR_TOOL_NAME, "request_timeout": 45}
+
+    tool_config = config.RequestRoomToolConfig.from_yaml(
+        installation_config=installation_config,
+        config_path=config_path,
+        config_dict=config_dict,
+    )
+
+    assert tool_config.request_timeout == 45
+    assert tool_config.get_extra_parameters()["request_timeout"] == 45
+
+
+def test_request_room_tool_config_default_request_timeout(
+    installation_config, temp_dir
+):
+    config_path = temp_dir / "rooms" / "test" / "room_config.yaml"
+
+    tool_config = config.RequestRoomToolConfig.from_yaml(
+        installation_config=installation_config,
+        config_path=config_path,
+        config_dict={"tool_name": config.RR_TOOL_NAME},
+    )
+
+    assert tool_config.request_timeout == config.DEFAULT_REQUEST_ROOM_TIMEOUT

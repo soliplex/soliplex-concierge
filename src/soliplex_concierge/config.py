@@ -38,6 +38,10 @@ _, CRR_TOOL_KIND = CRR_TOOL_NAME.rsplit(".", 1)
 # The room provisioner service of a 'soliplex-template' stack, on its compose
 # network.
 DEFAULT_PROVISIONER_URL = "http://soliplex-provisioner:8090"
+# How long 'request_room' waits for the service to admit a request: it
+# answers only once it has checked the requester and filed the tracking
+# issue.
+DEFAULT_REQUEST_ROOM_TIMEOUT = 120.0
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -151,6 +155,13 @@ class _ProvisionerToolConfigBase(config_tools.ToolConfig):
 class RequestRoomToolConfig(_ProvisionerToolConfigBase):
     kind: str = RR_TOOL_KIND
     tool_name: str = RR_TOOL_NAME
+
+    # Seconds to wait for the service's answer to a room request.
+    request_timeout: float = DEFAULT_REQUEST_ROOM_TIMEOUT
+
+    def get_extra_parameters(self) -> dict:
+        local = {"request_timeout": self.request_timeout}
+        return super().get_extra_parameters() | local
 
 
 @dataclasses.dataclass(kw_only=True)

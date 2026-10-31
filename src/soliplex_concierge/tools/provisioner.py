@@ -65,6 +65,29 @@ class ServiceUnavailable(pydantic_ai.ToolFailed):
         )
 
 
+class ServiceTimedOut(pydantic_ai.ToolFailed):
+    """The service did not answer in time."""
+
+    def __init__(self, error: Exception):
+        self.error = error
+        super().__init__(
+            f"the room provisioner service did not answer in time "
+            f"({error!r}); try again shortly"
+        )
+
+
+class RequestTimedOut(pydantic_ai.ToolFailed):
+    """A room request went unanswered, twice: it may still be granted."""
+
+    def __init__(self):
+        super().__init__(
+            "the room provisioner did not answer in time, so the room may "
+            "still be created. Do not file the request as an issue: tell "
+            "the user to look for the room in their room list, and for its "
+            "tracking issue, in a few minutes"
+        )
+
+
 class ServiceFailed(pydantic_ai.ToolFailed):
     """The service answered with an error the agent cannot act on."""
 
@@ -113,11 +136,12 @@ class UnknownRequest(pydantic_ai.ToolFailed):
 class RoomRequestAccepted(pydantic.BaseModel):
     """The provisioner service's answer to a room request.
 
-    'status' is 'accepted' when the service is creating the room, and
-    'not_admitted' when it does not admit the user.
+    'status' is 'accepted' when the service is creating the room,
+    'already_requested' when an earlier attempt of the same request reached
+    it, and 'not_admitted' when it does not admit the user.
     """
 
-    status: typing.Literal["accepted", "not_admitted"]
+    status: typing.Literal["accepted", "already_requested", "not_admitted"]
     room_id: str | None = None
     issue_url: str | None = None
 
@@ -160,6 +184,15 @@ def _service_token(deps: agents.AgentDependencies) -> str:
     )
 
 
+def _room_id(response: httpx2.Response) -> str | None:
+    """The 'room_id' a refusal names, if any."""
+    try:
+        room_id = response.json()["room_id"]
+    except (ValueError, TypeError, KeyError):
+        return None
+    return room_id if isinstance(room_id, str) else None
+
+
 def _detail(response: httpx2.Response) -> str:
     try:
         return str(response.json()["detail"])
@@ -173,10 +206,12 @@ async def _call(
     method: str,
     path: str,
     body: dict | None = None,
+    timeout: float = REQUEST_TIMEOUT,
 ) -> httpx2.Response:
     """Call the provisioner service as the requesting user.
 
-    Raises 'ServiceUnavailable' when the service cannot be reached.
+    Raises 'ServiceTimedOut' when it does not answer within ``timeout``
+    seconds, and 'ServiceUnavailable' when it cannot be reached.
     """
     token = _service_token(deps)
     url = deps.tool_configs[kind].service_url.rstrip("/") + path
@@ -187,8 +222,10 @@ async def _call(
                 url,
                 json=body,
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=REQUEST_TIMEOUT,
+                timeout=timeout,
             )
+    except httpx2.TimeoutException as error:
+        raise ServiceTimedOut(error) from error
     except httpx2.HTTPError as error:
         raise ServiceUnavailable(error) from error
 
@@ -208,9 +245,11 @@ async def request_room(
     When the result's 'status' is 'accepted', the room is being created:
     tell the user its 'room_id' and tracking issue ('issue_url', when
     present), and that you can check whether it is ready with
-    'check_room_request'. When it is 'not_admitted', the user may not have
-    rooms created on request: file the request as a 'new-room' issue
-    instead.
+    'check_room_request'. When it is 'already_requested', an earlier
+    attempt of this request reached the provisioner: tell the user its
+    'room_id', and check on it with 'check_room_request'. When it is
+    'not_admitted', the user may not have rooms created on request: file
+    the request as a 'new-room' issue instead.
 
     Args:
         name: the room's human-readable name, as the user gave it.
@@ -224,10 +263,29 @@ async def request_room(
             'room_id' and 'issue_url'.
     """
     body = {"name": name, "description": description, "slug": slug}
-    response = await _call(
-        ctx.deps, config.RR_TOOL_KIND, "POST", "/rooms", body
-    )
+    timeout = ctx.deps.tool_configs[config.RR_TOOL_KIND].request_timeout
 
+    async def post():
+        return await _call(
+            ctx.deps, config.RR_TOOL_KIND, "POST", "/rooms", body, timeout
+        )
+
+    retried = False
+    try:
+        response = await post()
+    except ServiceTimedOut:
+        # The request may have reached the service: ask again, once.
+        try:
+            response = await post()
+        except ServiceTimedOut as error:
+            raise RequestTimedOut() from error
+        retried = True
+
+    if retried and response.status_code == 409:
+        room_id = _room_id(response)
+        if room_id is None:
+            raise RequestTimedOut()
+        return RoomRequestAccepted(status="already_requested", room_id=room_id)
     if response.status_code == 202:
         return RoomRequestAccepted(status="accepted", **response.json())
     if response.status_code == 403:

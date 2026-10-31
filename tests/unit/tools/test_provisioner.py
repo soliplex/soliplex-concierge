@@ -30,14 +30,20 @@ USER = models.UserProfile.from_user_claims(
 
 
 class _FakeService:
-    """Answers requests with 'response'; records each one it is sent."""
+    """Answers requests with 'response'; records each one it is sent.
 
-    def __init__(self, status=200, payload=None, error=None):
+    ``first`` (an exception) answers the first request instead.
+    """
+
+    def __init__(self, status=200, payload=None, error=None, first=None):
         self.status, self.payload, self.error = status, payload, error
+        self.first = first
         self.requests = []
 
     def __call__(self, request):
         self.requests.append(request)
+        if self.first is not None and len(self.requests) == 1:
+            raise self.first
         if self.error is not None:
             raise self.error
         if isinstance(self.payload, str):
@@ -54,7 +60,9 @@ def the_installation():
 
 @pytest.fixture
 def ctx(the_installation):
-    tool_config = mock.Mock(service_url=SERVICE_URL + "/")
+    tool_config = mock.Mock(
+        service_url=SERVICE_URL + "/", request_timeout=90.0
+    )
     deps = agents.AgentDependencies(
         the_installation=the_installation,
         user=USER,
@@ -250,6 +258,77 @@ async def test_request_room_without_the_signing_secret(ctx, the_installation):
     assert service.requests == []
 
 
+_TIMEOUT = httpx2.ReadTimeout("")
+
+
+@pytest.mark.anyio
+async def test_request_room_waits_its_own_timeout(ctx):
+    service = _FakeService(202, {"room_id": ROOM, "issue_url": None})
+
+    with _patch_service(service):
+        await provisioner.request_room(ctx, name="Q3 Plans")
+
+    [request] = service.requests
+    assert request.extensions["timeout"]["read"] == 90.0
+
+
+@pytest.mark.anyio
+async def test_request_room_retries_after_a_timeout(ctx):
+    service = _FakeService(
+        202, {"room_id": ROOM, "issue_url": ISSUE_URL}, first=_TIMEOUT
+    )
+
+    with _patch_service(service):
+        result = await provisioner.request_room(ctx, name="Q3 Plans")
+
+    assert result == provisioner.RoomRequestAccepted(
+        status="accepted", room_id=ROOM, issue_url=ISSUE_URL
+    )
+    assert len(service.requests) == 2
+
+
+@pytest.mark.anyio
+async def test_request_room_already_requested_after_a_timeout(ctx):
+    service = _FakeService(
+        409,
+        {
+            "detail": f"room {ROOM!r} is already being provisioned",
+            "room_id": ROOM,
+        },
+        first=_TIMEOUT,
+    )
+
+    with _patch_service(service):
+        result = await provisioner.request_room(ctx, name="Q3 Plans")
+
+    assert result == provisioner.RoomRequestAccepted(
+        status="already_requested", room_id=ROOM
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "service",
+    [
+        _FakeService(error=_TIMEOUT),
+        _FakeService(409, {"detail": "room exists"}, first=_TIMEOUT),
+        _FakeService(409, {"detail": "x", "room_id": 7}, first=_TIMEOUT),
+        _FakeService(409, "conflict", first=_TIMEOUT),
+    ],
+    ids=["twice", "no-room-id", "not-a-string", "not-json"],
+)
+async def test_request_room_timed_out(ctx, service):
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ToolFailed) as caught,
+    ):
+        await provisioner.request_room(ctx, name="Q3 Plans")
+
+    assert type(caught.value) is provisioner.RequestTimedOut
+    assert "Do not file the request as an issue" in caught.value.message
+    assert len(service.requests) == 2
+
+
 # ---- check_room_request ----
 
 
@@ -297,6 +376,22 @@ async def test_check_room_request_unknown(ctx):
 
     assert type(caught.value) is provisioner.UnknownRequest
     assert f"no request for room {ROOM!r}" in caught.value.message
+
+
+@pytest.mark.anyio
+async def test_check_room_request_timed_out(ctx):
+    service = _FakeService(error=_TIMEOUT)
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ToolFailed) as caught,
+    ):
+        await provisioner.check_room_request(ctx, room_id=ROOM)
+
+    assert type(caught.value) is provisioner.ServiceTimedOut
+    assert "try again shortly" in caught.value.message
+    [request] = service.requests
+    assert request.extensions["timeout"]["read"] == provisioner.REQUEST_TIMEOUT
 
 
 @pytest.mark.anyio
