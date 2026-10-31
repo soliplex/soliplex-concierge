@@ -83,7 +83,13 @@ helpers. Each value is a `{"color": ..., "description": ...}` mapping.
 The room-side tool that files a request as a Gitea issue.
 
 **`class CreatedGiteaIssue(pydantic.BaseModel)`** — the created issue:
-`number: int`, `url: str`, `title: str`.
+`number: int`, `url: str`, `title: str`, and `profile`, how the requesting
+user's profile was recorded on it:
+
+- `"attached"` — as the YAML attachment
+- `"commented"` — as a comment holding the YAML, Gitea having refused the
+  attachment
+- `"missing"` — not at all, Gitea having refused the comment too
 
 **`async create_gitea_issue(ctx, title, body, request_type) -> CreatedGiteaIssue`**
 
@@ -93,7 +99,9 @@ repository is fixed by the room's `CreateGiteaIssueToolConfig`. It ensures the
 type label exists — reusing the repository's existing label, found by walking
 every page of its label listing, and creating one only when it is truly absent —
 files the issue, attaches the requesting user's profile, and returns the issue
-number and URL.
+number and URL. Once the issue exists, recording the profile is best-effort:
+when Gitea refuses the attachment, the profile is commented on the issue
+instead, and the issue is returned either way.
 
 **`create_gitea_issue_sync(*, host, token, owner, repo, user, title, body, request_type, profile_attachment_name="user-profile.yaml", exclude_claims=()) -> CreatedGiteaIssue`**
 
