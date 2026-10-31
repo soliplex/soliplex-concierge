@@ -100,8 +100,10 @@ Run the bundled script from this skill's directory with `uv run`.
 ## What it changes (seven idempotent edits)
 
 1. adds `soliplex-concierge` to `backend/pyproject.toml` dependencies,
-2. adds it to the `backend/Dockerfile` `uv add` block (the generated Dockerfile
-   does `uv init --bare` and ignores the pyproject deps, so both are needed),
+2. adds it to the packages the backend image installs: `backend/requirements.txt`
+   in a stack built on a soliplex release image, or, in an older stack without
+   that file, the `backend/Dockerfile` `uv add` block (that Dockerfile does
+   `uv init --bare` and ignores the pyproject deps, so both are needed),
 3. merges the `installation.yaml` entries it needs (`meta.tool_configs`,
    `environment`, `secrets`). The two `skill_configs` entries
    (`soliplex-concierge-room`, `soliplex-docs`) are added **only if the stack

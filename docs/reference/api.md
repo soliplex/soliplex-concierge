@@ -266,10 +266,14 @@ maps it to exit code `2`. Built via message-constructing classmethods
 **Edits** — pure `(text, …) -> (new_text, action)` functions, so `--dry-run` is
 just "compute, don't write"; `action` is `ADDED` or `UNCHANGED`:
 
-- `add_pyproject_dep(text, pin=None, with_truststore=False)` /
-  `add_dockerfile_dep(text, pin=None, with_truststore=False)` — add the
-  `soliplex-concierge` dependency to `backend/pyproject.toml` and to the
-  `backend/Dockerfile` `uv add` block.
+- `add_pyproject_dep(text, pin=None, with_truststore=False)` — add the
+  `soliplex-concierge` dependency to `backend/pyproject.toml`.
+- `add_requirements_dep(text, pin=None, with_truststore=False)` — add it to
+  `backend/requirements.txt`, which a stack built on a soliplex release image
+  installs its extra packages from.
+- `add_dockerfile_dep(text, pin=None, with_truststore=False)` — add it to the
+  `backend/Dockerfile` `uv add` block, in an older stack without
+  `backend/requirements.txt`.
 - `merge_installation(text, room_id) -> (new_text, {target: action})` —
   surgically merge the six `installation.yaml` entries.
 - `update_env(text, host, token)` — add the `GITEA_HOST` / `GITEA_ACCESS_TOKEN`
