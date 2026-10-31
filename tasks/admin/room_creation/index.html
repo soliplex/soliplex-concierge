@@ -1099,7 +1099,19 @@
 
 <h1 id="resolving-a-new-room-request">Resolving a new-room request</h1>
 <p>A new-room request (the <code>new-room</code> label) asks for a room that does not yet
-exist. Resolving it is two jobs: read the spec the requester provided, then
+exist.</p>
+<p>On a stack running a room provisioner, the concierge has the provisioner
+create a room on the spot for a user it admits. The provisioner files that
+request's issue itself (its body records the <strong>Room id</strong> being created), then
+comments on and closes it once the room is live. Such an issue left open needs
+a look:</p>
+<ul>
+<li>with a provisioner comment: the comment says what failed, or which steps
+  remain</li>
+<li>with no comment: the provisioner stopped mid-run</li>
+</ul>
+<p>The rest of this page covers a request the concierge filed for an
+administrator to carry out. Resolving it is two jobs: read the spec the requester provided, then
 build the room with the <a href="https://github.com/soliplex/soliplex-template"><code>soliplex-template</code></a>
 skill. The <code>soliplex-concierge-admin</code> skill handles the first job and records
 the outcome; <code>soliplex-template</code> does the provisioning.</p>

@@ -857,6 +857,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#new-rooms-on-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        New rooms on request
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-request-flow" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1012,7 +1023,10 @@ installation. It answers two kinds of need:</p>
 <li><strong>Questions about Soliplex</strong> — grounded in the <code>soliplex-docs</code> skill (and
   optionally this installation's own RAG database).</li>
 <li><strong>Room requests</strong> — a <strong>new room</strong>, or <strong>access</strong> to an existing private
-  room, filed as a tracking issue for an administrator to resolve.</li>
+  room. A new room is created on the spot for a user the stack's room
+  provisioner admits (see <a href="#new-rooms-on-request">New rooms on request</a>);
+  every other request is filed as a tracking issue for an administrator to
+  resolve.</li>
 </ul>
 <p>Filing a request is a collaboration between three actors, all behind the single
 chat the user sees:</p>
@@ -1040,9 +1054,36 @@ chat the user sees:</p>
 <td>a Python tool bound to the room</td>
 <td>files the draft on the fixed tracking repository</td>
 </tr>
+<tr>
+<td><strong><code>request_room</code> / <code>check_room_request</code> tools</strong></td>
+<td>Python tools bound to the room</td>
+<td>ask the stack's room provisioner to create a room, and check on it</td>
+</tr>
 </tbody>
 </table>
+<h2 id="new-rooms-on-request">New rooms on request</h2>
+<p>A <a href="https://github.com/soliplex/soliplex-template"><code>soliplex-template</code></a> stack
+runs a room provisioner service, <code>soliplex-provisioner</code>, which creates a
+private room for a requester in one step and files its tracking issue itself.
+For a new room, the room agent first asks for the room's name and purpose, then
+calls <code>request_room</code>:</p>
+<ul>
+<li><strong>Accepted</strong> — the room is being created, private to the user. The agent
+  reports its id and tracking issue, and checks on it with
+  <code>check_room_request</code> when asked: <code>pending</code>, <code>live</code> (refresh the room list),
+  <code>incomplete</code> (an administrator must finish some steps) or <code>failed</code>.</li>
+<li><strong>Not admitted</strong> — the provisioner admits only admins, and users granted
+  WRITE on the reserved room id <code>__provision__</code>. For anyone else, the agent
+  files the request as an issue, as below.</li>
+<li><strong>Failed</strong> — a name already taken sends the agent back to the user for
+  another; when the provisioner cannot take the request at all (for example,
+  a stack without the service), the agent files it as an issue.</li>
+</ul>
+<p>The tools act as the user: each call carries a short-lived service token
+holding the user's claims, signed with the installation's
+<code>URL_SAFE_TOKEN_SECRET</code>.</p>
 <h2 id="the-request-flow">The request flow</h2>
+<p>Every request the provisioner does not take is filed as an issue:</p>
 <ol>
 <li>
 <p><strong>The user asks</strong> for a new room or for access to a private one.</p>

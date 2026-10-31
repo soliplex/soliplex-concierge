@@ -888,6 +888,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#soliplex_conciergetoolsprovisioner" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.tools.provisioner</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#soliplex_conciergegitea_admin" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1010,6 +1021,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#soliplex_conciergetoolsprovisioner" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.tools.provisioner</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#soliplex_conciergegitea_admin" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1116,7 +1138,7 @@ these directly — the room tool is wired in by configuration (see
 The reference is for extension authors and for scripting against the admin
 helpers.</p>
 <h2 id="soliplex_conciergeconfig"><code>soliplex_concierge.config</code></h2>
-<p>Tool-configuration type registered with a Soliplex installation under
+<p>Tool-configuration types registered with a Soliplex installation under
 <code>meta.tool_configs</code>.</p>
 <p><strong>Constants</strong></p>
 <ul>
@@ -1125,6 +1147,10 @@ helpers.</p>
 <li><code>CGI_TOOL_KIND: str</code> — the tool kind (the final segment of <code>CGI_TOOL_NAME</code>).</li>
 <li><code>DEFAULT_PROFILE_ATTACHMENT_NAME: str</code> — default filename for the attached
   user profile (<code>"user-profile.yaml"</code>).</li>
+<li><code>RR_TOOL_NAME</code> / <code>RR_TOOL_KIND</code>, <code>CRR_TOOL_NAME</code> / <code>CRR_TOOL_KIND</code> — the
+  dotted names and kinds of the <code>request_room</code> and <code>check_room_request</code> tools.</li>
+<li><code>DEFAULT_PROVISIONER_URL: str</code> — the room provisioner service of a
+  <code>soliplex-template</code> stack (<code>"http://soliplex-provisioner:8090"</code>).</li>
 </ul>
 <p><strong><code>class CreateGiteaIssueToolConfig(soliplex.config.tools.ToolConfig)</code></strong></p>
 <p>Dataclass describing the <code>create_gitea_issue</code> tool for a room. Configured keys:</p>
@@ -1152,6 +1178,13 @@ Soliplex &gt;= 0.80.</p>
   <code>host</code> / <code>token</code> keys onto the backing fields.</li>
 <li><code>get_extra_parameters() -&gt; dict</code> — the configured values surfaced for tool
   construction.</li>
+</ul>
+<p><strong><code>class RequestRoomToolConfig</code></strong> / <strong><code>class CheckRoomRequestToolConfig</code></strong></p>
+<p>Dataclasses describing the <code>request_room</code> and <code>check_room_request</code> tools for
+a room. One configured key:</p>
+<ul>
+<li><code>service_url</code> — the room provisioner service's base URL (default
+  <code>DEFAULT_PROVISIONER_URL</code>).</li>
 </ul>
 <h2 id="soliplex_conciergelabels"><code>soliplex_concierge.labels</code></h2>
 <p>Canonical Gitea request-label catalog, shared by the room tool and the admin
@@ -1198,6 +1231,41 @@ same <code>UnknownRequestType</code> / <code>LabelNotApplied</code>.</p>
 <li><code>LabelNotApplied(RuntimeError)</code> — the issue was created but its type label was
   not applied (typically the Gitea account lacks Write access; see issue #59).</li>
 </ul>
+<h2 id="soliplex_conciergetoolsprovisioner"><code>soliplex_concierge.tools.provisioner</code></h2>
+<p>The room-side tools that ask a stack's room provisioner service for a new
+room, as the requesting user. Each call carries a service token holding the
+user's claims (<code>service_claims(user)</code>: the profile's claims, less <code>iat</code> /
+<code>exp</code> and <code>UserProfile</code>'s <code>"&lt;unknown&gt;"</code> placeholders), valid for
+<code>SERVICE_TOKEN_LIFETIME</code> seconds and signed with the installation's
+<code>URL_SAFE_TOKEN_SECRET</code>.</p>
+<p><strong><code>async request_room(ctx, name, description=None, slug=None) -&gt; RoomRequestAccepted</code></strong></p>
+<p>Sends <code>POST /rooms</code>. Returns <code>RoomRequestAccepted(status="accepted",
+room_id, issue_url)</code> when the service is creating the room, and
+<code>RoomRequestAccepted(status="not_admitted")</code> when it does not admit the user.</p>
+<p><strong><code>async check_room_request(ctx, room_id) -&gt; RoomRequestState</code></strong></p>
+<p>Sends <code>GET /rooms/{room_id}</code>. Returns the request's <code>room_id</code>, <code>state</code>
+(<code>pending</code>, <code>live</code>, <code>incomplete</code> or <code>failed</code>), <code>issue_url</code>, <code>incomplete</code>
+steps and <code>error</code>.</p>
+<p><strong>Exceptions</strong> — reported to the model rather than ending the run:</p>
+<ul>
+<li><code>BadSlug(pydantic_ai.ModelRetry)</code> — the slug the model passed is unusable.</li>
+<li><code>BadRoomName(pydantic_ai.ToolFailed)</code> — the room name is unusable; ask the
+  user for another.</li>
+<li><code>RoomTaken(pydantic_ai.ToolFailed)</code> — the room id is taken, or already being
+  provisioned.</li>
+<li><code>UnknownRequest(pydantic_ai.ToolFailed)</code> — the service has no request for
+  the room id.</li>
+<li><code>ServiceUnavailable(pydantic_ai.ToolFailed)</code> /
+  <code>ServiceFailed(pydantic_ai.ToolFailed)</code> — the service could not be reached,
+  or failed.</li>
+<li><code>SigningSecretMissing(pydantic_ai.ToolFailed)</code> — the installation has no
+  <code>URL_SAFE_TOKEN_SECRET</code>.</li>
+<li><code>AnonymousUser(pydantic_ai.ToolFailed)</code> — no user profile is attached to the
+  run.</li>
+</ul>
+<p>The messages of <code>ServiceUnavailable</code>, <code>ServiceFailed</code> and
+<code>SigningSecretMissing</code> tell the model to file the request as a <code>new-room</code>
+issue instead.</p>
 <h2 id="soliplex_conciergegitea_admin"><code>soliplex_concierge.gitea_admin</code></h2>
 <p>The implementation behind the admin <code>gitea_issues.py</code> CLI. Every function talks
 to the Gitea REST API over httpx2 and takes the connection as its leading

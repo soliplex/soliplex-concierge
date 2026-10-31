@@ -508,6 +508,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#configuring-the-about-room" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Configuring the about-room
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1025,6 +1036,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#configuring-the-about-room" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Configuring the about-room
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1154,11 +1176,19 @@
 <h1 id="setting-up-the-concierge">Setting up the concierge</h1>
 <p>Adding the concierge to an installation means creating the about-room,
 wiring in the <code>soliplex-concierge-room</code> and <code>soliplex-docs</code> skills,
-registering the <code>create_gitea_issue</code> tool, and declaring the Gitea connection.
-The <strong><code>soliplex-concierge-installer</code></strong> skill does all of this for you on a
-<a href="https://github.com/soliplex/soliplex-template"><code>soliplex-template</code></a>-generated
-stack; the <a href="#manual-wiring">manual steps</a> below are for any other installation.</p>
-<p>Either way you will need a Gitea repository to file requests against, and an
+registering the <code>create_gitea_issue</code>, <code>request_room</code> and <code>check_room_request</code>
+tools, and declaring the Gitea connection. This page covers:</p>
+<ul>
+<li><a href="#the-installer-skill-recommended">installing it with the <code>soliplex-concierge-installer</code> skill</a>,
+  which does all of this for you on a
+  <a href="https://github.com/soliplex/soliplex-template"><code>soliplex-template</code></a>-generated
+  stack</li>
+<li><a href="#manual-wiring">installing it by hand</a>, on any other installation</li>
+<li><a href="#configuring-the-about-room">configuring the about-room</a>, however it was
+  installed: what it needs to create rooms on request, bringing an older
+  about-room up to date, and what it answers questions from</li>
+</ul>
+<p>Either way you install it, you will need a Gitea repository to file requests against, and an
 access token whose account has <strong>Write</strong> access to it — not just Read. Gitea
 lets a Read-only account open issues but silently drops their labels, so
 requests would be filed untagged and slip past triage (issue #59).
@@ -1187,8 +1217,9 @@ every change idempotently.</p>
   <code>backend/Dockerfile</code> <code>uv add</code> block (the generated Dockerfile ignores the
   <code>pyproject.toml</code> deps, so both are needed).</li>
 <li>Merges six entries into <code>backend/environment/installation.yaml</code>:
-  <code>meta.tool_configs</code>, <code>environment</code>, <code>secrets</code>, two <code>skill_configs</code> — for
-  <code>soliplex-concierge-room</code> and <code>soliplex-docs</code> — and <code>room_paths</code>.</li>
+  <code>meta.tool_configs</code> (the three tool-config classes), <code>environment</code>,
+  <code>secrets</code>, two <code>skill_configs</code> — for <code>soliplex-concierge-room</code> and
+  <code>soliplex-docs</code> — and <code>room_paths</code>.</li>
 <li>Copies the about-room into <code>backend/environment/rooms/&lt;room-id&gt;/</code>
   (<code>about_&lt;compose-project-name&gt;</code> by default; override with <code>--room-id</code>).</li>
 <li>Downloads and installs the <code>soliplex-concierge-room</code> and <code>soliplex-docs</code>
@@ -1251,8 +1282,8 @@ entirely (for an external Gitea).</p>
 <li><strong>Merge the <code>installation.yaml</code> entries</strong> from the bundled
    <a href="https://github.com/soliplex/soliplex-concierge/blob/main/skills/soliplex-concierge-installer/assets/installation-snippet.yaml"><code>installation-snippet.yaml</code></a>.
    They:</li>
-<li>register the tool-config class via <code>meta.tool_configs</code> (Soliplex resolves
-     the tool by its dotted <code>tool_name</code>; no core edit is needed),</li>
+<li>register the tool-config classes via <code>meta.tool_configs</code> (Soliplex
+     resolves each tool by its dotted <code>tool_name</code>; no core edit is needed),</li>
 <li>add the directories of the two filesystem skills the about-room uses
      (<code>soliplex-concierge-room</code> and <code>soliplex-docs</code>) to
      <code>filesystem_skills_paths</code>, and enable both under <code>skill_configs</code>, and</li>
@@ -1275,11 +1306,29 @@ entirely (for an external Gitea).</p>
    with Write access as noted above.</p>
 </li>
 </ol>
+<h2 id="configuring-the-about-room">Configuring the about-room</h2>
+<p>The <code>request_room</code> and <code>check_room_request</code> tools (see
+<a href="../#new-rooms-on-request">New rooms on request</a>) need:</p>
+<ul>
+<li>the address of the stack's room provisioner service: each tool's
+  <code>service_url</code>, which defaults to <code>http://soliplex-provisioner:8090</code>, a
+  <code>soliplex-template</code> stack's service</li>
+<li>the installation's <code>URL_SAFE_TOKEN_SECRET</code> secret, to sign their requests
+  (a <code>soliplex-template</code> stack declares it)</li>
+</ul>
+<p>Whether a user may create rooms is the provisioner's call: it admits admins,
+and users granted WRITE on the reserved room id <code>__provision__</code> (the
+provisioner's docs show how to write that policy).</p>
+<p>An about-room installed before these tools existed lacks them: re-run the
+installer with <code>--force</code> to replace the room (which also replaces any edits
+made to it), or add the two tool entries from the bundled
+<a href="https://github.com/soliplex/soliplex-concierge/blob/main/skills/soliplex-concierge-installer/assets/rooms/about_soliplex/room_config.yaml"><code>room_config.yaml</code></a>
+and the new <code>prompt.txt</code> by hand.</p>
 <p>The about-room answers questions from the bundled <code>soliplex-docs</code> skill, so no
 RAG database is required. To <em>also</em> answer from this installation's own
 ingested content, uncomment the <code>skill_configs</code> block in the room's
 <code>room_config.yaml</code>, pointing <code>rag_lancedb_stem</code> at a database under <code>rag/db/</code>.
-tHe <a href="https://github.com/soliplex/soliplex-template"><code>soliplex-template</code></a> skill
+The <a href="https://github.com/soliplex/soliplex-template"><code>soliplex-template</code></a> skill
 can generate and ingest one (see the
 <a href="https://soliplex.github.io/soliplex/config/rag/">RAG DB docs</a>).</p>
 
