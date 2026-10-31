@@ -505,6 +505,9 @@ def test_merge_installation_adds():
     new_text, results = installer.merge_installation(_INSTALLATION)
 
     assert results["installation: meta.tool_configs"] == installer.ADDED
+    for tool in installer.PROVISIONER_TOOL_CONFIGS:
+        key = f"installation: meta.tool_configs ({tool})"
+        assert results[key] == installer.ADDED
     assert results["installation: environment"] == installer.ADDED
     assert results["installation: secrets"] == installer.ADDED
     # A permissive stack auto-discovers the skills (installed under ./skills),
@@ -512,7 +515,9 @@ def test_merge_installation_adds():
     assert results["installation: skill_configs"] == installer.COVERED
     assert results["installation: skill_configs (docs)"] == installer.COVERED
     data = _loads(new_text)
-    assert installer.TOOL_CONFIG in data["meta"]["tool_configs"]
+    assert sorted(data["meta"]["tool_configs"]) == sorted(
+        [installer.TOOL_CONFIG, *installer.PROVISIONER_TOOL_CONFIGS.values()]
+    )
     assert installer.GITEA_HOST in data["environment"]
     assert any(
         s.get("secret_name") == installer.GITEA_TOKEN_SECRET
@@ -628,6 +633,12 @@ def test_install_room_added(stack):
     assert room_paths_action == installer.ADDED
     inst = _load(stack / "backend" / "environment" / "installation.yaml")
     assert "./rooms/about_concierge-test" in inst["room_paths"]
+    tool_names = [tool["tool_name"] for tool in cfg["tools"]]
+    assert tool_names[-3:] == [
+        installer.GITEA_TOOL,
+        "soliplex_concierge.tools.provisioner.request_room",
+        "soliplex_concierge.tools.provisioner.check_room_request",
+    ]
 
 
 def test_install_room_unchanged(stack):

@@ -9,8 +9,10 @@ same seven idempotent changes a human would otherwise make by hand:
 2. add it to the 'backend/Dockerfile' 'uv add' block (the generated Dockerfile
    does 'uv init --bare' and ignores the pyproject deps, so both are needed),
 3. merge six entries into 'backend/environment/installation.yaml'
-   (meta.tool_configs, environment, secrets, two skill_configs --
-   'soliplex-concierge-room' and 'soliplex-docs' -- and room_paths),
+   (meta.tool_configs -- the 'create_gitea_issue', 'request_room' and
+   'check_room_request' tool configs -- environment, secrets, two
+   skill_configs -- 'soliplex-concierge-room' and 'soliplex-docs' -- and
+   room_paths),
 4. copy the 'about_soliplex' room template into 'rooms/<room_id>/' (renaming
    it -- directory, 'id:' and the room_paths entry -- to '<room_id>'),
 5. download + copy the 'soliplex-concierge-room' and 'soliplex-docs'
@@ -54,6 +56,13 @@ from soliplex_skills import install
 
 DIST = "soliplex-concierge"
 TOOL_CONFIG = "soliplex_concierge.config.CreateGiteaIssueToolConfig"
+# The tools asking the stack's room provisioner service for a room.
+PROVISIONER_TOOL_CONFIGS = {
+    "request_room": "soliplex_concierge.config.RequestRoomToolConfig",
+    "check_room_request": (
+        "soliplex_concierge.config.CheckRoomRequestToolConfig"
+    ),
+}
 GITEA_TOOL = "soliplex_concierge.tools.gitea.create_gitea_issue"
 GITEA_HOST = "GITEA_HOST"
 GITEA_TOKEN_SECRET = "GITEA_ACCESS_TOKEN"
@@ -502,6 +511,10 @@ def merge_installation(
         text, results["installation: meta.tool_configs"] = (
             installation.add_meta_tool_config(text, TOOL_CONFIG)
         )
+        for tool, class_path in PROVISIONER_TOOL_CONFIGS.items():
+            text, results[f"installation: meta.tool_configs ({tool})"] = (
+                installation.add_meta_tool_config(text, class_path)
+            )
         text, results["installation: environment"] = (
             installation.add_environment(text, GITEA_HOST)
         )

@@ -3,8 +3,9 @@
 `soliplex-concierge` is a [Soliplex](https://github.com/soliplex/soliplex)
 extension for LLM-driven, on-demand room requests. Users chat with a self-serve
 "about" room to request **access to a non-public room** or the **creation of a
-new room**; the concierge files each request as a tracking issue on a Gitea
-repository, and an administrator resolves it.
+new room**. On a stack that runs a room provisioner, a permitted user's new room
+is created on the spot; every other request is filed as a tracking issue on a
+Gitea repository, and an administrator resolves it.
 
 The documentation is organized around the two task areas:
 

@@ -2,12 +2,19 @@
 
 Adding the concierge to an installation means creating the about-room,
 wiring in the `soliplex-concierge-room` and `soliplex-docs` skills,
-registering the `create_gitea_issue` tool, and declaring the Gitea connection.
-The **`soliplex-concierge-installer`** skill does all of this for you on a
-[`soliplex-template`](https://github.com/soliplex/soliplex-template)-generated
-stack; the [manual steps](#manual-wiring) below are for any other installation.
+registering the `create_gitea_issue`, `request_room` and `check_room_request`
+tools, and declaring the Gitea connection. This page covers:
 
-Either way you will need a Gitea repository to file requests against, and an
+- [installing it with the `soliplex-concierge-installer` skill](#the-installer-skill-recommended),
+  which does all of this for you on a
+  [`soliplex-template`](https://github.com/soliplex/soliplex-template)-generated
+  stack
+- [installing it by hand](#manual-wiring), on any other installation
+- [configuring the about-room](#configuring-the-about-room), however it was
+  installed: what it needs to create rooms on request, bringing an older
+  about-room up to date, and what it answers questions from
+
+Either way you install it, you will need a Gitea repository to file requests against, and an
 access token whose account has **Write** access to it — not just Read. Gitea
 lets a Read-only account open issues but silently drops their labels, so
 requests would be filed untagged and slip past triage (issue #59).
@@ -43,8 +50,9 @@ It applies these idempotent edits to the stack:
   `backend/Dockerfile` `uv add` block (the generated Dockerfile ignores the
   `pyproject.toml` deps, so both are needed).
 - Merges six entries into `backend/environment/installation.yaml`:
-  `meta.tool_configs`, `environment`, `secrets`, two `skill_configs` — for
-  `soliplex-concierge-room` and `soliplex-docs` — and `room_paths`.
+  `meta.tool_configs` (the three tool-config classes), `environment`,
+  `secrets`, two `skill_configs` — for `soliplex-concierge-room` and
+  `soliplex-docs` — and `room_paths`.
 - Copies the about-room into `backend/environment/rooms/<room-id>/`
   (`about_<compose-project-name>` by default; override with `--room-id`).
 - Downloads and installs the `soliplex-concierge-room` and `soliplex-docs`
@@ -113,8 +121,8 @@ For a non-generated installation, do the same steps by hand.
 2. **Merge the `installation.yaml` entries** from the bundled
    [`installation-snippet.yaml`](https://github.com/soliplex/soliplex-concierge/blob/main/skills/soliplex-concierge-installer/assets/installation-snippet.yaml).
    They:
-   - register the tool-config class via `meta.tool_configs` (Soliplex resolves
-     the tool by its dotted `tool_name`; no core edit is needed),
+   - register the tool-config classes via `meta.tool_configs` (Soliplex
+     resolves each tool by its dotted `tool_name`; no core edit is needed),
    - add the directories of the two filesystem skills the about-room uses
      (`soliplex-concierge-room` and `soliplex-docs`) to
      `filesystem_skills_paths`, and enable both under `skill_configs`, and
@@ -133,10 +141,31 @@ For a non-generated installation, do the same steps by hand.
    secret (see the `.env` lines at the bottom of the snippet), using a token
    with Write access as noted above.
 
+## Configuring the about-room
+
+The `request_room` and `check_room_request` tools (see
+[New rooms on request](index.md#new-rooms-on-request)) need:
+
+- the address of the stack's room provisioner service: each tool's
+  `service_url`, which defaults to `http://soliplex-provisioner:8090`, a
+  `soliplex-template` stack's service
+- the installation's `URL_SAFE_TOKEN_SECRET` secret, to sign their requests
+  (a `soliplex-template` stack declares it)
+
+Whether a user may create rooms is the provisioner's call: it admits admins,
+and users granted WRITE on the reserved room id `__provision__` (the
+provisioner's docs show how to write that policy).
+
+An about-room installed before these tools existed lacks them: re-run the
+installer with `--force` to replace the room (which also replaces any edits
+made to it), or add the two tool entries from the bundled
+[`room_config.yaml`](https://github.com/soliplex/soliplex-concierge/blob/main/skills/soliplex-concierge-installer/assets/rooms/about_soliplex/room_config.yaml)
+and the new `prompt.txt` by hand.
+
 The about-room answers questions from the bundled `soliplex-docs` skill, so no
 RAG database is required. To *also* answer from this installation's own
 ingested content, uncomment the `skill_configs` block in the room's
 `room_config.yaml`, pointing `rag_lancedb_stem` at a database under `rag/db/`.
-tHe [`soliplex-template`](https://github.com/soliplex/soliplex-template) skill
+The [`soliplex-template`](https://github.com/soliplex/soliplex-template) skill
 can generate and ingest one (see the
 [RAG DB docs](https://soliplex.github.io/soliplex/config/rag/)).

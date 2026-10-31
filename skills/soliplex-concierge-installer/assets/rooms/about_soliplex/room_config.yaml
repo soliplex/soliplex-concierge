@@ -37,6 +37,17 @@ tools:
     # exclude_claims:
     #   - "email"
 
+  # Ask the stack's room provisioner service to create a private room for
+  # the requesting user, and check on that request. Both mint a short-lived
+  # service token from the user's claims, signed with the installation's
+  # 'URL_SAFE_TOKEN_SECRET'. 'service_url' defaults to the
+  # 'soliplex-provisioner' service of a 'soliplex-template' stack. Register
+  # the config classes via the installation's 'meta.tool_configs'.
+  - tool_name: "soliplex_concierge.tools.provisioner.request_room"
+    # service_url: "http://soliplex-provisioner:8090"
+  - tool_name: "soliplex_concierge.tools.provisioner.check_room_request"
+    # service_url: "http://soliplex-provisioner:8090"
+
 skills:
   # The detailed concierge behavior lives in the 'soliplex-concierge-room'
   # filesystem skill shipped by this package; the 'soliplex-docs' skill (the

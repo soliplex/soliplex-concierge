@@ -16,11 +16,19 @@
 # ---------------------------------------------------------------------------
 
 meta:
-  # Register the extension's tool-config class so a room may reference the
-  # tool by its 'tool_name' ('soliplex_concierge.tools.gitea.
-  # create_gitea_issue'). No edit to Soliplex core is required.
+  # Register the extension's tool-config classes so a room may reference its
+  # tools by their 'tool_name's ('soliplex_concierge.tools.gitea.
+  # create_gitea_issue', and 'soliplex_concierge.tools.provisioner.
+  # request_room' / '.check_room_request'). No edit to Soliplex core is
+  # required.
+  #
+  # The provisioner tools sign their requests with the installation's
+  # 'URL_SAFE_TOKEN_SECRET' secret, which a 'soliplex-template' stack
+  # already declares.
   tool_configs:
     - "soliplex_concierge.config.CreateGiteaIssueToolConfig"
+    - "soliplex_concierge.config.RequestRoomToolConfig"
+    - "soliplex_concierge.config.CheckRoomRequestToolConfig"
 
 # Point Soliplex at the directories holding the two filesystem skills the
 # about-room uses, so they are discovered: 'soliplex-concierge-room' (this

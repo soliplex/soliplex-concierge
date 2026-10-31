@@ -9,7 +9,7 @@ helpers.
 
 ## `soliplex_concierge.config`
 
-Tool-configuration type registered with a Soliplex installation under
+Tool-configuration types registered with a Soliplex installation under
 `meta.tool_configs`.
 
 **Constants**
@@ -19,6 +19,10 @@ Tool-configuration type registered with a Soliplex installation under
 - `CGI_TOOL_KIND: str` — the tool kind (the final segment of `CGI_TOOL_NAME`).
 - `DEFAULT_PROFILE_ATTACHMENT_NAME: str` — default filename for the attached
   user profile (`"user-profile.yaml"`).
+- `RR_TOOL_NAME` / `RR_TOOL_KIND`, `CRR_TOOL_NAME` / `CRR_TOOL_KIND` — the
+  dotted names and kinds of the `request_room` and `check_room_request` tools.
+- `DEFAULT_PROVISIONER_URL: str` — the room provisioner service of a
+  `soliplex-template` stack (`"http://soliplex-provisioner:8090"`).
 
 **`class CreateGiteaIssueToolConfig(soliplex.config.tools.ToolConfig)`**
 
@@ -48,6 +52,14 @@ Soliplex >= 0.80.
   `host` / `token` keys onto the backing fields.
 - `get_extra_parameters() -> dict` — the configured values surfaced for tool
   construction.
+
+**`class RequestRoomToolConfig`** / **`class CheckRoomRequestToolConfig`**
+
+Dataclasses describing the `request_room` and `check_room_request` tools for
+a room. One configured key:
+
+- `service_url` — the room provisioner service's base URL (default
+  `DEFAULT_PROVISIONER_URL`).
 
 ## `soliplex_concierge.labels`
 
@@ -101,6 +113,48 @@ same `UnknownRequestType` / `LabelNotApplied`.
   request cannot be attributed.
 - `LabelNotApplied(RuntimeError)` — the issue was created but its type label was
   not applied (typically the Gitea account lacks Write access; see issue #59).
+
+## `soliplex_concierge.tools.provisioner`
+
+The room-side tools that ask a stack's room provisioner service for a new
+room, as the requesting user. Each call carries a service token holding the
+user's claims (`service_claims(user)`: the profile's claims, less `iat` /
+`exp` and `UserProfile`'s `"<unknown>"` placeholders), valid for
+`SERVICE_TOKEN_LIFETIME` seconds and signed with the installation's
+`URL_SAFE_TOKEN_SECRET`.
+
+**`async request_room(ctx, name, description=None, slug=None) -> RoomRequestAccepted`**
+
+Sends `POST /rooms`. Returns `RoomRequestAccepted(status="accepted",
+room_id, issue_url)` when the service is creating the room, and
+`RoomRequestAccepted(status="not_admitted")` when it does not admit the user.
+
+**`async check_room_request(ctx, room_id) -> RoomRequestState`**
+
+Sends `GET /rooms/{room_id}`. Returns the request's `room_id`, `state`
+(`pending`, `live`, `incomplete` or `failed`), `issue_url`, `incomplete`
+steps and `error`.
+
+**Exceptions** — reported to the model rather than ending the run:
+
+- `BadSlug(pydantic_ai.ModelRetry)` — the slug the model passed is unusable.
+- `BadRoomName(pydantic_ai.ToolFailed)` — the room name is unusable; ask the
+  user for another.
+- `RoomTaken(pydantic_ai.ToolFailed)` — the room id is taken, or already being
+  provisioned.
+- `UnknownRequest(pydantic_ai.ToolFailed)` — the service has no request for
+  the room id.
+- `ServiceUnavailable(pydantic_ai.ToolFailed)` /
+  `ServiceFailed(pydantic_ai.ToolFailed)` — the service could not be reached,
+  or failed.
+- `SigningSecretMissing(pydantic_ai.ToolFailed)` — the installation has no
+  `URL_SAFE_TOKEN_SECRET`.
+- `AnonymousUser(pydantic_ai.ToolFailed)` — no user profile is attached to the
+  run.
+
+The messages of `ServiceUnavailable`, `ServiceFailed` and
+`SigningSecretMissing` tell the model to file the request as a `new-room`
+issue instead.
 
 ## `soliplex_concierge.gitea_admin`
 

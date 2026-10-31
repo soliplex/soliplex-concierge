@@ -1,11 +1,13 @@
 """Tool configuration types for the 'soliplex-concierge' extension.
 
-Register 'CreateGiteaIssueToolConfig' with a Soliplex installation by listing
-it under the installation's 'meta.tool_configs', e.g.::
+Register each with a Soliplex installation by listing it under the
+installation's 'meta.tool_configs', e.g.::
 
     meta:
       tool_configs:
         - "soliplex_concierge.config.CreateGiteaIssueToolConfig"
+        - "soliplex_concierge.config.RequestRoomToolConfig"
+        - "soliplex_concierge.config.CheckRoomRequestToolConfig"
 
 Soliplex then maps the 'tool_name' in a room's 'tools:' entry to this class.
 """
@@ -26,6 +28,16 @@ _, CGI_TOOL_KIND = CGI_TOOL_NAME.rsplit(".", 1)
 # stock Gitea, so the name is configurable per room via
 # 'profile_attachment_name'.
 DEFAULT_PROFILE_ATTACHMENT_NAME = "user-profile.yaml"
+
+RR_TOOL_NAME = "soliplex_concierge.tools.provisioner.request_room"
+_, RR_TOOL_KIND = RR_TOOL_NAME.rsplit(".", 1)
+
+CRR_TOOL_NAME = "soliplex_concierge.tools.provisioner.check_room_request"
+_, CRR_TOOL_KIND = CRR_TOOL_NAME.rsplit(".", 1)
+
+# The room provisioner service of a 'soliplex-template' stack, on its compose
+# network.
+DEFAULT_PROVISIONER_URL = "http://soliplex-provisioner:8090"
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -121,3 +133,27 @@ class CreateGiteaIssueToolConfig(config_tools.ToolConfig):
             "exclude_claims": self.exclude_claims,
         }
         return super().get_extra_parameters() | local
+
+
+@dataclasses.dataclass(kw_only=True)
+class _ProvisionerToolConfigBase(config_tools.ToolConfig):
+    """Shared by the tools calling the room provisioner service."""
+
+    # The base URL of the room provisioner service.
+    service_url: str = DEFAULT_PROVISIONER_URL
+
+    def get_extra_parameters(self) -> dict:
+        local = {"service_url": self.service_url}
+        return super().get_extra_parameters() | local
+
+
+@dataclasses.dataclass(kw_only=True)
+class RequestRoomToolConfig(_ProvisionerToolConfigBase):
+    kind: str = RR_TOOL_KIND
+    tool_name: str = RR_TOOL_NAME
+
+
+@dataclasses.dataclass(kw_only=True)
+class CheckRoomRequestToolConfig(_ProvisionerToolConfigBase):
+    kind: str = CRR_TOOL_KIND
+    tool_name: str = CRR_TOOL_NAME
