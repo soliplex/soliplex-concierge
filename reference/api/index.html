@@ -1165,9 +1165,9 @@ helpers. Each value is a <code>{"color": ..., "description": ...}</code> mapping
 </ul>
 <h2 id="soliplex_conciergetls"><code>soliplex_concierge.tls</code></h2>
 <ul>
-<li><code>httpx_verify()</code> — return an httpx <code>verify</code> value honoring the OS trust store
+<li><code>httpx_verify()</code> — return an httpx2 <code>verify</code> value honoring the OS trust store
   when the optional <code>truststore</code> package is installed (an
-  <code>ssl.SSLContext</code>), otherwise <code>True</code> (httpx's certifi default). See issue #46.</li>
+  <code>ssl.SSLContext</code>), otherwise <code>True</code> (httpx2's certifi default). See issue #46.</li>
 </ul>
 <h2 id="soliplex_conciergetoolsgitea"><code>soliplex_concierge.tools.gitea</code></h2>
 <p>The room-side tool that files a request as a Gitea issue.</p>
@@ -1200,7 +1200,7 @@ same <code>UnknownRequestType</code> / <code>LabelNotApplied</code>.</p>
 </ul>
 <h2 id="soliplex_conciergegitea_admin"><code>soliplex_concierge.gitea_admin</code></h2>
 <p>The implementation behind the admin <code>gitea_issues.py</code> CLI. Every function talks
-to the Gitea REST API over httpx and takes the connection as its leading
+to the Gitea REST API over httpx2 and takes the connection as its leading
 arguments — <code>host</code>, <code>token</code>, <code>owner</code>, <code>repo</code> — followed by the operation's own
 parameters.</p>
 <p><strong>Reads</strong></p>
