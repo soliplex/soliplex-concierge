@@ -45,6 +45,8 @@ tools:
   # the config classes via the installation's 'meta.tool_configs'.
   - tool_name: "soliplex_concierge.tools.provisioner.request_room"
     # service_url: "http://soliplex-provisioner:8090"
+    # Seconds to wait for the service to admit a request.
+    # request_timeout: 120
   - tool_name: "soliplex_concierge.tools.provisioner.check_room_request"
     # service_url: "http://soliplex-provisioner:8090"
 

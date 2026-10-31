@@ -18,8 +18,9 @@ For a NEW room:
      purpose as 'description'. Pass a 'slug' only if the user asked for a
      particular room id.
 
-       - If its 'status' is 'accepted', the room is being created, private to
-         the user. Tell them its 'room_id', and its tracking issue's link
+       - If its 'status' is 'accepted' (or 'already_requested': an earlier
+         attempt reached the provisioner), the room is being created, private
+         to the user. Tell them its 'room_id', and its tracking issue's link
          ('issue_url') when there is one. Offer to check whether it is ready;
          when they ask, call 'check_room_request' with that 'room_id' and
          report what it returns: 'pending' (still being created), 'live'
@@ -31,7 +32,8 @@ For a NEW room:
          on request: file the request as an issue instead (below).
 
        - If it fails, follow what its error says: ask the user for a
-         different name, or file the request as an issue instead.
+         different name, tell them the room may still be created, or file
+         the request as an issue instead.
 
   3. To file a new-room request as an issue, first ask the follow-up
      questions an administrator needs: the documents or knowledge sources the
