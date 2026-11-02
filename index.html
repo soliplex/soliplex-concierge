@@ -286,6 +286,8 @@
       
         
       
+        
+      
     
     
     
@@ -547,6 +549,69 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="./tasks/provisioners/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Provisioners
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Provisioners
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -721,6 +786,8 @@
       
         
       
+        
+      
     
     
     
@@ -813,6 +880,33 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./reference/provisioner-rest-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Provisioner REST API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -880,7 +974,7 @@ extension for LLM-driven, on-demand room requests. Users chat with a self-serve
 new room</strong>. On a stack that runs a room provisioner, a permitted user's new room
 is created on the spot; every other request is filed as a tracking issue on a
 Gitea repository, and an administrator resolves it.</p>
-<p>The documentation is organized around the two task areas:</p>
+<p>The documentation is organized around three task areas:</p>
 <ul>
 <li><strong><a href="tasks/rooms/">Rooms</a></strong> — the self-serve side. How the about-room
   concierge collects a request and files it as an issue, and how to
@@ -889,6 +983,10 @@ Gitea repository, and an administrator resolves it.</p>
   triages the filed issues and carries out the requested
   <a href="tasks/admin/room_creation/">room creation</a> or
   <a href="tasks/admin/room_access/">room access</a>.</li>
+<li><strong><a href="tasks/provisioners/">Provisioners</a></strong> — the service side. How a
+  deployment implements the room provisioner the concierge asks for new rooms,
+  and checks it against the
+  <a href="reference/provisioner-rest-api/">Provisioner REST API</a>.</li>
 </ul>
 <p>The extension is delivered as three <a href="https://agentskills.io">Agent Skills</a>; see
 <a href="skills/">Skills</a> for where to find each one and how to install it.</p>

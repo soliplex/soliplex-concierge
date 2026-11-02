@@ -19,6 +19,9 @@
         <loc>https://soliplex.github.io/soliplex-concierge/tasks/admin/room_access/</loc>
       </url>
       <url>
+        <loc>https://soliplex.github.io/soliplex-concierge/tasks/provisioners/</loc>
+      </url>
+      <url>
         <loc>https://soliplex.github.io/soliplex-concierge/skills/</loc>
       </url>
       <url>
@@ -35,5 +38,8 @@
       </url>
       <url>
         <loc>https://soliplex.github.io/soliplex-concierge/reference/api/</loc>
+      </url>
+      <url>
+        <loc>https://soliplex.github.io/soliplex-concierge/reference/provisioner-rest-api/</loc>
       </url>
 </urlset>

@@ -14,6 +14,8 @@
         <link rel="prev" href="../cli/">
       
       
+        <link rel="next" href="../provisioner-rest-api/">
+      
       
         
       
@@ -271,6 +273,8 @@
   
     
     
+      
+        
       
         
       
@@ -537,6 +541,69 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../tasks/provisioners/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Provisioners
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_2_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Provisioners
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -708,6 +775,8 @@
   
     
     
+      
+        
       
         
       
@@ -899,6 +968,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#soliplex_conciergeprovisionerapi" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.provisioner.api</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#soliplex_conciergeprovisionercontract" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.provisioner.contract</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#soliplex_conciergegitea_admin" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -924,6 +1015,33 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../provisioner-rest-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Provisioner REST API
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1032,6 +1150,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#soliplex_conciergeprovisionerapi" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.provisioner.api</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#soliplex_conciergeprovisionercontract" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.provisioner.contract</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#soliplex_conciergegitea_admin" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1096,6 +1236,8 @@
   
     
     
+      
+        
       
         
       
@@ -1250,7 +1392,9 @@ room, as the requesting user. Each call carries a service token holding the
 user's claims (<code>service_claims(user)</code>: the profile's claims, less <code>iat</code> /
 <code>exp</code> and <code>UserProfile</code>'s <code>"&lt;unknown&gt;"</code> placeholders), valid for
 <code>SERVICE_TOKEN_LIFETIME</code> seconds and signed with the installation's
-<code>URL_SAFE_TOKEN_SECRET</code>.</p>
+<code>URL_SAFE_TOKEN_SECRET</code>. The service's API is the
+<a href="../provisioner-rest-api/">Provisioner REST API</a>: answers are parsed as its models,
+and an answer naming another version of it fails with <code>IncompatibleService</code>.</p>
 <p><strong><code>async request_room(ctx, name, description=None, slug=None) -&gt; RoomRequestAccepted</code></strong></p>
 <p>Sends <code>POST /rooms</code>. Returns <code>RoomRequestAccepted(status="accepted",
 room_id, issue_url)</code> when the service is creating the room, and
@@ -1261,7 +1405,7 @@ more; a <code>409</code> naming the room (<code>"room_id"</code>) then returns
 <p><strong><code>async check_room_request(ctx, room_id) -&gt; RoomRequestState</code></strong></p>
 <p>Sends <code>GET /rooms/{room_id}</code>. Returns the request's <code>room_id</code>, <code>state</code>
 (<code>pending</code>, <code>live</code>, <code>incomplete</code> or <code>failed</code>), <code>issue_url</code>, <code>incomplete</code>
-steps and <code>error</code>.</p>
+steps and <code>error</code>. <code>RoomRequestState</code> is the API's <code>RequestState</code>.</p>
 <p><strong>Exceptions</strong> — reported to the model rather than ending the run:</p>
 <ul>
 <li><code>BadSlug(pydantic_ai.ModelRetry)</code> — the slug the model passed is unusable.</li>
@@ -1273,7 +1417,10 @@ steps and <code>error</code>.</p>
   the room id.</li>
 <li><code>ServiceUnavailable(pydantic_ai.ToolFailed)</code> /
   <code>ServiceFailed(pydantic_ai.ToolFailed)</code> — the service could not be reached,
-  or failed.</li>
+  or failed (including an answer that does not parse as the API's model for
+  it).</li>
+<li><code>IncompatibleService(pydantic_ai.ToolFailed)</code> — the service's
+  <code>X-Soliplex-Provisioner-API</code> header names another version of the API.</li>
 <li><code>ServiceTimedOut(pydantic_ai.ToolFailed)</code> — the service did not answer a
   <code>check_room_request</code> in time.</li>
 <li><code>RequestTimedOut(pydantic_ai.ToolFailed)</code> — the service answered neither a
@@ -1284,9 +1431,57 @@ steps and <code>error</code>.</p>
 <li><code>AnonymousUser(pydantic_ai.ToolFailed)</code> — no user profile is attached to the
   run.</li>
 </ul>
-<p>The messages of <code>ServiceUnavailable</code>, <code>ServiceFailed</code> and
-<code>SigningSecretMissing</code> tell the model to file the request as a <code>new-room</code>
+<p>The messages of <code>ServiceUnavailable</code>, <code>ServiceFailed</code>, <code>IncompatibleService</code>
+and <code>SigningSecretMissing</code> tell the model to file the request as a <code>new-room</code>
 issue instead.</p>
+<h2 id="soliplex_conciergeprovisionerapi"><code>soliplex_concierge.provisioner.api</code></h2>
+<p>The <a href="../provisioner-rest-api/">Provisioner REST API</a>'s contract: its models and
+constants.</p>
+<p><strong>Constants</strong></p>
+<ul>
+<li><code>API_VERSION: str</code> (<code>"1"</code>) / <code>API_VERSION_HEADER: str</code>
+  (<code>"X-Soliplex-Provisioner-API"</code>) — the API's version, and the response
+  header that carries it.</li>
+<li><code>SERVICE_TOKEN_SECRET: str</code> (<code>"URL_SAFE_TOKEN_SECRET"</code>) — the installation
+  secret that signs the service tokens.</li>
+<li><code>ADMISSION_ROOM_ID: str</code> (<code>"__provision__"</code>) — the reserved room id WRITE on
+  which admits a requester.</li>
+<li><code>ROOMS_PATH: str</code> (<code>"/rooms"</code>) / <code>HEALTH_PATH: str</code> (<code>"/ok"</code>) — the routes.</li>
+</ul>
+<p><strong>Functions</strong></p>
+<ul>
+<li><code>room_path(room_id) -&gt; str</code> — the path of a room's request, the room id
+  quoted as one segment.</li>
+</ul>
+<p><strong>Models</strong> (pydantic)</p>
+<ul>
+<li><code>RoomRequest</code> — the body of <code>POST /rooms</code>: <code>name</code>, <code>description</code>, <code>slug</code>
+  (no other fields).</li>
+<li><code>Accepted</code> — the <code>202</code> answer: <code>room_id</code>, <code>issue_url</code>.</li>
+<li><code>RequestState</code> — the <code>GET /rooms/{room_id}</code> answer: <code>room_id</code>, <code>state</code> (a
+  <code>State</code>), <code>issue_url</code>, <code>incomplete</code>, <code>error</code>.</li>
+<li><code>State(enum.StrEnum)</code> — <code>pending</code>, <code>live</code>, <code>incomplete</code>, <code>failed</code>.</li>
+<li><code>Error</code> — an error answer: <code>detail</code>.</li>
+<li><code>Refusal(Error)</code> — a <code>409</code> answer, naming its <code>room_id</code>.</li>
+</ul>
+<h2 id="soliplex_conciergeprovisionercontract"><code>soliplex_concierge.provisioner.contract</code></h2>
+<p>Checks that an implementation keeps the API's contract (see
+<a href="../../tasks/provisioners/">Implementing a provisioner</a>).</p>
+<ul>
+<li><code>Harness(typing.Protocol)</code> — the application under test (<code>app</code>), service
+  tokens for its requesters (<code>admitted_token</code>, <code>other_token</code>, <code>admin_token</code>,
+  <code>not_admitted_token</code>), and <code>occupy(name)</code>.</li>
+<li><code>async check_all(harness)</code> — runs every check in <code>ALL_CHECKS</code>.</li>
+<li><code>async check_health</code>, <code>check_requires_a_token</code>,
+  <code>check_refuses_an_invalid_token</code>, <code>check_refuses_the_unadmitted</code>,
+  <code>check_rejects_a_malformed_body</code>, <code>check_rejects_a_bad_slug</code>,
+  <code>check_accepts_and_reports</code>, <code>check_hides_requests_from_others</code>,
+  <code>check_reports_unknown_requests</code>, <code>check_refuses_an_existing_room</code> — each
+  takes the harness.</li>
+<li><code>ContractViolation(AssertionError)</code> — a broken contract;
+  <code>MalformedAnswer(ContractViolation)</code> — an answer that does not parse as the
+  API's model for it.</li>
+</ul>
 <h2 id="soliplex_conciergegitea_admin"><code>soliplex_concierge.gitea_admin</code></h2>
 <p>The implementation behind the admin <code>gitea_issues.py</code> CLI. Every function talks
 to the Gitea REST API over httpx2 and takes the connection as its leading
@@ -1474,6 +1669,22 @@ floor pinned into the generated <code>gitea_issues.py</code> when <code>--versio
             </div>
           </a>
         
+        
+          
+          <a href="../provisioner-rest-api/" class="md-footer__link md-footer__link--next" aria-label="Next: Provisioner REST API">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Provisioner REST API
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </div>
+          </a>
         
       </nav>
     
