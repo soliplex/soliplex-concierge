@@ -10,6 +10,7 @@ from soliplex import models
 from soliplex import token_mint
 
 from soliplex_concierge import config
+from soliplex_concierge.provisioner import api
 from soliplex_concierge.tools import provisioner
 
 SECRET = "test" * 8  # a signing key for the tests
@@ -32,12 +33,15 @@ USER = models.UserProfile.from_user_claims(
 class _FakeService:
     """Answers requests with 'response'; records each one it is sent.
 
-    ``first`` (an exception) answers the first request instead.
+    ``first`` (an exception) answers the first request instead; ``headers``
+    go with each response.
     """
 
-    def __init__(self, status=200, payload=None, error=None, first=None):
+    def __init__(
+        self, status=200, payload=None, error=None, first=None, headers=None
+    ):
         self.status, self.payload, self.error = status, payload, error
-        self.first = first
+        self.first, self.headers = first, headers
         self.requests = []
 
     def __call__(self, request):
@@ -47,8 +51,12 @@ class _FakeService:
         if self.error is not None:
             raise self.error
         if isinstance(self.payload, str):
-            return httpx2.Response(self.status, text=self.payload)
-        return httpx2.Response(self.status, json=self.payload)
+            return httpx2.Response(
+                self.status, text=self.payload, headers=self.headers
+            )
+        return httpx2.Response(
+            self.status, json=self.payload, headers=self.headers
+        )
 
 
 @pytest.fixture
@@ -329,6 +337,76 @@ async def test_request_room_timed_out(ctx, service):
     assert len(service.requests) == 2
 
 
+@pytest.mark.anyio
+async def test_request_room_accepted_by_a_versioned_service(ctx):
+    service = _FakeService(
+        202,
+        {"room_id": ROOM, "issue_url": None},
+        headers={api.API_VERSION_HEADER: api.API_VERSION},
+    )
+
+    with _patch_service(service):
+        result = await provisioner.request_room(ctx, name="Q3 Plans")
+
+    assert result == provisioner.RoomRequestAccepted(
+        status="accepted", room_id=ROOM
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "payload",
+    [{"room": ROOM}, "Accepted"],
+    ids=["not-accepted", "not-json"],
+)
+async def test_request_room_malformed_answer(ctx, payload):
+    service = _FakeService(202, payload)
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ToolFailed) as caught,
+    ):
+        await provisioner.request_room(ctx, name="Q3 Plans")
+
+    assert type(caught.value) is provisioner.ServiceFailed
+    assert "HTTP 202: malformed answer" in caught.value.message
+    assert "'new-room' issue instead" in caught.value.message
+
+
+async def _request_room(ctx):
+    return await provisioner.request_room(ctx, name="Q3 Plans")
+
+
+async def _check_room_request(ctx):
+    return await provisioner.check_room_request(ctx, room_id=ROOM)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "call, status, payload",
+    [
+        (_request_room, 202, {"room_id": ROOM, "issue_url": None}),
+        (_check_room_request, 200, {"room_id": ROOM, "state": "live"}),
+        (_check_room_request, 404, {"detail": "no request"}),
+    ],
+    ids=["request_room", "check_room_request", "check_room_request-404"],
+)
+async def test_incompatible_service(ctx, call, status, payload):
+    service = _FakeService(
+        status, payload, headers={api.API_VERSION_HEADER: "2"}
+    )
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ToolFailed) as caught,
+    ):
+        await call(ctx)
+
+    assert type(caught.value) is provisioner.IncompatibleService
+    assert "version '2' of its API, not '1'" in caught.value.message
+    assert "'new-room' issue instead" in caught.value.message
+
+
 # ---- check_room_request ----
 
 
@@ -392,6 +470,20 @@ async def test_check_room_request_timed_out(ctx):
     assert "try again shortly" in caught.value.message
     [request] = service.requests
     assert request.extensions["timeout"]["read"] == provisioner.REQUEST_TIMEOUT
+
+
+@pytest.mark.anyio
+async def test_check_room_request_malformed_answer(ctx):
+    service = _FakeService(200, {"room_id": ROOM, "state": "lost"})
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ToolFailed) as caught,
+    ):
+        await provisioner.check_room_request(ctx, room_id=ROOM)
+
+    assert type(caught.value) is provisioner.ServiceFailed
+    assert "HTTP 200: malformed answer" in caught.value.message
 
 
 @pytest.mark.anyio

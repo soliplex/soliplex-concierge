@@ -9,10 +9,11 @@ service token holding the user's claims, signed with the installation's
 The service admits a requester who is an admin, or who holds WRITE on the
 reserved room id '__provision__'. Any other user's request is reported as
 not admitted, for the agent to file as a 'new-room' issue instead.
+
+The service's API is the contract in 'soliplex_concierge.provisioner.api'.
 """
 
 import typing
-import urllib.parse
 
 import httpx2
 import pydantic
@@ -23,8 +24,9 @@ from soliplex import token_mint
 
 from soliplex_concierge import config
 from soliplex_concierge import tls
+from soliplex_concierge.provisioner import api
 
-SERVICE_TOKEN_SECRET = "URL_SAFE_TOKEN_SECRET"
+SERVICE_TOKEN_SECRET = api.SERVICE_TOKEN_SECRET
 SERVICE_TOKEN_LIFETIME = 60
 REQUEST_TIMEOUT = 30
 
@@ -99,6 +101,17 @@ class ServiceFailed(pydantic_ai.ToolFailed):
         )
 
 
+class IncompatibleService(pydantic_ai.ToolFailed):
+    """The service implements another version of the API."""
+
+    def __init__(self, version: str):
+        self.version = version
+        super().__init__(
+            f"the room provisioner service implements version {version!r} "
+            f"of its API, not {api.API_VERSION!r}. {_FALL_BACK}"
+        )
+
+
 class BadSlug(pydantic_ai.ModelRetry):
     def __init__(self, slug: str, detail: str):
         self.slug, self.detail = slug, detail
@@ -146,14 +159,8 @@ class RoomRequestAccepted(pydantic.BaseModel):
     issue_url: str | None = None
 
 
-class RoomRequestState(pydantic.BaseModel):
-    """The state of a room request the provisioner service accepted."""
-
-    room_id: str
-    state: typing.Literal["pending", "live", "incomplete", "failed"]
-    issue_url: str | None = None
-    incomplete: list[str] = []
-    error: str | None = None
+# The state of a room request the provisioner service accepted.
+RoomRequestState = api.RequestState
 
 
 def service_claims(user: models.UserProfile | None) -> dict:
@@ -187,17 +194,44 @@ def _service_token(deps: agents.AgentDependencies) -> str:
 def _room_id(response: httpx2.Response) -> str | None:
     """The 'room_id' a refusal names, if any."""
     try:
-        room_id = response.json()["room_id"]
-    except (ValueError, TypeError, KeyError):
+        refusal = api.Refusal.model_validate_json(response.content)
+    except pydantic.ValidationError:
         return None
-    return room_id if isinstance(room_id, str) else None
+    return refusal.room_id
 
 
 def _detail(response: httpx2.Response) -> str:
     try:
-        return str(response.json()["detail"])
-    except (ValueError, TypeError, KeyError):
+        error = api.Error.model_validate_json(response.content)
+    except pydantic.ValidationError:
         return response.text
+    return str(error.detail)
+
+
+def _answer[M: pydantic.BaseModel](
+    model: type[M], response: httpx2.Response
+) -> M:
+    """The service's answer, as ``model``.
+
+    Raises 'ServiceFailed' when the answer is not one.
+    """
+    try:
+        return model.model_validate_json(response.content)
+    except pydantic.ValidationError as error:
+        raise ServiceFailed(
+            response.status_code, f"malformed answer: {response.text}"
+        ) from error
+
+
+def _check_version(response: httpx2.Response) -> None:
+    """Raise 'IncompatibleService' for another version of the API.
+
+    An answer without the version header is taken to be version 1's: the
+    services that predate the header implement it.
+    """
+    version = response.headers.get(api.API_VERSION_HEADER)
+    if version is not None and version != api.API_VERSION:
+        raise IncompatibleService(version)
 
 
 async def _call(
@@ -211,13 +245,14 @@ async def _call(
     """Call the provisioner service as the requesting user.
 
     Raises 'ServiceTimedOut' when it does not answer within ``timeout``
-    seconds, and 'ServiceUnavailable' when it cannot be reached.
+    seconds, 'ServiceUnavailable' when it cannot be reached, and
+    'IncompatibleService' when it implements another version of the API.
     """
     token = _service_token(deps)
     url = deps.tool_configs[kind].service_url.rstrip("/") + path
     try:
         async with httpx2.AsyncClient(verify=tls.httpx_verify()) as client:
-            return await client.request(
+            response = await client.request(
                 method,
                 url,
                 json=body,
@@ -228,6 +263,8 @@ async def _call(
         raise ServiceTimedOut(error) from error
     except httpx2.HTTPError as error:
         raise ServiceUnavailable(error) from error
+    _check_version(response)
+    return response
 
 
 async def request_room(
@@ -262,12 +299,19 @@ async def request_room(
         RoomRequestAccepted: the 'status', and for an accepted request its
             'room_id' and 'issue_url'.
     """
-    body = {"name": name, "description": description, "slug": slug}
+    body = api.RoomRequest(
+        name=name, description=description, slug=slug
+    ).model_dump()
     timeout = ctx.deps.tool_configs[config.RR_TOOL_KIND].request_timeout
 
     async def post():
         return await _call(
-            ctx.deps, config.RR_TOOL_KIND, "POST", "/rooms", body, timeout
+            ctx.deps,
+            config.RR_TOOL_KIND,
+            "POST",
+            api.ROOMS_PATH,
+            body,
+            timeout,
         )
 
     retried = False
@@ -287,7 +331,8 @@ async def request_room(
             raise RequestTimedOut()
         return RoomRequestAccepted(status="already_requested", room_id=room_id)
     if response.status_code == 202:
-        return RoomRequestAccepted(status="accepted", **response.json())
+        accepted = _answer(api.Accepted, response)
+        return RoomRequestAccepted(status="accepted", **accepted.model_dump())
     if response.status_code == 403:
         return RoomRequestAccepted(status="not_admitted")
     if response.status_code == 400:
@@ -320,11 +365,11 @@ async def check_room_request(
         RoomRequestState: the request's 'state', with its 'issue_url', any
             'incomplete' steps, and any 'error'.
     """
-    path = f"/rooms/{urllib.parse.quote(room_id, safe=':')}"
+    path = api.room_path(room_id)
     response = await _call(ctx.deps, config.CRR_TOOL_KIND, "GET", path)
 
     if response.status_code == 200:
-        return RoomRequestState(**response.json())
+        return _answer(RoomRequestState, response)
     if response.status_code == 404:
         raise UnknownRequest(room_id)
     raise ServiceFailed(response.status_code, _detail(response))

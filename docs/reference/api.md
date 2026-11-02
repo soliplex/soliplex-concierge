@@ -133,7 +133,9 @@ room, as the requesting user. Each call carries a service token holding the
 user's claims (`service_claims(user)`: the profile's claims, less `iat` /
 `exp` and `UserProfile`'s `"<unknown>"` placeholders), valid for
 `SERVICE_TOKEN_LIFETIME` seconds and signed with the installation's
-`URL_SAFE_TOKEN_SECRET`.
+`URL_SAFE_TOKEN_SECRET`. The service's API is the
+[Provisioner REST API](provisioner-rest-api.md): answers are parsed as its models,
+and an answer naming another version of it fails with `IncompatibleService`.
 
 **`async request_room(ctx, name, description=None, slug=None) -> RoomRequestAccepted`**
 
@@ -148,7 +150,7 @@ more; a `409` naming the room (`"room_id"`) then returns
 
 Sends `GET /rooms/{room_id}`. Returns the request's `room_id`, `state`
 (`pending`, `live`, `incomplete` or `failed`), `issue_url`, `incomplete`
-steps and `error`.
+steps and `error`. `RoomRequestState` is the API's `RequestState`.
 
 **Exceptions** — reported to the model rather than ending the run:
 
@@ -161,7 +163,10 @@ steps and `error`.
   the room id.
 - `ServiceUnavailable(pydantic_ai.ToolFailed)` /
   `ServiceFailed(pydantic_ai.ToolFailed)` — the service could not be reached,
-  or failed.
+  or failed (including an answer that does not parse as the API's model for
+  it).
+- `IncompatibleService(pydantic_ai.ToolFailed)` — the service's
+  `X-Soliplex-Provisioner-API` header names another version of the API.
 - `ServiceTimedOut(pydantic_ai.ToolFailed)` — the service did not answer a
   `check_room_request` in time.
 - `RequestTimedOut(pydantic_ai.ToolFailed)` — the service answered neither a
@@ -172,9 +177,60 @@ steps and `error`.
 - `AnonymousUser(pydantic_ai.ToolFailed)` — no user profile is attached to the
   run.
 
-The messages of `ServiceUnavailable`, `ServiceFailed` and
-`SigningSecretMissing` tell the model to file the request as a `new-room`
+The messages of `ServiceUnavailable`, `ServiceFailed`, `IncompatibleService`
+and `SigningSecretMissing` tell the model to file the request as a `new-room`
 issue instead.
+
+## `soliplex_concierge.provisioner.api`
+
+The [Provisioner REST API](provisioner-rest-api.md)'s contract: its models and
+constants.
+
+**Constants**
+
+- `API_VERSION: str` (`"1"`) / `API_VERSION_HEADER: str`
+  (`"X-Soliplex-Provisioner-API"`) — the API's version, and the response
+  header that carries it.
+- `SERVICE_TOKEN_SECRET: str` (`"URL_SAFE_TOKEN_SECRET"`) — the installation
+  secret that signs the service tokens.
+- `ADMISSION_ROOM_ID: str` (`"__provision__"`) — the reserved room id WRITE on
+  which admits a requester.
+- `ROOMS_PATH: str` (`"/rooms"`) / `HEALTH_PATH: str` (`"/ok"`) — the routes.
+
+**Functions**
+
+- `room_path(room_id) -> str` — the path of a room's request, the room id
+  quoted as one segment.
+
+**Models** (pydantic)
+
+- `RoomRequest` — the body of `POST /rooms`: `name`, `description`, `slug`
+  (no other fields).
+- `Accepted` — the `202` answer: `room_id`, `issue_url`.
+- `RequestState` — the `GET /rooms/{room_id}` answer: `room_id`, `state` (a
+  `State`), `issue_url`, `incomplete`, `error`.
+- `State(enum.StrEnum)` — `pending`, `live`, `incomplete`, `failed`.
+- `Error` — an error answer: `detail`.
+- `Refusal(Error)` — a `409` answer, naming its `room_id`.
+
+## `soliplex_concierge.provisioner.contract`
+
+Checks that an implementation keeps the API's contract (see
+[Implementing a provisioner](../tasks/provisioners/index.md)).
+
+- `Harness(typing.Protocol)` — the application under test (`app`), service
+  tokens for its requesters (`admitted_token`, `other_token`, `admin_token`,
+  `not_admitted_token`), and `occupy(name)`.
+- `async check_all(harness)` — runs every check in `ALL_CHECKS`.
+- `async check_health`, `check_requires_a_token`,
+  `check_refuses_an_invalid_token`, `check_refuses_the_unadmitted`,
+  `check_rejects_a_malformed_body`, `check_rejects_a_bad_slug`,
+  `check_accepts_and_reports`, `check_hides_requests_from_others`,
+  `check_reports_unknown_requests`, `check_refuses_an_existing_room` — each
+  takes the harness.
+- `ContractViolation(AssertionError)` — a broken contract;
+  `MalformedAnswer(ContractViolation)` — an answer that does not parse as the
+  API's model for it.
 
 ## `soliplex_concierge.gitea_admin`
 

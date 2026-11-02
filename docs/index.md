@@ -7,7 +7,7 @@ new room**. On a stack that runs a room provisioner, a permitted user's new room
 is created on the spot; every other request is filed as a tracking issue on a
 Gitea repository, and an administrator resolves it.
 
-The documentation is organized around the two task areas:
+The documentation is organized around three task areas:
 
 - **[Rooms](tasks/rooms/index.md)** — the self-serve side. How the about-room
   concierge collects a request and files it as an issue, and how to
@@ -16,6 +16,10 @@ The documentation is organized around the two task areas:
   triages the filed issues and carries out the requested
   [room creation](tasks/admin/room_creation.md) or
   [room access](tasks/admin/room_access.md).
+- **[Provisioners](tasks/provisioners/index.md)** — the service side. How a
+  deployment implements the room provisioner the concierge asks for new rooms,
+  and checks it against the
+  [Provisioner REST API](reference/provisioner-rest-api.md).
 
 The extension is delivered as three [Agent Skills](https://agentskills.io); see
 [Skills](skills/index.md) for where to find each one and how to install it.

@@ -17,6 +17,9 @@ nav = [
       { "Room creation" = "tasks/admin/room_creation.md" },
       { "Room access" = "tasks/admin/room_access.md" },
     ]},
+    { "Provisioners" = [
+      { "Implementing a provisioner" = "tasks/provisioners/index.md" },
+    ]},
   ]},
   { "Skills" = [
     { "Overview" = "skills/index.md" },
@@ -27,6 +30,7 @@ nav = [
   { "Reference" = [
     { "CLI scripts" = "reference/cli.md" },
     { "Python API" = "reference/api.md" },
+    { "Provisioner REST API" = "reference/provisioner-rest-api.md" },
   ]},
 ]
 
