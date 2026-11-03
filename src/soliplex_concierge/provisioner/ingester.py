@@ -1,23 +1,19 @@
-"""Register a provisioned room's database with the stack's ingester.
+"""Read a haiku.rag ingester's database config, and have it reloaded.
 
-The ``haiku-ingester`` service reads ``haiku.rag/haiku.rag.yaml``, which
-names a directory of fragments with ``databases_include``: haiku.rag merges
-every ``*.yaml`` there into its ``ingester.databases`` and
-``lancedb.databases`` maps (in name order, skipping dotfiles). Each
-provisioned room's database has a fragment of its own
-(:func:`render_fragment`):
+A ``haiku.rag serve`` ingester's main config file can name a directory of
+fragments with ``databases_include``: haiku.rag merges every ``*.yaml``
+there into its ``ingester.databases`` and ``lancedb.databases`` maps (in
+name order, skipping dotfiles). A provisioner can so register each room's
+database by writing a fragment of its own there; what the fragment says is
+the deployment's business.
 
-- ``ingester.databases."<room_id>"``: one ``fs`` source over
-  ``<uploads_root>/<room_id>``, with ``delete_orphans`` on
-- ``lancedb.databases."<room_id>"``: placed at
-  ``<data_dir>/<room_id>.lancedb``
-
-:func:`check_config` refuses a main file the fragments cannot work with,
-and :func:`registrations` reads what the main file and the fragments
-already register. :func:`reload` then asks the running ingester to apply the
-config again (``POST /reload``). The ingester opens each added database with
-its own configuration, creating it when missing, so the new database records
-the ingester's embedder.
+:func:`check_config` refuses a main file such fragments cannot work with,
+:func:`fragment_texts` reads the fragments as haiku.rag does, and
+:func:`registrations` reads what the main file and the fragments already
+register. :func:`reload` then asks the running ingester to apply the config
+again (``POST /reload``). The ingester opens each added database with its
+own configuration, creating it when missing, so a new database records the
+ingester's embedder.
 
 Files are read with PyYAML, through a loader that refuses duplicate keys.
 """
@@ -33,28 +29,7 @@ import urllib.request
 
 import yaml
 
-from soliplex_concierge.provisioner import room_ids
-
-# The fragments' directory in the provisioned-rooms clone.
-FRAGMENTS_DIR = "databases.d"
-DEFAULT_DATA_DIR = "/data"
-DEFAULT_UPLOADS_ROOT = "/uploads/rooms"
 RELOAD_TIMEOUT = 120
-
-_FRAGMENT = """\
-# Written by the soliplex-template provisioner.
-ingester:
-  databases:
-    {name}:
-      sources:
-        - type: fs
-          id: {name}
-          root: {root}
-          delete_orphans: true
-lancedb:
-  databases:
-    {name}: {location}
-"""
 
 
 class IngesterError(Exception):
@@ -90,7 +65,7 @@ class FragmentsNotIncluded(UnusableConfig):
         self.expected, self.found = expected, found
         super().__init__(
             f"its 'databases_include' must name {expected!r} (it names "
-            f"{found!r}); edit 'haiku.rag/haiku.rag.yaml'"
+            f"{found!r}); edit the ingester's config file"
         )
 
 
@@ -100,7 +75,7 @@ class DatabaseUnplaced(UnusableConfig):
         super().__init__(
             f"database {name!r} is in 'ingester.databases' but not "
             "'lancedb.databases', which haiku.rag requires once fragments "
-            "place databases there; edit 'haiku.rag/haiku.rag.yaml'"
+            "place databases there; edit the ingester's config file"
         )
 
 
@@ -183,30 +158,6 @@ def _mapping(tree, *path):
     for key in path:
         tree = tree.get(key) if isinstance(tree, dict) else None
     return tree if isinstance(tree, dict) else {}
-
-
-def _scalar(value: str) -> str:
-    return json.dumps(value, ensure_ascii=False)
-
-
-def fragment_name(room_id: room_ids.RoomId | str) -> str:
-    """The file name of ``room_id``'s fragment."""
-    return f"{room_id}.yaml"
-
-
-def render_fragment(
-    room_id: room_ids.RoomId,
-    *,
-    data_dir: str = DEFAULT_DATA_DIR,
-    uploads_root: str = DEFAULT_UPLOADS_ROOT,
-) -> str:
-    """The text of ``room_id``'s fragment, every value YAML-safe."""
-    name = str(room_id)
-    return _FRAGMENT.format(
-        name=_scalar(name),
-        root=_scalar(f"{uploads_root}/{name}"),
-        location=_scalar(f"{data_dir}/{name}.lancedb"),
-    )
 
 
 def fragment_texts(directory: pathlib.Path) -> list[str]:

@@ -15,12 +15,8 @@ import json
 import urllib.error
 
 import pytest
-import yaml
 
 from soliplex_concierge.provisioner import ingester
-from soliplex_concierge.provisioner import room_ids
-
-ROOM = room_ids.RoomId(owner="alice", slug="q3.notes")
 
 # A main config as the stack ships it: the default corpus, placed, and the
 # fragments directory included.
@@ -39,53 +35,6 @@ lancedb:
   databases:
     haiku.rag: /data/haiku.rag.lancedb
 """
-
-
-# ---- render_fragment / fragment_name ----
-
-
-def test_render_fragment():
-    result = ingester.render_fragment(ROOM)
-
-    assert result.startswith("# Written by the soliplex-template provisioner.")
-    assert yaml.safe_load(result) == {
-        "ingester": {
-            "databases": {
-                "alice:q3.notes": {
-                    "sources": [
-                        {
-                            "type": "fs",
-                            "id": "alice:q3.notes",
-                            "root": "/uploads/rooms/alice:q3.notes",
-                            "delete_orphans": True,
-                        }
-                    ]
-                }
-            }
-        },
-        "lancedb": {
-            "databases": {"alice:q3.notes": "/data/alice:q3.notes.lancedb"}
-        },
-    }
-
-
-def test_render_fragment_honors_data_dir_and_uploads_root():
-    result = ingester.render_fragment(
-        ROOM, data_dir="/srv/db", uploads_root="/up"
-    )
-
-    tree = yaml.safe_load(result)
-    [source] = tree["ingester"]["databases"]["alice:q3.notes"]["sources"]
-    assert source["root"] == "/up/alice:q3.notes"
-    assert tree["lancedb"]["databases"] == {
-        "alice:q3.notes": "/srv/db/alice:q3.notes.lancedb"
-    }
-
-
-def test_fragment_name():
-    result = ingester.fragment_name(ROOM)
-
-    assert result == "alice:q3.notes.yaml"
 
 
 # ---- fragment_texts ----
@@ -318,10 +267,24 @@ def test_reload_timed_out(monkeypatch):
 # ---- registrations ----
 
 
-def test_registrations_of_the_main_file_and_fragments():
-    fragment = ingester.render_fragment(ROOM)
+# A room's fragment, as a provisioner might write it.
+FRAGMENT = """\
+ingester:
+  databases:
+    "alice:q3.notes":
+      sources:
+        - type: fs
+          id: "alice:q3.notes"
+          root: "/uploads/rooms/alice:q3.notes"
+          delete_orphans: true
+lancedb:
+  databases:
+    "alice:q3.notes": "/data/alice:q3.notes.lancedb"
+"""
 
-    result = ingester.registrations(MAIN, fragment)
+
+def test_registrations_of_the_main_file_and_fragments():
+    result = ingester.registrations(MAIN, FRAGMENT)
 
     assert result == ingester.Registrations(
         sources=frozenset({"haiku.rag", "alice:q3.notes"}),
