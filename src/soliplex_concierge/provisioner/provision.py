@@ -150,7 +150,8 @@ def plan_room(
     requester may do that is for the caller to decide. Without it, the
     owner is the requester, derived from their claims. Changes nothing.
     Raises :class:`room_ids.RoomIdError` for an unusable owner, name or
-    slug.
+    slug, and :class:`access_rules.AccessRuleError` for an unusable
+    ``owner_claim``.
     """
     if not name.strip():
         raise BadRoomName(name)

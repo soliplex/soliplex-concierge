@@ -9,6 +9,7 @@ import json
 import urllib.error
 
 import pytest
+from soliplex import authz
 from soliplex import token_mint
 
 from soliplex_concierge.provisioner import interfaces
@@ -228,3 +229,16 @@ def test_access_denied_is_an_access_refusal():
     result = soliplex_api.AccessDenied(f"{BACKEND}/api/x", 403)
 
     assert isinstance(result, interfaces.AccessRefused)
+
+
+# ---- registered_predicates ----
+
+
+def test_registered_predicates(monkeypatch):
+    extensions = authz.the_jsonpath_environment.function_extensions
+    monkeypatch.setitem(extensions, "is_foreman", lambda claims: claims)
+
+    result = soliplex_api.registered_predicates()
+
+    assert "is_foreman" in result
+    assert not result & authz.BUILTIN_JSONPATH_FUNCTION_NAMES

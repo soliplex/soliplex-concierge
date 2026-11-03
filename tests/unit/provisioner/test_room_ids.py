@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from soliplex_concierge.provisioner import access_rules
 from soliplex_concierge.provisioner import room_ids
 
 # Values that are not one safe path segment, or that carry the separator.
@@ -65,31 +66,6 @@ def test_flatten(value, expected):
     result = room_ids.flatten(value)
 
     assert result == expected
-
-
-# ---- claim_json_path ----
-
-
-@pytest.mark.parametrize(
-    "claim, value, expected",
-    [
-        ("preferred_username", "alice", '$[?$.preferred_username == "alice"]'),
-        ("email", "a@b.example", '$[?$.email == "a@b.example"]'),
-        ("sub", 'say "hi"', '$[?$.sub == "say \\"hi\\""]'),
-    ],
-)
-def test_claim_json_path(claim, value, expected):
-    result = room_ids.claim_json_path(claim, value)
-
-    assert result == expected
-
-
-@pytest.mark.parametrize("claim", ["", "1st", "a.b", "a b", "a]"])
-def test_claim_json_path_rejects_a_bad_claim(claim):
-    with pytest.raises(room_ids.BadOwnerClaim) as caught:
-        room_ids.claim_json_path(claim, "alice")
-
-    assert caught.value.claim == claim
 
 
 # ---- named_owner ----
@@ -155,7 +131,7 @@ def test_owner_from_claims(claims, kwargs, expected_value, expected_owner):
 def test_owner_from_claims_rejects_a_bad_claim():
     claims = {"a.b": "alice"}
 
-    with pytest.raises(room_ids.BadOwnerClaim) as caught:
+    with pytest.raises(access_rules.BadOwnerClaim) as caught:
         room_ids.owner_from_claims(claims, claim="a.b")
 
     assert caught.value.claim == "a.b"

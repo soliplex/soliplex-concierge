@@ -24,8 +24,8 @@ from soliplex import token_mint
 
 from soliplex_concierge import config
 from soliplex_concierge import tls
-from soliplex_concierge.provisioner import access_rules
 from soliplex_concierge.provisioner import api
+from soliplex_concierge.provisioner import soliplex_api
 
 SERVICE_TOKEN_SECRET = api.SERVICE_TOKEN_SECRET
 SERVICE_TOKEN_LIFETIME = 60
@@ -322,7 +322,7 @@ def _named_owner(owner, claim, value, predicate) -> api.RoomOwner | None:
     if partial or by_claim == by_predicate:
         raise OwnerIncomplete()
     if by_predicate:
-        known = access_rules.registered_predicates()
+        known = soliplex_api.registered_predicates()
         if predicate not in known:
             raise UnknownPredicateName(predicate, known)
         return api.RoomOwner(owner=owner, predicate=predicate)

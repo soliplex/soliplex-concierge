@@ -173,7 +173,7 @@ class Authz(typing.Protocol):
 
         That is, the functions the installation registers under
         ``meta.jsonpath_functions`` (see
-        :func:`soliplex_concierge.provisioner.access_rules.registered_predicates`).
+        :func:`soliplex_concierge.provisioner.soliplex_api.registered_predicates`).
         """
 
 

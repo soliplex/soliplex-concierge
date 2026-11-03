@@ -245,14 +245,31 @@ Ids of provisioned rooms (`<owner>:<slug>`), and their owners (see
 - `RoomId(owner, slug)` — an id, split; `str()` joins it.
 - `owner_from_claims(claims, *, claim="preferred_username", flatten_value=False)`
   — the requester's own owner, its rule matching the claim's raw value.
-- `named_owner(owner, json_path)` — any other owner, such as a group.
-- `claim_json_path(claim, value)` — the rule matching users whose `claim` is
-  `value`.
+- `named_owner(owner, json_path)` — any other owner, such as a group, with
+  a rule from `access_rules`.
 - `slugify(name)`, `validate_slug(slug)`, `make_room_id(owner, slug)`,
   `parse_room_id(room_id)`, `is_segment(value)`, `flatten(value)`.
 - `RoomIdError` and its subclasses (`OwnerClaimMissing`, `BadOwner`,
-  `BadOwnerClaim`, `BadOwnerPart`, `NoAccessRule`, `BadSlug`, `SlugEmpty`,
+  `BadOwnerPart`, `NoAccessRule`, `BadSlug`, `SlugEmpty`,
   `NotAProvisionedRoomId`) — an unusable owner, name, slug or id.
+
+## `soliplex_concierge.provisioner.access_rules`
+
+Access rules for a room's owner, built from the forms a room agent may use; no
+agent writes JSONPath. Stdlib only.
+
+- `claim_rule(claim, value)` — the rule matching users whose `claim` is
+  `value`, as soliplex spells its `email` / `preferred_username` shortcuts;
+  `check_claim(claim)` checks the claim alone.
+- `claim_value_rule(claims, claim) -> (value, rule)` — the claim's value in a
+  user's `claims`, and the rule matching it; raises `ClaimMissing` (a
+  `KeyError`) or `ClaimNotAString` (a `ValueError`).
+- `predicate_rule(name)` — `$[?<name>($)]`: the rule matching users whose
+  claims, as a whole, pass a predicate the installation registers under
+  `meta.jsonpath_functions`.
+- `CLAIM_RE`, `PREDICATE_RE` — the names a rule can use.
+- `AccessRuleError` and its subclasses (`BadOwnerClaim`, `BadPredicateName`,
+  `UnknownPredicate`) — a rule that cannot be built.
 
 ## `soliplex_concierge.provisioner.interfaces`
 
@@ -348,6 +365,9 @@ The backend's installation API, called as the provisioner.
 
 - `read_secret(path) -> str` — the signing secret, stripped.
 - `mint_service_token(secret, claims, *, lifetime=300) -> str`.
+- `registered_predicates() -> frozenset[str]` — the predicates soliplex's
+  JSONPath environment holds (in the backend, the installation's
+  `meta.jsonpath_functions`), less the RFC 9535 built-ins.
 - `validate_service_token(secret, token) -> dict` — the token's claims; raises
   `InvalidServiceToken` (an `interfaces.InvalidToken`).
 - `call(base_url, method, path, *, token=None, timeout=30) -> dict` — a call

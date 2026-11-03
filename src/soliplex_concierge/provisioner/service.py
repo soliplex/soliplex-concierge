@@ -167,7 +167,7 @@ def requester_id(
             claim=provisioner.owner_claim,
             flatten_value=provisioner.flatten_owner,
         ).owner
-    except room_ids.RoomIdError:
+    except (room_ids.RoomIdError, access_rules.AccessRuleError):
         return None
 
 
@@ -263,8 +263,9 @@ def _named_owner(
 ) -> room_ids.RoomOwner:
     """The owner an admin names, with the access rule its form gives.
 
-    Raises :class:`room_ids.RoomIdError` for an unusable owner part or
-    claim, or a predicate the deployment does not register.
+    Raises :class:`room_ids.RoomIdError` for an unusable owner part, and
+    :class:`access_rules.AccessRuleError` for an unusable claim, or a
+    predicate the deployment does not register.
     """
     if named.predicate is not None:
         try:
@@ -276,7 +277,7 @@ def _named_owner(
             raise access_rules.UnknownPredicate(named.predicate, known)
         rule = access_rules.predicate_rule(named.predicate)
     else:
-        rule = room_ids.claim_json_path(named.claim, named.value)
+        rule = access_rules.claim_rule(named.claim, named.value)
     return room_ids.named_owner(named.owner, rule)
 
 
@@ -348,7 +349,7 @@ def post_room(
             slug=body.slug,
             owner=owner,
         )
-    except room_ids.RoomIdError as error:
+    except (room_ids.RoomIdError, access_rules.AccessRuleError) as error:
         raise _http_error(400, error) from error
 
     room = request.room
