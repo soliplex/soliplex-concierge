@@ -46,12 +46,24 @@ room's id is `<owner>:<slug>`: the owner part derives from one of the
 requester's claims, and the slug is the request's `slug`, or else is derived
 from its `name`.
 
+An admin may make someone other than themselves the room's owner (a group,
+say) with the optional `owner`, a `RoomOwner`:
+
+```json
+{"name": "Staff Notes",
+ "owner": {"owner": "staff", "json_path": "$[?'staff' in @.groups]"}}
+```
+
+`owner.owner` is the room id's owner part, and `owner.json_path` is the access
+rule granting the owner the room: a soliplex ACL JSONPath over a user's
+claims. The requester is still the one who asked, and may see the request.
+
 | Status | Body | Meaning |
 |---|---|---|
 | `202` | `Accepted`: `room_id`, `issue_url` | Admitted; the room is created in the background |
-| `400` | `Error`: `detail` | The name or slug yields no usable room id |
+| `400` | `Error`: `detail` | The name, slug or named owner yields no usable room id |
 | `401` | `Error` | No service token, or one that is not valid |
-| `403` | `Error` | The requester is not admitted |
+| `403` | `Error` | The requester is not admitted, or names an owner without being an admin |
 | `409` | `Refusal`: `detail`, `room_id` | The room exists, or a request for it is in flight |
 | `422` | | The body is not a `RoomRequest` |
 | `500` | `Error` | The service failed |

@@ -11,6 +11,7 @@ import urllib.error
 import pytest
 from soliplex import token_mint
 
+from soliplex_concierge.provisioner import interfaces
 from soliplex_concierge.provisioner import soliplex_api
 
 BACKEND = "http://backend:8000"
@@ -186,3 +187,44 @@ def test_loaded(delta, expected):
     result = soliplex_api.loaded(delta, "a:b")
 
     assert result is expected
+
+
+# ---- validate_service_token ----
+
+
+def test_validate_service_token():
+    token = token_mint.mint_service_token(
+        SECRET, {"sub": "alice-sub"}, expires_in=60
+    )
+
+    result = soliplex_api.validate_service_token(SECRET, token)
+
+    assert result["sub"] == "alice-sub"
+
+
+@pytest.mark.parametrize(
+    "secret, token",
+    [
+        (SECRET, "not-a-token"),
+        ("other" * 8, None),
+    ],
+    ids=["garbage", "wrong-secret"],
+)
+def test_validate_service_token_refuses(secret, token):
+    if token is None:
+        token = token_mint.mint_service_token(
+            SECRET, {"sub": "alice-sub"}, expires_in=60
+        )
+
+    with pytest.raises(soliplex_api.InvalidServiceToken) as caught:
+        soliplex_api.validate_service_token(secret, token)
+
+    assert isinstance(caught.value, interfaces.InvalidToken)
+    assert caught.value.reason
+    assert "the service token is not valid" in str(caught.value)
+
+
+def test_access_denied_is_an_access_refusal():
+    result = soliplex_api.AccessDenied(f"{BACKEND}/api/x", 403)
+
+    assert isinstance(result, interfaces.AccessRefused)

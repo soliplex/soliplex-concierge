@@ -207,6 +207,63 @@ async def check_rejects_a_bad_slug(harness: Harness) -> None:
     _parse(api.Error, response, what)
 
 
+_GROUP_RULE = "$[?'contract' in @.groups]"
+
+
+def _unique_owner() -> str:
+    return f"group-{uuid.uuid4().hex[:12]}"
+
+
+async def check_refuses_a_named_owner_from_a_non_admin(
+    harness: Harness,
+) -> None:
+    """``POST /rooms`` answers ``403`` to a non-admin naming an owner."""
+    name = _unique_name("named-owner-non-admin")
+    owner = {"owner": _unique_owner(), "json_path": _GROUP_RULE}
+
+    response = await _post_room(
+        harness, harness.admitted_token, name=name, owner=owner
+    )
+
+    what = "POST /rooms naming an owner, by a non-admin"
+    _expect_status(response, 403, what)
+    _parse(api.Error, response, what)
+
+
+async def check_rejects_a_bad_owner(harness: Harness) -> None:
+    """``POST /rooms`` answers ``400`` to an owner part that is no segment."""
+    name = _unique_name("bad-owner")
+    owner = {"owner": "../escape", "json_path": _GROUP_RULE}
+
+    response = await _post_room(
+        harness, harness.admin_token, name=name, owner=owner
+    )
+
+    what = "POST /rooms naming the owner '../escape', by an admin"
+    _expect_status(response, 400, what)
+    _parse(api.Error, response, what)
+
+
+async def check_admin_names_an_owner(harness: Harness) -> None:
+    """An admin's request naming an owner gets the owner's room id."""
+    name = _unique_name("named-owner")
+    owner_part = _unique_owner()
+    owner = {"owner": owner_part, "json_path": _GROUP_RULE}
+
+    response = await _post_room(
+        harness, harness.admin_token, name=name, owner=owner
+    )
+
+    what = "POST /rooms naming an owner, by an admin"
+    _expect_status(response, 202, what)
+    accepted = _parse(api.Accepted, response, what)
+    _expect(
+        accepted.room_id.startswith(f"{owner_part}:"),
+        f"{what}: expected a room id owned by {owner_part!r}, got "
+        f"{accepted.room_id!r}",
+    )
+
+
 async def check_accepts_and_reports(harness: Harness) -> None:
     """An admitted request answers ``202``; its requester sees its state."""
     name = _unique_name("accepts")
@@ -276,6 +333,9 @@ ALL_CHECKS: tuple[Check, ...] = (
     check_refuses_the_unadmitted,
     check_rejects_a_malformed_body,
     check_rejects_a_bad_slug,
+    check_refuses_a_named_owner_from_a_non_admin,
+    check_rejects_a_bad_owner,
+    check_admin_names_an_owner,
     check_accepts_and_reports,
     check_hides_requests_from_others,
     check_reports_unknown_requests,

@@ -74,6 +74,26 @@ async def test_check_all_passes_a_conforming_service():
             "with the slug '../escape': expected HTTP 400, got HTTP 202",
         ),
         (
+            contract.check_refuses_a_named_owner_from_a_non_admin,
+            "anyone-names-owners",
+            "by a non-admin: expected HTTP 403, got HTTP 202",
+        ),
+        (
+            contract.check_rejects_a_bad_owner,
+            "accept-any-owner",
+            "naming the owner '../escape', by an admin: expected HTTP 400",
+        ),
+        (
+            contract.check_admin_names_an_owner,
+            "ignore-named-owner",
+            "expected a room id owned by",
+        ),
+        (
+            contract.check_admin_names_an_owner,
+            "malformed-accepted",
+            "naming an owner, by an admin: the answer does not parse",
+        ),
+        (
             contract.check_accepts_and_reports,
             "accept-with-200",
             "by an admitted requester: expected HTTP 202, got HTTP 200",

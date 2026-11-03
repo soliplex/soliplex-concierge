@@ -204,8 +204,10 @@ constants.
 
 **Models** (pydantic)
 
-- `RoomRequest` — the body of `POST /rooms`: `name`, `description`, `slug`
-  (no other fields).
+- `RoomRequest` — the body of `POST /rooms`: `name`, `description`, `slug`,
+  and `owner` (no other fields).
+- `RoomOwner` — an owner an admin names: `owner` (the id's owner part) and
+  `json_path` (its access rule).
 - `Accepted` — the `202` answer: `room_id`, `issue_url`.
 - `RequestState` — the `GET /rooms/{room_id}` answer: `room_id`, `state` (a
   `State`), `issue_url`, `incomplete`, `error`.
@@ -225,7 +227,8 @@ Checks that an implementation keeps the API's contract (see
 - `async check_health`, `check_requires_a_token`,
   `check_refuses_an_invalid_token`, `check_refuses_the_unadmitted`,
   `check_rejects_a_malformed_body`, `check_rejects_a_bad_slug`,
-  `check_accepts_and_reports`, `check_hides_requests_from_others`,
+  `check_refuses_a_named_owner_from_a_non_admin`, `check_rejects_a_bad_owner`,
+  `check_admin_names_an_owner`, `check_accepts_and_reports`, `check_hides_requests_from_others`,
   `check_reports_unknown_requests`, `check_refuses_an_existing_room` — each
   takes the harness.
 - `ContractViolation(AssertionError)` — a broken contract;
@@ -263,6 +266,11 @@ What the core hands its adapters, and what it asks of them (see
 - `Provisioned` — a created room: `request`, `commit`, `issue`, `unfinished`.
 - `RoomStore`, `DatabaseRegistrar`, `UploadsArea`, `Authz`, `Backend`,
   `IssueTracker` (each a `typing.Protocol`) — the adapters.
+- `Admission(typing.Protocol)` — a service's `claims(token)`,
+  `is_admitted(token)` and `is_admin(token)`.
+- `InvalidToken(Exception)` — `Admission.claims` refuses a token;
+  `AccessRefused(Exception)` — `Backend.check_access` finds the backend
+  refusing the provisioner.
 
 ## `soliplex_concierge.provisioner.provision`
 
@@ -328,7 +336,11 @@ it sees it (`environment`).
   owner's rule READ and WRITE.
 - `set_policy(cli, environment, room_id, policy)`,
   `remove_policy(cli, environment, room_id)`, `audit_rooms(cli, environment)`.
-- `CliFailed(Exception)` — the command could not run, or failed.
+- `is_admin(cli, environment, token) -> bool`,
+  `may(cli, environment, token, room_id, permission) -> bool` — the
+  `admin-users check` and `room-authz check` verdicts for a service token.
+- `CliFailed(Exception)` — the command could not run, or failed;
+  `NoVerdict(CliFailed)` — a check gave no verdict.
 
 ## `soliplex_concierge.provisioner.soliplex_api`
 
@@ -336,14 +348,34 @@ The backend's installation API, called as the provisioner.
 
 - `read_secret(path) -> str` — the signing secret, stripped.
 - `mint_service_token(secret, claims, *, lifetime=300) -> str`.
+- `validate_service_token(secret, token) -> dict` — the token's claims; raises
+  `InvalidServiceToken` (an `interfaces.InvalidToken`).
 - `call(base_url, method, path, *, token=None, timeout=30) -> dict` — a call
   under `/api`.
 - `check_access(base_url, *, token=None)` — raises unless the backend admits
   the token as an admin's.
 - `reload_rooms(base_url, *, token=None) -> dict` — the rooms reload's delta;
   `loaded(delta, room_id)` says whether it loaded the room.
-- `BackendError` and its subclasses: `SecretUnreadable`, `AccessDenied`,
-  `RequestFailed`.
+- `BackendError` and its subclasses: `SecretUnreadable`, `AccessDenied` (also
+  an `interfaces.AccessRefused`), `RequestFailed`.
+
+## `soliplex_concierge.provisioner.service`
+
+The [Provisioner REST API](provisioner-rest-api.md), served over a
+deployment's adapters (see
+[Serving it](../tasks/provisioners/index.md#serving-it)).
+
+- `create_app(provisioner, admission) -> fastapi.FastAPI` — the application;
+  `app.state.access` records whether the backend admits the provisioner, and
+  the lifespan starts `watch_access`.
+- `watch_access(backend, access, *, sleep=time.sleep)` — check
+  `backend.check_access` until it passes, every `ACCESS_RETRY` seconds while
+  refused and `BACKEND_RETRY` while unreachable.
+- `Access` — the watcher's record: `state() -> (admitted, problem)`,
+  `update(admitted, problem=None)`.
+- `Requests` / `Request` — the in-memory request registry.
+- `requester_id(provisioner, claims)` — how the service recognizes a
+  request's requester (their own owner part).
 
 ## `soliplex_concierge.gitea_admin`
 

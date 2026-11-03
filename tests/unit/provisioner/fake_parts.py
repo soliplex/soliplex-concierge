@@ -3,7 +3,10 @@
 They share one :class:`Script`, which records each call in ``journal``
 (as ``"<adapter>.<method>"``) and says what each call does: raise
 (``failures``), report clashes (``clashes``, by adapter), or leave steps
-unfinished (``unfinished``, by method).
+unfinished (``unfinished``, by method). The store holds a room when
+``has_room`` is set, or its id is in ``rooms``.
+
+:class:`FakeAdmission` validates the tokens in ``TOKENS``.
 """
 
 import contextlib
@@ -31,8 +34,11 @@ class Script:
     clashes: dict[str, list[str]] = dataclasses.field(default_factory=dict)
     unfinished: dict[str, list[str]] = dataclasses.field(default_factory=dict)
     has_room: bool = False
+    rooms: set[str] = dataclasses.field(default_factory=set)
     uploads_exist: bool = False
     reported: list[Exception] = dataclasses.field(default_factory=list)
+    # Raised by successive 'backend.check_access' calls, then none.
+    access_refusals: list[Exception] = dataclasses.field(default_factory=list)
     resolved: list[interfaces.Provisioned] = dataclasses.field(
         default_factory=list
     )
@@ -76,7 +82,7 @@ class FakeStore:
 
     def has_room(self, request):
         self.script.step("store.has_room")
-        return self.script.has_room
+        return self.script.has_room or request.room in self.script.rooms
 
     def clashes(self, request):
         return self.script.clashes_of("store")
@@ -140,6 +146,8 @@ class FakeBackend:
 
     def check_access(self):
         self.script.step("backend.check_access")
+        if self.script.access_refusals:
+            raise self.script.access_refusals.pop(0)
 
     def reload_rooms(self, request):
         return self.script.unfinished_of("backend.reload_rooms")
@@ -174,3 +182,53 @@ def make_provisioner(
         tracker=FakeTracker(script) if tracker else None,
         **kwargs,
     )
+
+
+# token -> the claims of its holder
+TOKENS = {
+    "alice-token": {"preferred_username": "alice", "sub": "alice-sub"},
+    "bob-token": {"preferred_username": "bob", "sub": "bob-sub"},
+    "carol-token": {"preferred_username": "carol", "sub": "carol-sub"},
+    "root-token": {"preferred_username": "root", "sub": "root-sub"},
+    "nameless-token": {"sub": "nameless-sub"},
+}
+
+
+class FakeInvalidToken(interfaces.InvalidToken):
+    def __init__(self, token):
+        self.token = token
+        super().__init__(f"unknown token {token!r}")
+
+
+@dataclasses.dataclass
+class FakeAdmission:
+    """Admits the ``admitted`` tokens; ``admins`` are admins (and admitted).
+
+    ``errors`` maps a method's name to the error it raises.
+    """
+
+    admitted: set[str] = dataclasses.field(
+        default_factory=lambda: {"alice-token", "bob-token"}
+    )
+    admins: set[str] = dataclasses.field(
+        default_factory=lambda: {"root-token"}
+    )
+    errors: dict[str, Exception] = dataclasses.field(default_factory=dict)
+
+    def _maybe_raise(self, name):
+        if name in self.errors:
+            raise self.errors[name]
+
+    def claims(self, token):
+        self._maybe_raise("claims")
+        if token not in TOKENS:
+            raise FakeInvalidToken(token)
+        return TOKENS[token]
+
+    def is_admitted(self, token):
+        self._maybe_raise("is_admitted")
+        return token in self.admitted or token in self.admins
+
+    def is_admin(self, token):
+        self._maybe_raise("is_admin")
+        return token in self.admins

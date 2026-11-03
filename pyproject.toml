@@ -26,6 +26,12 @@ dependencies = [
 # Opt-in: verify TLS against OS trust store instead of certifi's bundled CAs.
 # Useful behind an enterprise/internal CA. See #46.
 truststore = ["truststore"]
+# Serve a room provisioner ('soliplex_concierge.provisioner.service'):
+# soliplex requires both already, but the service imports / runs on them.
+provisioner = [
+    "fastapi",
+    "uvicorn[standard]",
+]
 
 [project.scripts]
 install-concierge = "soliplex_concierge.installer:main"

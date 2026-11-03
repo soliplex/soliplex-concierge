@@ -145,6 +145,53 @@ provisioned = provision.provision_room(
 `provisioned.unfinished` lists what remains to do once the room is committed;
 it is empty when the room is fully live.
 
+## Serving it
+
+`soliplex_concierge.provisioner.service.create_app(provisioner, admission)`
+builds a FastAPI application serving the
+[Provisioner REST API](../../reference/provisioner-rest-api.md) over your
+adapters. Besides the `Provisioner`, it takes an `interfaces.Admission`, which
+decides who is asking and whether they may:
+
+- `claims(token)`: the claims of the caller's service token, raising
+  `interfaces.InvalidToken` (or a subclass) when it is not valid
+- `is_admitted(token)`: whether its holder may request rooms (an admin, or
+  WRITE on `__provision__`)
+- `is_admin(token)`: whether its holder is an admin, who may name a room's
+  owner and see anyone's requests
+
+The toolkit has the pieces for a soliplex installation:
+`soliplex_api.validate_service_token` (its `InvalidServiceToken` is an
+`InvalidToken`), and `soliplex_cli.is_admin` and `soliplex_cli.may`, the
+`admin-users check` and `room-authz check` verdicts.
+
+The application's lifespan starts a watcher that calls your
+`Backend.check_access` until the backend admits the provisioner; until then,
+`GET /ok` answers `503` with the reason. Raise `interfaces.AccessRefused` (or
+a subclass, such as `soliplex_api.AccessDenied`) when the backend refuses the
+provisioner: the watcher logs it as an error and checks again every
+`service.ACCESS_RETRY` seconds. Any other error counts as the backend being
+unreachable: a warning, checked again every `service.BACKEND_RETRY` seconds.
+
+Your wiring module builds the adapters, and a factory returns the application:
+
+```python
+from soliplex_concierge.provisioner import provision
+from soliplex_concierge.provisioner import service
+
+
+def create_app():
+    provisioner = provision.Provisioner(...)  # your adapters
+    return service.create_app(provisioner, MyAdmission(...))
+```
+
+```bash
+uvicorn --factory my_deployment.provisioner:create_app --port 8090
+```
+
+Run one worker: the service keeps its requests' state in memory. A restart
+loses it, and the tracking issue remains the record.
+
 ## Checking an implementation against the contract
 
 `soliplex_concierge.provisioner.contract` checks that an implementation keeps
@@ -194,4 +241,5 @@ Keep these in mind when you write the harness:
   harness at a disposable stack or fakes.
 - The checks drive the application through `httpx2.ASGITransport`, which does
   not run its lifespan: anything the lifespan would start (such as a
-  readiness watcher) must already be in place.
+  readiness watcher) must already be in place. For an application from
+  `service.create_app`, call `app.state.access.update(True)` in the harness.
