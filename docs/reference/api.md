@@ -232,6 +232,119 @@ Checks that an implementation keeps the API's contract (see
   `MalformedAnswer(ContractViolation)` — an answer that does not parse as the
   API's model for it.
 
+## `soliplex_concierge.provisioner.room_ids`
+
+Ids of provisioned rooms (`<owner>:<slug>`), and their owners (see
+[The owner and the requester](../tasks/provisioners/index.md#the-owner-and-the-requester)).
+
+- `RoomOwner(owner, json_path)` — the id's owner part, and the access rule (a
+  soliplex ACL JSONPath) granting the owner the room.
+- `RoomId(owner, slug)` — an id, split; `str()` joins it.
+- `owner_from_claims(claims, *, claim="preferred_username", flatten_value=False)`
+  — the requester's own owner, its rule matching the claim's raw value.
+- `named_owner(owner, json_path)` — any other owner, such as a group.
+- `claim_json_path(claim, value)` — the rule matching users whose `claim` is
+  `value`.
+- `slugify(name)`, `validate_slug(slug)`, `make_room_id(owner, slug)`,
+  `parse_room_id(room_id)`, `is_segment(value)`, `flatten(value)`.
+- `RoomIdError` and its subclasses (`OwnerClaimMissing`, `BadOwner`,
+  `BadOwnerClaim`, `BadOwnerPart`, `NoAccessRule`, `BadSlug`, `SlugEmpty`,
+  `NotAProvisionedRoomId`) — an unusable owner, name, slug or id.
+
+## `soliplex_concierge.provisioner.interfaces`
+
+What the core hands its adapters, and what it asks of them (see
+[What your adapters do](../tasks/provisioners/index.md#what-your-adapters-do)).
+
+- `RoomRequest` — `requester_claims`, `owner`, `room_id`, `name`,
+  `description`, `requested_at`; `.room` is the id as text.
+- `Issue(typing.Protocol)` — a tracking issue; the core reads its `url`.
+- `Undo(description, run)` — how to undo one step.
+- `Provisioned` — a created room: `request`, `commit`, `issue`, `unfinished`.
+- `RoomStore`, `DatabaseRegistrar`, `UploadsArea`, `Authz`, `Backend`,
+  `IssueTracker` (each a `typing.Protocol`) — the adapters.
+
+## `soliplex_concierge.provisioner.provision`
+
+The steps of provisioning a room, and their guarantees (see
+[What the core does](../tasks/provisioners/index.md#what-the-core-does)).
+
+- `Provisioner(store, registrar, uploads, authz, backend, tracker=None,
+  owner_claim="preferred_username", flatten_owner=False)` — a deployment's
+  adapters.
+- `plan_room(requester_claims, *, name, provisioner, description=None,
+  slug=None, owner=None, now=None) -> RoomRequest` — changes nothing.
+- `admit_room(request, provisioner) -> Admitted` — checks, then files the
+  tracking issue; `Admitted(request, issue)`.
+- `create_room(admitted, provisioner) -> Provisioned` — creates the room.
+- `provision_room(requester_claims, *, name, provisioner, ...)` — all three.
+- `check_free(provisioner, request)` — raises when the id, or anything named
+  for it, is in use.
+- `ProvisionError` and its subclasses: `RoomExists`, `ResourcesExist` (with
+  the adapters' `found`), `ProvisioningFailed` (with the step's `error` and any
+  `rollback_failures`); `BadRoomName(room_ids.RoomIdError)` for a blank name.
+
+## `soliplex_concierge.provisioner.landing_clone`
+
+A git clone holding provisioned rooms.
+
+- `locked(path)` — the clone's writer's lock (a context manager).
+- `ensure_clone(path, *, origin_url=None)` — make `path` a repository,
+  pointing `origin` at `origin_url`.
+- `commit_room(path, room_id, *, author_name, author_email, message,
+  also=()) -> str` — commit the room's directory (and `also`), the requester
+  as author.
+- `push(path, *, branch="main", token=None, timeout=...)` — push to `origin`,
+  a Gitea token traveling only in the environment.
+- `LandingCloneError` and its subclasses (`GitMissing`, `GitFailed`,
+  `NothingToCommit`, `PushFailed`, `PushTimedOut`).
+
+## `soliplex_concierge.provisioner.ingester`
+
+A `haiku.rag serve` ingester's database config, and its reload.
+
+- `check_config(text, *, config_dir, fragments_dir)` — refuse a main config
+  whose `databases_include` does not name `fragments_dir`, or which leaves a
+  database unplaced.
+- `fragment_texts(directory)` — the fragments, as haiku.rag reads them.
+- `registrations(*texts) -> Registrations` — the databases the texts name,
+  with their locations.
+- `reload(base_url, token, *, timeout=120)` — `POST /reload`; returns the
+  ingester's report.
+- `IngesterError` and its subclasses: `UnusableConfig` (`UnparsableConfig`,
+  `DuplicateKey`, `FragmentsNotIncluded`, `DatabaseUnplaced`),
+  `IngesterUnreachable`, `ReloadTimedOut`, `ReloadRefused`, `ReloadFailed`.
+
+## `soliplex_concierge.provisioner.soliplex_cli`
+
+`soliplex-cli` (or a CLI offering the same commands) for room policies and
+audits. Each function takes the command (`cli`) and the installation's path as
+it sees it (`environment`).
+
+- `run(cli, *command, stdin=None, ok_codes=(0,)) -> str`.
+- `stale_policy_ids(cli, environment) -> set[str]` — policies for rooms the
+  installation does not have.
+- `owner_policy(room_id, json_path) -> str` — a private policy granting the
+  owner's rule READ and WRITE.
+- `set_policy(cli, environment, room_id, policy)`,
+  `remove_policy(cli, environment, room_id)`, `audit_rooms(cli, environment)`.
+- `CliFailed(Exception)` — the command could not run, or failed.
+
+## `soliplex_concierge.provisioner.soliplex_api`
+
+The backend's installation API, called as the provisioner.
+
+- `read_secret(path) -> str` — the signing secret, stripped.
+- `mint_service_token(secret, claims, *, lifetime=300) -> str`.
+- `call(base_url, method, path, *, token=None, timeout=30) -> dict` — a call
+  under `/api`.
+- `check_access(base_url, *, token=None)` — raises unless the backend admits
+  the token as an admin's.
+- `reload_rooms(base_url, *, token=None) -> dict` — the rooms reload's delta;
+  `loaded(delta, room_id)` says whether it loaded the room.
+- `BackendError` and its subclasses: `SecretUnreadable`, `AccessDenied`,
+  `RequestFailed`.
+
 ## `soliplex_concierge.gitea_admin`
 
 The implementation behind the admin `gitea_issues.py` CLI. Every function talks
