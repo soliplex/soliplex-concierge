@@ -121,6 +121,23 @@ class BadSlug(pydantic_ai.ModelRetry):
         )
 
 
+class OwnerIncomplete(pydantic_ai.ModelRetry):
+    def __init__(self):
+        super().__init__(
+            "pass 'owner' and 'owner_json_path' together, or neither"
+        )
+
+
+class BadOwner(pydantic_ai.ModelRetry):
+    def __init__(self, owner: str, detail: str):
+        self.owner, self.detail = owner, detail
+        super().__init__(
+            f"the request naming the owner {owner!r} is unusable ({detail}): "
+            "correct the owner, its access rule or the slug with the user, "
+            "or omit the owner to request the room as the user's own"
+        )
+
+
 class BadRoomName(pydantic_ai.ToolFailed):
     def __init__(self, detail: str):
         self.detail = detail
@@ -151,10 +168,17 @@ class RoomRequestAccepted(pydantic.BaseModel):
 
     'status' is 'accepted' when the service is creating the room,
     'already_requested' when an earlier attempt of the same request reached
-    it, and 'not_admitted' when it does not admit the user.
+    it, and 'not_admitted' when it does not admit the user. A request
+    naming an owner gets 'owner_not_permitted' instead of 'not_admitted':
+    only an admin may name a room's owner.
     """
 
-    status: typing.Literal["accepted", "already_requested", "not_admitted"]
+    status: typing.Literal[
+        "accepted",
+        "already_requested",
+        "not_admitted",
+        "owner_not_permitted",
+    ]
     room_id: str | None = None
     issue_url: str | None = None
 
@@ -272,12 +296,18 @@ async def request_room(
     name: str,
     description: str | None = None,
     slug: str | None = None,
+    owner: str | None = None,
+    owner_json_path: str | None = None,
 ) -> RoomRequestAccepted:
-    """Ask the room provisioner to create a new private room for the user.
+    """Ask the room provisioner to create a new private room.
 
     The room's id is '<owner>:<slug>': the owner comes from the user's
-    identity, the slug from 'name' unless you pass one. Only the user gets
+    identity, the slug from 'name' unless you pass one. Only the owner gets
     access to the room.
+
+    An administrator may ask for a room owned by someone else (a group,
+    say): pass 'owner' and 'owner_json_path' together, and only then. The
+    service refuses them from anyone but an administrator.
 
     When the result's 'status' is 'accepted', the room is being created:
     tell the user its 'room_id' and tracking issue ('issue_url', when
@@ -286,7 +316,10 @@ async def request_room(
     attempt of this request reached the provisioner: tell the user its
     'room_id', and check on it with 'check_room_request'. When it is
     'not_admitted', the user may not have rooms created on request: file
-    the request as a 'new-room' issue instead.
+    the request as a 'new-room' issue instead. When it is
+    'owner_not_permitted', the user may not name a room's owner: offer to
+    request the room as their own, or file a 'new-room' issue naming the
+    intended owner and its access rule.
 
     Args:
         name: the room's human-readable name, as the user gave it.
@@ -294,15 +327,23 @@ async def request_room(
             to the name.
         slug: the room id's second part (letters, digits, '.', '_', '-');
             omit it to derive one from the name.
+        owner: the room id's first part, for a room owned by someone other
+            than the user (letters, digits, '.', '_', '-').
+        owner_json_path: the access rule granting 'owner' the room: a
+            JSONPath over a user's token claims, e.g.
+            "$[?'staff' in @.groups]".
 
     Returns:
         RoomRequestAccepted: the 'status', and for an accepted request its
             'room_id' and 'issue_url'.
     """
+    if (owner is None) != (owner_json_path is None):
+        raise OwnerIncomplete()
+    fields = {"name": name, "description": description, "slug": slug}
+    if owner is not None:
+        fields["owner"] = api.RoomOwner(owner=owner, json_path=owner_json_path)
     # Unset fields stay out: services that predate them refuse them.
-    body = api.RoomRequest(
-        name=name, description=description, slug=slug
-    ).model_dump(exclude_unset=True)
+    body = api.RoomRequest(**fields).model_dump(exclude_unset=True)
     timeout = ctx.deps.tool_configs[config.RR_TOOL_KIND].request_timeout
 
     async def post():
@@ -335,8 +376,12 @@ async def request_room(
         accepted = _answer(api.Accepted, response)
         return RoomRequestAccepted(status="accepted", **accepted.model_dump())
     if response.status_code == 403:
+        if owner is not None:
+            return RoomRequestAccepted(status="owner_not_permitted")
         return RoomRequestAccepted(status="not_admitted")
     if response.status_code == 400:
+        if owner is not None:
+            raise BadOwner(owner, _detail(response))
         if slug is not None:
             raise BadSlug(slug, _detail(response))
         raise BadRoomName(_detail(response))

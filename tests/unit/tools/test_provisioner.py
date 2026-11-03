@@ -337,6 +337,83 @@ async def test_request_room_timed_out(ctx, service):
     assert len(service.requests) == 2
 
 
+STAFF_RULE = "$[?'staff' in @.groups]"
+
+
+@pytest.mark.anyio
+async def test_request_room_for_a_named_owner(ctx):
+    service = _FakeService(
+        202, {"room_id": "staff:q3-plans", "issue_url": ISSUE_URL}
+    )
+
+    with _patch_service(service):
+        result = await provisioner.request_room(
+            ctx, name="Q3 Plans", owner="staff", owner_json_path=STAFF_RULE
+        )
+
+    assert result == provisioner.RoomRequestAccepted(
+        status="accepted", room_id="staff:q3-plans", issue_url=ISSUE_URL
+    )
+    [request] = service.requests
+    assert json.loads(request.content) == {
+        "name": "Q3 Plans",
+        "description": None,
+        "slug": None,
+        "owner": {"owner": "staff", "json_path": STAFF_RULE},
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"owner": "staff"}, {"owner_json_path": STAFF_RULE}],
+    ids=["owner-only", "rule-only"],
+)
+async def test_request_room_with_half_an_owner(ctx, kwargs):
+    service = _FakeService(202)
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ModelRetry) as caught,
+    ):
+        await provisioner.request_room(ctx, name="Q3 Plans", **kwargs)
+
+    assert type(caught.value) is provisioner.OwnerIncomplete
+    assert service.requests == []
+
+
+@pytest.mark.anyio
+async def test_request_room_owner_not_permitted(ctx):
+    service = _FakeService(403, {"detail": "only an admin may name owners"})
+
+    with _patch_service(service):
+        result = await provisioner.request_room(
+            ctx, name="Q3 Plans", owner="staff", owner_json_path=STAFF_RULE
+        )
+
+    assert result == provisioner.RoomRequestAccepted(
+        status="owner_not_permitted"
+    )
+
+
+@pytest.mark.anyio
+async def test_request_room_bad_owner(ctx):
+    service = _FakeService(400, {"detail": "room owner '../x' must match"})
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ModelRetry) as caught,
+    ):
+        await provisioner.request_room(
+            ctx, name="Q3 Plans", owner="../x", owner_json_path=STAFF_RULE
+        )
+
+    assert type(caught.value) is provisioner.BadOwner
+    assert caught.value.owner == "../x"
+    assert "room owner '../x' must match" in caught.value.message
+    assert "as the user's own" in caught.value.message
+
+
 @pytest.mark.anyio
 async def test_request_room_accepted_by_a_versioned_service(ctx):
     service = _FakeService(
