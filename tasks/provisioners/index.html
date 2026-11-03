@@ -951,6 +951,67 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#building-on-the-concierges-core" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Building on the concierge's core
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Building on the concierge&#x27;s core">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-core-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What the core does
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-your-adapters-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What your adapters do
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-owner-and-the-requester" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The owner and the requester
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-toolkit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The toolkit
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#checking-an-implementation-against-the-contract" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1122,6 +1183,130 @@ asks on behalf of. What creating a room involves depends on the stack, so each
 deployment runs a provisioner of its own. A <code>soliplex-template</code> stack's
 <code>soliplex-provisioner</code> service is one. Every provisioner serves the same
 endpoints: the <a href="../../reference/provisioner-rest-api/">Provisioner REST API</a>.</p>
+<h2 id="building-on-the-concierges-core">Building on the concierge's core</h2>
+<p><code>soliplex_concierge.provisioner</code> gives a provisioner the steps of creating a
+room, and their guarantees; the deployment supplies the work each step does.
+The split is strict: the core passes data (the request, the tracking issue,
+each step's outcome) and writes no files and no prose of its own. Every room
+config, <code>REQUEST.md</code>, issue body, ingester registration and piece of advice
+to an operator comes from the deployment's adapters, in its own words.</p>
+<h3 id="what-the-core-does">What the core does</h3>
+<p><code>provision.provision_room</code> runs three phases; each also runs on its own
+(<code>plan_room</code>, <code>admit_room</code>, <code>create_room</code>), which is how a service answers a
+request before the room exists.</p>
+<ul>
+<li><strong>Planning</strong> works out the room's owner and id, changing nothing.</li>
+<li><strong>Admission</strong> checks that the backend admits the provisioner, then, holding
+  the store, refuses a room whose id anything uses already and files the
+  tracking issue.</li>
+<li><strong>Creation</strong>, holding the store again, checks again, then writes the room's
+  files, creates its uploads area, registers its database, makes it private to
+  its owner, audits the installation's rooms, commits and publishes. Without
+  the store, it then has the backend load the room and resolves the issue.</li>
+</ul>
+<p>The guarantees:</p>
+<ul>
+<li>every refusal comes before anything is created</li>
+<li>a failure before the commit undoes what this run created, and only that,
+  newest first, then reports on the tracking issue, which stays open</li>
+<li>after the commit the room stands: a step that fails is reported, with how to
+  finish it, rather than undone</li>
+</ul>
+<h3 id="what-your-adapters-do">What your adapters do</h3>
+<p>A <code>provision.Provisioner</code> gathers one adapter for each part of the stack. The
+interfaces are in <code>soliplex_concierge.provisioner.interfaces</code>:</p>
+<ul>
+<li><code>RoomStore</code>: where the room's own files live, and their history</li>
+<li><code>DatabaseRegistrar</code>: the room's database, and how it is filled</li>
+<li><code>UploadsArea</code>: where the room's documents are uploaded</li>
+<li><code>Authz</code>: who may use the room</li>
+<li><code>Backend</code>: the Soliplex backend that serves the room</li>
+<li><code>IssueTracker</code> (optional): the request's tracking issue</li>
+</ul>
+<p>They share three conventions:</p>
+<ul>
+<li><code>clashes(request)</code> describes, in the adapter's words, each thing named for
+  the room that exists already. It changes nothing, and may raise to refuse
+  the request outright.</li>
+<li>A step that creates something returns the <code>Undo</code> that removes it again, or
+  <code>None</code> when it created nothing.</li>
+<li>A step after the commit (<code>publish</code>, <code>reload_rooms</code>, <code>resolve</code>) returns what
+  remains to do, each a sentence saying how to finish it.</li>
+</ul>
+<h3 id="the-owner-and-the-requester">The owner and the requester</h3>
+<p>A <code>RoomRequest</code> keeps who asked (<code>requester_claims</code>) apart from whom the room
+belongs to (<code>owner</code>, a <code>room_ids.RoomOwner</code>). The owner pairs the room id's
+owner part with its access rule, a soliplex ACL JSONPath over a user's claims:</p>
+<ul>
+<li>by default, <code>plan_room</code> derives the requester's own owner from one of their
+  claims (<code>Provisioner.owner_claim</code>, flattened when <code>flatten_owner</code> is set),
+  with a rule matching that claim's value</li>
+<li>given <code>owner=room_ids.named_owner(...)</code>, it makes someone else the owner,
+  for instance a group; whether the requester may do that is for the caller
+  to decide</li>
+</ul>
+<p><code>Authz.grant_owner</code> grants the room to <code>request.owner.json_path</code>, whoever
+that is.</p>
+<h3 id="the-toolkit">The toolkit</h3>
+<p>Adapters can build on these modules, which do the mechanical work and leave
+the wording to you:</p>
+<ul>
+<li><code>landing_clone</code>: a git clone of rooms, with its writer's lock, committing a
+  room with its requester as author, and pushing</li>
+<li><code>ingester</code>: reading a <code>haiku.rag serve</code> ingester's config and its
+  <code>databases_include</code> fragments, and asking it to reload</li>
+<li><code>soliplex_cli</code>: running <code>soliplex-cli</code> (or a CLI offering the same
+  commands) for room policies and audits</li>
+<li><code>soliplex_api</code>: reading the signing secret, minting service tokens, and
+  calling the backend's installation API</li>
+<li>the concierge's own Gitea calls, <code>tools.gitea.create_gitea_issue_sync</code> and
+  <code>gitea_admin</code>, for an issue tracker on Gitea</li>
+</ul>
+<p>For example, an uploads area on a local directory:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">dataclasses</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pathlib</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">shutil</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">interfaces</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="nd">@dataclasses</span><span class="o">.</span><span class="n">dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="k">class</span><span class="w"> </span><span class="nc">LocalUploads</span><span class="p">:</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">root</span><span class="p">:</span> <span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">clashes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">):</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>        <span class="n">directory</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">root</span> <span class="o">/</span> <span class="n">request</span><span class="o">.</span><span class="n">room</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>        <span class="k">if</span> <span class="n">directory</span><span class="o">.</span><span class="n">is_dir</span><span class="p">()</span> <span class="ow">and</span> <span class="nb">any</span><span class="p">(</span><span class="n">directory</span><span class="o">.</span><span class="n">iterdir</span><span class="p">()):</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>            <span class="k">return</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;documents already uploaded to </span><span class="si">{</span><span class="n">directory</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>        <span class="k">return</span> <span class="p">[]</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">create</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">):</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>        <span class="n">directory</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">root</span> <span class="o">/</span> <span class="n">request</span><span class="o">.</span><span class="n">room</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>        <span class="k">if</span> <span class="n">directory</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>            <span class="k">return</span> <span class="kc">None</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>        <span class="n">directory</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>        <span class="k">return</span> <span class="n">interfaces</span><span class="o">.</span><span class="n">Undo</span><span class="p">(</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>            <span class="n">description</span><span class="o">=</span><span class="sa">f</span><span class="s2">&quot;remove the uploads directory </span><span class="si">{</span><span class="n">directory</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>            <span class="n">run</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>        <span class="p">)</span>
+</span></code></pre></div>
+<p>With an adapter for each part, provisioning a room is one call:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">provision</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">provisioner</span> <span class="o">=</span> <span class="n">provision</span><span class="o">.</span><span class="n">Provisioner</span><span class="p">(</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="n">store</span><span class="o">=</span><span class="n">store</span><span class="p">,</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    <span class="n">registrar</span><span class="o">=</span><span class="n">registrar</span><span class="p">,</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="n">uploads</span><span class="o">=</span><span class="n">LocalUploads</span><span class="p">(</span><span class="n">pathlib</span><span class="o">.</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;/uploads/rooms&quot;</span><span class="p">)),</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    <span class="n">authz</span><span class="o">=</span><span class="n">authz</span><span class="p">,</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">,</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    <span class="n">tracker</span><span class="o">=</span><span class="n">tracker</span><span class="p">,</span>  <span class="c1"># or None</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="p">)</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="n">provisioned</span> <span class="o">=</span> <span class="n">provision</span><span class="o">.</span><span class="n">provision_room</span><span class="p">(</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    <span class="n">requester_claims</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Q3 Plans&quot;</span><span class="p">,</span> <span class="n">provisioner</span><span class="o">=</span><span class="n">provisioner</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><code>provisioned.unfinished</code> lists what remains to do once the room is committed;
+it is empty when the room is fully live.</p>
 <h2 id="checking-an-implementation-against-the-contract">Checking an implementation against the contract</h2>
 <p><code>soliplex_concierge.provisioner.contract</code> checks that an implementation keeps
 the contract. It drives the implementation's ASGI application in-process and
@@ -1144,14 +1329,14 @@ application breaks the contract.</p>
 </ul>
 <h3 id="run-the-checks">Run the checks</h3>
 <p>Await the checks from your implementation's own tests:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">contract</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">anyio</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_keeps_the_provisioner_contract</span><span class="p">(</span><span class="n">harness</span><span class="p">):</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="k">await</span> <span class="n">contract</span><span class="o">.</span><span class="n">check_all</span><span class="p">(</span><span class="n">harness</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">contract</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">anyio</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_keeps_the_provisioner_contract</span><span class="p">(</span><span class="n">harness</span><span class="p">):</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="k">await</span> <span class="n">contract</span><span class="o">.</span><span class="n">check_all</span><span class="p">(</span><span class="n">harness</span><span class="p">)</span>
 </span></code></pre></div>
 <p><code>check_all</code> runs every check in <code>contract.ALL_CHECKS</code> and stops at the first
 failure. Each <code>check_*</code> function also runs on its own, which helps when you
