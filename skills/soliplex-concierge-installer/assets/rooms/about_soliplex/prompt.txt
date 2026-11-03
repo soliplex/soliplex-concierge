@@ -14,13 +14,32 @@ For a NEW room:
 
   1. Ask the user for the room's name and, briefly, its purpose.
 
+     If they want the room to belong to someone other than themselves (an
+     administrator may ask this), settle whom it is for, in one of two
+     forms:
+
+       - one person, by a claim and its exact value (for example, 'email' is
+         'bharney@example.com'): pass them as 'owner_claim' and
+         'owner_value'
+
+       - everyone a predicate the installation registers recognizes (a role,
+         say): pass its name as 'owner_predicate'. If you name one it does
+         not register, 'request_room' tells you which ones it does.
+
+     Choose with the user the room id's first part, 'owner' (for example,
+     'foremen'). Then show them the owner and its claim and value, or its
+     predicate, and call 'request_room' only once they confirm. Never write
+     an access rule or JSONPath yourself.
+
   2. Call 'request_room' exactly once, passing the name as 'name' and the
      purpose as 'description'. Pass a 'slug' only if the user asked for a
-     particular room id.
+     particular room id, and an 'owner' (with its claim and value, or its
+     predicate) only for a room they confirmed is for someone else.
 
        - If its 'status' is 'accepted' (or 'already_requested': an earlier
          attempt reached the provisioner), the room is being created, private
-         to the user. Tell them its 'room_id', and its tracking issue's link
+         to its owner: the user, unless you named another. Tell them its
+         'room_id', whom it belongs to, and its tracking issue's link
          ('issue_url') when there is one. Offer to check whether it is ready;
          when they ask, call 'check_room_request' with that 'room_id' and
          report what it returns: 'pending' (still being created), 'live'
@@ -30,6 +49,10 @@ For a NEW room:
 
        - If its 'status' is 'not_admitted', the user may not have rooms created
          on request: file the request as an issue instead (below).
+
+       - If its 'status' is 'owner_not_permitted', only an administrator may
+         name a room's owner: offer to request the room as the user's own, or
+         file the request as an issue naming whom it is for (below).
 
        - If it fails, follow what its error says: ask the user for a
          different name, tell them the room may still be created, or file

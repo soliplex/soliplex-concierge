@@ -155,22 +155,35 @@ async def test_post_room_not_admitted(app, script):
     assert script.journal == []
 
 
-STAFF = {"owner": "staff", "json_path": "$[?'staff' in @.groups]"}
+STAFF = {"owner": "staff", "predicate": "is_staff"}
+BHARNEY = {"owner": "bharney", "claim": "email", "value": "b@example.com"}
 
 
 @pytest.mark.anyio
-async def test_post_room_admin_names_the_owner(app, script):
-    response = await _post(app, token="root-token", owner=STAFF)
+@pytest.mark.parametrize(
+    "owner, room, json_path",
+    [
+        (STAFF, "staff:q3-plans", "$[?is_staff($)]"),
+        (BHARNEY, "bharney:q3-plans", '$[?$.email == "b@example.com"]'),
+    ],
+    ids=["predicate", "claim"],
+)
+async def test_post_room_admin_names_the_owner(
+    app, script, owner, room, json_path
+):
+    response = await _post(app, token="root-token", owner=owner)
 
     assert response.status_code == 202
-    assert response.json()["room_id"] == "staff:q3-plans"
+    assert response.json()["room_id"] == room
     [provisioned] = script.resolved
-    assert provisioned.request.owner == room_ids.RoomOwner(**STAFF)
+    assert provisioned.request.owner == room_ids.RoomOwner(
+        owner=owner["owner"], json_path=json_path
+    )
     assert (
         provisioned.request.requester_claims
         == (fake_parts.TOKENS["root-token"])
     )
-    assert app.state.requests.get("staff:q3-plans").requester == "root"
+    assert app.state.requests.get(room).requester == "root"
 
 
 @pytest.mark.anyio
@@ -195,16 +208,39 @@ async def test_post_room_admin_check_fails_for_a_named_owner(app, admission):
 @pytest.mark.parametrize(
     "owner, detail",
     [
-        ({"owner": "../escape", "json_path": "$"}, "'../escape'"),
-        ({"owner": "staff", "json_path": "  "}, "needs an access rule"),
+        ({**BHARNEY, "owner": "../escape"}, "'../escape'"),
+        ({**BHARNEY, "claim": "e-mail"}, "must be an identifier"),
+        (
+            {"owner": "x", "predicate": "is_foreman"},
+            "it registers: is_staff",
+        ),
     ],
-    ids=["bad-owner-part", "blank-rule"],
+    ids=["bad-owner-part", "bad-claim", "unknown-predicate"],
 )
 async def test_post_room_admin_names_an_unusable_owner(app, owner, detail):
     response = await _post(app, token="root-token", owner=owner)
 
     assert response.status_code == 400
     assert detail in response.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_post_room_listing_predicates_fails(app, script):
+    script.failures["authz.predicates"] = RuntimeError("no installation")
+
+    response = await _post(app, token="root-token", owner=STAFF)
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "no installation"}
+
+
+@pytest.mark.anyio
+async def test_post_room_admin_names_an_owner_with_a_raw_rule(app):
+    owner = {"owner": "staff", "json_path": "$[?'staff' in @.groups]"}
+
+    response = await _post(app, token="root-token", owner=owner)
+
+    assert response.status_code == 422
 
 
 @pytest.mark.anyio

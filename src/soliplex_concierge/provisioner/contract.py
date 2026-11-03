@@ -182,16 +182,25 @@ async def check_refuses_the_unadmitted(harness: Harness) -> None:
 async def check_rejects_a_malformed_body(harness: Harness) -> None:
     """``POST /rooms`` answers ``422`` to a body that is not a RoomRequest.
 
-    Both an unknown field and a missing ``name`` make it one.
+    - an unknown field
+    - a missing ``name``
+    - an owner given as a raw access rule.
     """
     name = _unique_name("malformed-body")
     extra = await _post_room(
         harness, harness.admitted_token, name=name, colour="blue"
     )
     nameless = await _post_room(harness, harness.admitted_token)
+    raw_rule = await _post_room(
+        harness,
+        harness.admin_token,
+        name=name,
+        owner={"owner": _unique_owner(), "json_path": "$"},
+    )
 
     _expect_status(extra, 422, "POST /rooms with an unknown field")
     _expect_status(nameless, 422, "POST /rooms with no name")
+    _expect_status(raw_rule, 422, "POST /rooms naming a raw access rule")
 
 
 async def check_rejects_a_bad_slug(harness: Harness) -> None:
@@ -207,7 +216,13 @@ async def check_rejects_a_bad_slug(harness: Harness) -> None:
     _parse(api.Error, response, what)
 
 
-_GROUP_RULE = "$[?'contract' in @.groups]"
+# Owners named by a claim and value no real user holds.
+def _claim_owner(owner: str) -> dict:
+    return {
+        "owner": owner,
+        "claim": "email",
+        "value": f"{owner}@contract.invalid",
+    }
 
 
 def _unique_owner() -> str:
@@ -219,7 +234,7 @@ async def check_refuses_a_named_owner_from_a_non_admin(
 ) -> None:
     """``POST /rooms`` answers ``403`` to a non-admin naming an owner."""
     name = _unique_name("named-owner-non-admin")
-    owner = {"owner": _unique_owner(), "json_path": _GROUP_RULE}
+    owner = _claim_owner(_unique_owner())
 
     response = await _post_room(
         harness, harness.admitted_token, name=name, owner=owner
@@ -233,7 +248,7 @@ async def check_refuses_a_named_owner_from_a_non_admin(
 async def check_rejects_a_bad_owner(harness: Harness) -> None:
     """``POST /rooms`` answers ``400`` to an owner part that is no segment."""
     name = _unique_name("bad-owner")
-    owner = {"owner": "../escape", "json_path": _GROUP_RULE}
+    owner = _claim_owner("../escape")
 
     response = await _post_room(
         harness, harness.admin_token, name=name, owner=owner
@@ -244,11 +259,26 @@ async def check_rejects_a_bad_owner(harness: Harness) -> None:
     _parse(api.Error, response, what)
 
 
+async def check_rejects_an_unknown_predicate(harness: Harness) -> None:
+    """``POST /rooms`` answers ``400`` to a predicate not registered."""
+    name = _unique_name("unknown-predicate")
+    predicate = f"no_such_predicate_{uuid.uuid4().hex[:12]}"
+    owner = {"owner": _unique_owner(), "predicate": predicate}
+
+    response = await _post_room(
+        harness, harness.admin_token, name=name, owner=owner
+    )
+
+    what = f"POST /rooms naming the predicate {predicate!r}, by an admin"
+    _expect_status(response, 400, what)
+    _parse(api.Error, response, what)
+
+
 async def check_admin_names_an_owner(harness: Harness) -> None:
     """An admin's request naming an owner gets the owner's room id."""
     name = _unique_name("named-owner")
     owner_part = _unique_owner()
-    owner = {"owner": owner_part, "json_path": _GROUP_RULE}
+    owner = _claim_owner(owner_part)
 
     response = await _post_room(
         harness, harness.admin_token, name=name, owner=owner
@@ -335,6 +365,7 @@ ALL_CHECKS: tuple[Check, ...] = (
     check_rejects_a_bad_slug,
     check_refuses_a_named_owner_from_a_non_admin,
     check_rejects_a_bad_owner,
+    check_rejects_an_unknown_predicate,
     check_admin_names_an_owner,
     check_accepts_and_reports,
     check_hides_requests_from_others,

@@ -35,6 +35,9 @@ class Script:
     unfinished: dict[str, list[str]] = dataclasses.field(default_factory=dict)
     has_room: bool = False
     rooms: set[str] = dataclasses.field(default_factory=set)
+    predicates: set[str] = dataclasses.field(
+        default_factory=lambda: {"is_staff"}
+    )
     uploads_exist: bool = False
     reported: list[Exception] = dataclasses.field(default_factory=list)
     # Raised by successive 'backend.check_access' calls, then none.
@@ -138,6 +141,10 @@ class FakeAuthz:
 
     def audit(self):
         self.script.step("authz.audit")
+
+    def predicates(self):
+        self.script.step("authz.predicates")
+        return set(self.script.predicates)
 
 
 @dataclasses.dataclass

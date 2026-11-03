@@ -5,6 +5,7 @@ import httpx2
 import pydantic_ai
 import pytest
 from soliplex import agents
+from soliplex import authz
 from soliplex import installation
 from soliplex import models
 from soliplex import token_mint
@@ -335,6 +336,144 @@ async def test_request_room_timed_out(ctx, service):
     assert type(caught.value) is provisioner.RequestTimedOut
     assert "Do not file the request as an issue" in caught.value.message
     assert len(service.requests) == 2
+
+
+@pytest.fixture
+def is_staff(monkeypatch):
+    """Register an 'is_staff' predicate, as an installation would."""
+    extensions = authz.the_jsonpath_environment.function_extensions
+    monkeypatch.setitem(extensions, "is_staff", lambda claims: claims)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "kwargs, owner",
+    [
+        (
+            {"owner_claim": "email", "owner_value": "b@example.com"},
+            {"owner": "staff", "claim": "email", "value": "b@example.com"},
+        ),
+        (
+            {"owner_predicate": "is_staff"},
+            {"owner": "staff", "predicate": "is_staff"},
+        ),
+    ],
+    ids=["claim", "predicate"],
+)
+async def test_request_room_for_a_named_owner(ctx, is_staff, kwargs, owner):
+    service = _FakeService(
+        202, {"room_id": "staff:q3-plans", "issue_url": ISSUE_URL}
+    )
+
+    with _patch_service(service):
+        result = await provisioner.request_room(
+            ctx, name="Q3 Plans", owner="staff", **kwargs
+        )
+
+    assert result == provisioner.RoomRequestAccepted(
+        status="accepted", room_id="staff:q3-plans", issue_url=ISSUE_URL
+    )
+    [request] = service.requests
+    assert json.loads(request.content) == {
+        "name": "Q3 Plans",
+        "description": None,
+        "slug": None,
+        "owner": owner,
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"owner": "staff"},
+        {"owner": "staff", "owner_claim": "email"},
+        {"owner": "staff", "owner_value": "b@example.com"},
+        {
+            "owner": "staff",
+            "owner_claim": "email",
+            "owner_value": "b@example.com",
+            "owner_predicate": "is_staff",
+        },
+        {"owner_claim": "email", "owner_value": "b@example.com"},
+        {"owner_predicate": "is_staff"},
+        {"owner_value": "b@example.com"},
+    ],
+    ids=[
+        "owner-only",
+        "claim-without-value",
+        "value-without-claim",
+        "both-forms",
+        "claim-without-owner",
+        "predicate-without-owner",
+        "value-without-owner",
+    ],
+)
+async def test_request_room_with_an_incomplete_owner(ctx, is_staff, kwargs):
+    service = _FakeService(202)
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ModelRetry) as caught,
+    ):
+        await provisioner.request_room(ctx, name="Q3 Plans", **kwargs)
+
+    assert type(caught.value) is provisioner.OwnerIncomplete
+    assert service.requests == []
+
+
+@pytest.mark.anyio
+async def test_request_room_with_an_unknown_predicate(ctx, is_staff):
+    service = _FakeService(202)
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ModelRetry) as caught,
+    ):
+        await provisioner.request_room(
+            ctx, name="Q3 Plans", owner="foremen", owner_predicate="is_foreman"
+        )
+
+    assert type(caught.value) is provisioner.UnknownPredicateName
+    assert "is_staff" in caught.value.known
+    assert "'is_foreman' is not a predicate" in caught.value.message
+    assert service.requests == []
+
+
+@pytest.mark.anyio
+async def test_request_room_owner_not_permitted(ctx, is_staff):
+    service = _FakeService(403, {"detail": "only an admin may name owners"})
+
+    with _patch_service(service):
+        result = await provisioner.request_room(
+            ctx, name="Q3 Plans", owner="staff", owner_predicate="is_staff"
+        )
+
+    assert result == provisioner.RoomRequestAccepted(
+        status="owner_not_permitted"
+    )
+
+
+@pytest.mark.anyio
+async def test_request_room_bad_owner(ctx):
+    service = _FakeService(400, {"detail": "room owner '../x' must match"})
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ModelRetry) as caught,
+    ):
+        await provisioner.request_room(
+            ctx,
+            name="Q3 Plans",
+            owner="../x",
+            owner_claim="email",
+            owner_value="b@example.com",
+        )
+
+    assert type(caught.value) is provisioner.BadOwner
+    assert caught.value.owner == "../x"
+    assert "room owner '../x' must match" in caught.value.message
+    assert "as the user's own" in caught.value.message
 
 
 @pytest.mark.anyio

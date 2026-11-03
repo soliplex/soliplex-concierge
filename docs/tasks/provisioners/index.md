@@ -71,8 +71,14 @@ owner part with its access rule, a soliplex ACL JSONPath over a user's claims:
   claims (`Provisioner.owner_claim`, flattened when `flatten_owner` is set),
   with a rule matching that claim's value
 - given `owner=room_ids.named_owner(...)`, it makes someone else the owner,
-  for instance a group; whether the requester may do that is for the caller
-  to decide
+  for instance everyone a predicate recognizes; whether the requester may do
+  that is for the caller to decide
+
+Build a named owner's rule with `access_rules`, never by hand:
+`claim_rule(claim, value)` for one person, or `predicate_rule(name)` for a
+predicate the installation registers under `meta.jsonpath_functions`. A
+service built with `service.create_app` does this itself, from the request's
+`owner`, and refuses a predicate your `Authz.predicates()` does not list.
 
 `Authz.grant_owner` grants the room to `request.owner.json_path`, whoever
 that is.

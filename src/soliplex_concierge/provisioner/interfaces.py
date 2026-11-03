@@ -168,6 +168,14 @@ class Authz(typing.Protocol):
     def audit(self) -> None:
         """Check the installation's rooms; raise when they are not valid."""
 
+    def predicates(self) -> collections.abc.Collection[str]:
+        """The predicates a named owner's access rule may call.
+
+        That is, the functions the installation registers under
+        ``meta.jsonpath_functions`` (see
+        :func:`soliplex_concierge.provisioner.soliplex_api.registered_predicates`).
+        """
+
 
 class Backend(typing.Protocol):
     """The Soliplex backend that serves the room."""

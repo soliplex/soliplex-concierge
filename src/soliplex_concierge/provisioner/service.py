@@ -31,6 +31,7 @@ import typing
 
 import fastapi
 
+from soliplex_concierge.provisioner import access_rules
 from soliplex_concierge.provisioner import api
 from soliplex_concierge.provisioner import interfaces
 from soliplex_concierge.provisioner import provision
@@ -166,7 +167,7 @@ def requester_id(
             claim=provisioner.owner_claim,
             flatten_value=provisioner.flatten_owner,
         ).owner
-    except room_ids.RoomIdError:
+    except (room_ids.RoomIdError, access_rules.AccessRuleError):
         return None
 
 
@@ -257,6 +258,29 @@ def _check(check, token: str, what: str) -> bool:
         raise _http_error(500, error) from error
 
 
+def _named_owner(
+    provisioner: provision.Provisioner, named: api.RoomOwner
+) -> room_ids.RoomOwner:
+    """The owner an admin names, with the access rule its form gives.
+
+    Raises :class:`room_ids.RoomIdError` for an unusable owner part, and
+    :class:`access_rules.AccessRuleError` for an unusable claim, or a
+    predicate the deployment does not register.
+    """
+    if named.predicate is not None:
+        try:
+            known = provisioner.authz.predicates()
+        except Exception as error:
+            logger.exception("listing the registered predicates failed")
+            raise _http_error(500, error) from error
+        if named.predicate not in known:
+            raise access_rules.UnknownPredicate(named.predicate, known)
+        rule = access_rules.predicate_rule(named.predicate)
+    else:
+        rule = access_rules.claim_rule(named.claim, named.value)
+    return room_ids.named_owner(named.owner, rule)
+
+
 def _create(
     provisioner: provision.Provisioner,
     requests: Requests,
@@ -315,7 +339,7 @@ def post_room(
         owner = (
             None
             if body.owner is None
-            else room_ids.named_owner(body.owner.owner, body.owner.json_path)
+            else _named_owner(provisioner, body.owner)
         )
         request = provision.plan_room(
             claims,
@@ -325,7 +349,7 @@ def post_room(
             slug=body.slug,
             owner=owner,
         )
-    except room_ids.RoomIdError as error:
+    except (room_ids.RoomIdError, access_rules.AccessRuleError) as error:
         raise _http_error(400, error) from error
 
     room = request.room

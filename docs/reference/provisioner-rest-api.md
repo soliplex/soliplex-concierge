@@ -46,26 +46,38 @@ room's id is `<owner>:<slug>`: the owner part derives from one of the
 requester's claims, and the slug is the request's `slug`, or else is derived
 from its `name`.
 
-An admin may make someone other than themselves the room's owner (a group,
-say) with the optional `owner`, a `RoomOwner`:
+An admin may make someone other than themselves the room's owner with the
+optional `owner`, a `RoomOwner`. `owner.owner` is the room id's owner part.
+Whom the room is granted to is given in one of two forms:
 
-```json
-{"name": "Staff Notes",
- "owner": {"owner": "staff", "json_path": "$[?'staff' in @.groups]"}}
-```
+- a claim and its exact value, for one person:
 
-`owner.owner` is the room id's owner part, and `owner.json_path` is the access
-rule granting the owner the room: a soliplex ACL JSONPath over a user's
-claims. The requester is still the one who asked, and may see the request.
+    ```json
+    {"name": "Q3 Plans",
+     "owner": {"owner": "bharney", "claim": "email",
+               "value": "bharney@example.com"}}
+    ```
+
+- a predicate the installation registers under `meta.jsonpath_functions`,
+  applied to a user's claims as a whole, for everyone it recognizes:
+
+    ```json
+    {"name": "Quarry Notes",
+     "owner": {"owner": "foremen", "predicate": "is_foreman"}}
+    ```
+
+The service builds the access rule (a soliplex ACL JSONPath) from the form;
+no caller writes one, and an `owner` with a `json_path` is a `422`. The
+requester is still the one who asked, and may see the request.
 
 | Status | Body | Meaning |
 |---|---|---|
 | `202` | `Accepted`: `room_id`, `issue_url` | Admitted; the room is created in the background |
-| `400` | `Error`: `detail` | The name, slug or named owner yields no usable room id |
+| `400` | `Error`: `detail` | The name, slug or named owner yields no usable room id, or the owner's predicate is not registered |
 | `401` | `Error` | No service token, or one that is not valid |
 | `403` | `Error` | The requester is not admitted, or names an owner without being an admin |
 | `409` | `Refusal`: `detail`, `room_id` | The room exists, or a request for it is in flight |
-| `422` | | The body is not a `RoomRequest` |
+| `422` | | The body is not a `RoomRequest` (including an `owner` in neither form, or both) |
 | `500` | `Error` | The service failed |
 
 A `409` names the room it refuses, because the caller cannot work the room id

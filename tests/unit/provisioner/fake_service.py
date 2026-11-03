@@ -21,6 +21,7 @@ USERS = {
     "carol-token": ("carol", "unadmitted"),
 }
 _SLUG_RE = re.compile(r"[a-z0-9][a-z0-9._-]*")
+PREDICATES = frozenset({"is_staff"})
 
 FAULTS = frozenset(
     {
@@ -42,6 +43,7 @@ FAULTS = frozenset(
         "anyone-names-owners",  # lets a non-admin name an owner
         "accept-any-owner",  # accepts unusable owner parts
         "ignore-named-owner",  # gives an admin's room to the admin
+        "accept-any-predicate",  # accepts unregistered predicates
     }
 )
 
@@ -124,6 +126,13 @@ def create_app(faults: frozenset[str] = frozenset()) -> fastapi.FastAPI:
                 raise fastapi.HTTPException(
                     status_code=403, detail="only an admin may name owners"
                 )
+            predicate = body.owner.predicate
+            if predicate is not None and predicate not in PREDICATES:
+                if "accept-any-predicate" not in faults:
+                    raise fastapi.HTTPException(
+                        status_code=400,
+                        detail=f"unknown predicate {predicate!r}",
+                    )
             named = body.owner.owner
             if not _SLUG_RE.fullmatch(named):
                 if "accept-any-owner" not in faults:

@@ -70,6 +70,8 @@ GITEA_TOOL = "soliplex_concierge.tools.gitea.create_gitea_issue"
 GITEA_HOST = "GITEA_HOST"
 GITEA_TOKEN_SECRET = "GITEA_ACCESS_TOKEN"
 ASSET_ROOM = "about_soliplex"
+# The installed room config's first line, naming the installer that wrote it.
+STAMP = "Installed by soliplex-concierge-installer {version}"
 
 # Neither filesystem skill installed into the stack is bundled here; each is
 # its own published GitHub-release artifact, downloaded by default from its
@@ -268,10 +270,10 @@ def _yaml() -> YAML:
     return yaml
 
 
-def _dump(yaml: YAML, data: object, path: pathlib.Path) -> None:
+def _dumps(yaml: YAML, data: object) -> str:
     buf = io.StringIO()
     yaml.dump(data, buf)
-    path.write_text(buf.getvalue())
+    return buf.getvalue()
 
 
 # --- stack / asset discovery ----------------------------------------------
@@ -570,7 +572,51 @@ def merge_installation(
 # --- file installs ---------------------------------------------------------
 
 
-def _patch_room_config(path: pathlib.Path, opts: Options) -> None:
+def installer_version(assets: pathlib.Path) -> str | None:
+    """The installer skill's version, from its bundle's ``SKILL.md``.
+
+    The bundle's ``assets/`` sits beside ``SKILL.md``, whose front matter
+    holds ``metadata.version``; None when it names none.
+    """
+    try:
+        text = (assets.parent / "SKILL.md").read_text()
+    except OSError:
+        return None
+    if not text.startswith("---\n"):
+        return None
+    front, closed, _ = text[4:].partition("\n---")
+    if not closed:
+        return None
+    data = YAML(typ="safe").load(front)
+    metadata = data.get("metadata") if isinstance(data, dict) else None
+    version = metadata.get("version") if isinstance(metadata, dict) else None
+    return str(version) if version else None
+
+
+def _stamped(text: str, version: str) -> str:
+    """``text`` with the :data:`STAMP` comment for ``version`` added.
+
+    The stamp goes after any header (the leading comment and blank lines),
+    just before the first key.
+    """
+    lines = text.splitlines(keepends=True)
+    header = 0
+    while header < len(lines) and (
+        not lines[header].strip() or lines[header].lstrip().startswith("#")
+    ):
+        header += 1
+    stamp = f"# {STAMP.format(version=version)}\n"
+    return "".join([*lines[:header], stamp, *lines[header:]])
+
+
+def _patch_room_config(
+    path: pathlib.Path, opts: Options, *, version: str | None = None
+) -> None:
+    """Patch the copied room config for this stack.
+
+    Sets its id and the Gitea tool's owner / repo, and stamps the
+    installer's ``version`` (when known) after any header comment.
+    """
     yaml = _yaml()
     data = yaml.load(path.read_text())
     data["id"] = opts.room_id
@@ -580,7 +626,10 @@ def _patch_room_config(path: pathlib.Path, opts: Options) -> None:
                 tool["owner"] = opts.owner
             if opts.repo is not None:
                 tool["repo"] = opts.repo
-    _dump(yaml, data, path)
+    text = _dumps(yaml, data)
+    if version is not None:
+        text = _stamped(text, version)
+    path.write_text(text)
 
 
 def install_room(
@@ -607,7 +656,9 @@ def install_room(
     except rooms.RoomExists:
         return UNCHANGED, UNCHANGED
     if not opts.dry_run:
-        _patch_room_config(installed.config_path, opts)
+        _patch_room_config(
+            installed.config_path, opts, version=installer_version(assets)
+        )
     return ADDED, installed.path_action
 
 

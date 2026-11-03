@@ -25,6 +25,7 @@ from soliplex import token_mint
 from soliplex_concierge import config
 from soliplex_concierge import tls
 from soliplex_concierge.provisioner import api
+from soliplex_concierge.provisioner import soliplex_api
 
 SERVICE_TOKEN_SECRET = api.SERVICE_TOKEN_SECRET
 SERVICE_TOKEN_LIFETIME = 60
@@ -121,6 +122,37 @@ class BadSlug(pydantic_ai.ModelRetry):
         )
 
 
+class OwnerIncomplete(pydantic_ai.ModelRetry):
+    def __init__(self):
+        super().__init__(
+            "to name a room's owner, pass 'owner' with either both "
+            "'owner_claim' and 'owner_value', or 'owner_predicate'; to "
+            "request the room as the user's own, pass none of them"
+        )
+
+
+class UnknownPredicateName(pydantic_ai.ModelRetry):
+    def __init__(self, predicate: str, known: frozenset[str]):
+        self.predicate, self.known = predicate, known
+        listed = ", ".join(sorted(known)) or "none"
+        super().__init__(
+            f"{predicate!r} is not a predicate this installation registers "
+            f"(it registers: {listed}): offer the user one of those, or "
+            "name the owner by a claim and value"
+        )
+
+
+class BadOwner(pydantic_ai.ModelRetry):
+    def __init__(self, owner: str, detail: str):
+        self.owner, self.detail = owner, detail
+        super().__init__(
+            f"the request naming the owner {owner!r} is unusable ({detail}): "
+            "correct the owner, its claim, value or predicate, or the slug, "
+            "with the user, "
+            "or omit the owner to request the room as the user's own"
+        )
+
+
 class BadRoomName(pydantic_ai.ToolFailed):
     def __init__(self, detail: str):
         self.detail = detail
@@ -151,10 +183,17 @@ class RoomRequestAccepted(pydantic.BaseModel):
 
     'status' is 'accepted' when the service is creating the room,
     'already_requested' when an earlier attempt of the same request reached
-    it, and 'not_admitted' when it does not admit the user.
+    it, and 'not_admitted' when it does not admit the user. A request
+    naming an owner gets 'owner_not_permitted' instead of 'not_admitted':
+    only an admin may name a room's owner.
     """
 
-    status: typing.Literal["accepted", "already_requested", "not_admitted"]
+    status: typing.Literal[
+        "accepted",
+        "already_requested",
+        "not_admitted",
+        "owner_not_permitted",
+    ]
     room_id: str | None = None
     issue_url: str | None = None
 
@@ -267,17 +306,53 @@ async def _call(
     return response
 
 
+def _named_owner(owner, claim, value, predicate) -> api.RoomOwner | None:
+    """The owner a request names, if any, in one of its two forms.
+
+    Raises 'OwnerIncomplete' for any other combination, and
+    'UnknownPredicateName' for a predicate the installation does not register.
+    """
+    by_claim = claim is not None and value is not None
+    by_predicate = predicate is not None
+    partial = (claim is None) != (value is None)
+    if owner is None:
+        if by_claim or by_predicate or partial:
+            raise OwnerIncomplete()
+        return None
+    if partial or by_claim == by_predicate:
+        raise OwnerIncomplete()
+    if by_predicate:
+        known = soliplex_api.registered_predicates()
+        if predicate not in known:
+            raise UnknownPredicateName(predicate, known)
+        return api.RoomOwner(owner=owner, predicate=predicate)
+    return api.RoomOwner(owner=owner, claim=claim, value=value)
+
+
 async def request_room(
     ctx: pydantic_ai.RunContext[agents.AgentDependencies],
     name: str,
     description: str | None = None,
     slug: str | None = None,
+    owner: str | None = None,
+    owner_claim: str | None = None,
+    owner_value: str | None = None,
+    owner_predicate: str | None = None,
 ) -> RoomRequestAccepted:
-    """Ask the room provisioner to create a new private room for the user.
+    """Ask the room provisioner to create a new private room.
 
     The room's id is '<owner>:<slug>': the owner comes from the user's
-    identity, the slug from 'name' unless you pass one. Only the user gets
+    identity, the slug from 'name' unless you pass one. Only the owner gets
     access to the room.
+
+    An administrator may ask for a room owned by someone else: pass
+    'owner', with whom it grants the room in one of two forms, and only
+    then. The service refuses an owner from anyone but an administrator.
+
+    - 'owner_claim' and 'owner_value': users whose token claim is that
+      value (e.g. 'email' is 'bharney@example.com')
+    - 'owner_predicate': users whose claims pass a predicate the
+      installation registers (e.g. a role or group membership check)
 
     When the result's 'status' is 'accepted', the room is being created:
     tell the user its 'room_id' and tracking issue ('issue_url', when
@@ -286,7 +361,10 @@ async def request_room(
     attempt of this request reached the provisioner: tell the user its
     'room_id', and check on it with 'check_room_request'. When it is
     'not_admitted', the user may not have rooms created on request: file
-    the request as a 'new-room' issue instead.
+    the request as a 'new-room' issue instead. When it is
+    'owner_not_permitted', the user may not name a room's owner: offer to
+    request the room as their own, or file a 'new-room' issue naming the
+    intended owner.
 
     Args:
         name: the room's human-readable name, as the user gave it.
@@ -294,15 +372,23 @@ async def request_room(
             to the name.
         slug: the room id's second part (letters, digits, '.', '_', '-');
             omit it to derive one from the name.
+        owner: the room id's first part, for a room owned by someone other
+            than the user (letters, digits, '.', '_', '-').
+        owner_claim: with 'owner_value', the claim a user must hold.
+        owner_value: with 'owner_claim', the value it must have.
+        owner_predicate: instead of a claim and value, the name of a
+            predicate the installation registers.
 
     Returns:
         RoomRequestAccepted: the 'status', and for an accepted request its
             'room_id' and 'issue_url'.
     """
+    fields = {"name": name, "description": description, "slug": slug}
+    named = _named_owner(owner, owner_claim, owner_value, owner_predicate)
+    if named is not None:
+        fields["owner"] = named
     # Unset fields stay out: services that predate them refuse them.
-    body = api.RoomRequest(
-        name=name, description=description, slug=slug
-    ).model_dump(exclude_unset=True)
+    body = api.RoomRequest(**fields).model_dump(exclude_unset=True)
     timeout = ctx.deps.tool_configs[config.RR_TOOL_KIND].request_timeout
 
     async def post():
@@ -335,8 +421,12 @@ async def request_room(
         accepted = _answer(api.Accepted, response)
         return RoomRequestAccepted(status="accepted", **accepted.model_dump())
     if response.status_code == 403:
+        if owner is not None:
+            return RoomRequestAccepted(status="owner_not_permitted")
         return RoomRequestAccepted(status="not_admitted")
     if response.status_code == 400:
+        if owner is not None:
+            raise BadOwner(owner, _detail(response))
         if slug is not None:
             raise BadSlug(slug, _detail(response))
         raise BadRoomName(_detail(response))

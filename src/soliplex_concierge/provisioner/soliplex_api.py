@@ -14,6 +14,7 @@ import pathlib
 import urllib.error
 import urllib.request
 
+from soliplex import authz
 from soliplex import token_mint
 
 from soliplex_concierge.provisioner import interfaces
@@ -88,6 +89,17 @@ def validate_service_token(secret: str, token: str) -> dict:
     if claims is None:
         raise InvalidServiceToken(reason)
     return claims
+
+
+def registered_predicates() -> frozenset[str]:
+    """The predicates registered with soliplex's JSONPath environment.
+
+    That is, its function extensions other than the RFC 9535 built-ins:
+    in a process that has loaded the installation (the backend, say), the
+    functions it registers under ``meta.jsonpath_functions``.
+    """
+    extensions = authz.the_jsonpath_environment.function_extensions
+    return frozenset(extensions) - authz.BUILTIN_JSONPATH_FUNCTION_NAMES
 
 
 def call(
