@@ -1,16 +1,22 @@
 """Ids for rooms the provisioner creates on request.
 
-A provisioned room's id is ``<owner>:<slug>``: ``owner`` derives from one of
-the requester's token claims, ``slug`` is the name the requester chose. The
-id doubles as the room's directory name in the landing clone, its LanceDB
-stem (``<id>.lancedb``), and its uploads directory, so each part must be a
-safe single path segment of at most :data:`MAX_SEGMENT` characters.
+A provisioned room's id is ``<owner>:<slug>``: ``owner`` names the room's
+owner, ``slug`` is the name the requester chose. A deployment may use the
+id as, for instance, the room's directory name, its LanceDB stem, or its
+uploads directory, so each part must be a safe single path segment of at
+most :data:`MAX_SEGMENT` characters.
 
-The owner part is technical identity: the value of a configured claim
-(default ``preferred_username``), optionally *flattened* (``@`` -> ``_``) so
+A :class:`RoomOwner` pairs the owner part with the access rule that grants
+the owner the room: a soliplex ACL JSONPath over a user's claims. The owner
+need not be the requester (an admin may create a room for a group, say):
+:func:`named_owner` names any owner, while :func:`owner_from_claims`
+derives the requester's own.
+
+A requester's owner part is the value of a configured claim (default
+``preferred_username``), optionally *flattened* (``@`` -> ``_``) so
 email-shaped values fit the segment rule. Flattening is neither invertible
-nor injective, so :class:`RoomOwner` keeps the raw claim value alongside the
-owner part: an access grant matches the raw value, never the owner part.
+nor injective, so the access rule matches the raw claim value, never the
+owner part.
 
 The slug is the requester's explicit choice or, by default, derived from
 the room's human-readable name by :func:`slugify`.
@@ -25,6 +31,7 @@ from __future__ import annotations
 
 import collections.abc
 import dataclasses
+import json
 import re
 import unicodedata
 
@@ -40,6 +47,8 @@ _SEGMENT_RULE = f"{SEGMENT_RE.pattern}, at most {MAX_SEGMENT} characters"
 
 # What 'slugify' collapses into one '-'.
 _NON_SLUG_RE = re.compile(r"[^a-z0-9]+")
+# A claim usable in an ACL entry's JSONPath query ('$.<claim>').
+CLAIM_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
 class RoomIdError(Exception):
@@ -58,6 +67,29 @@ class BadOwner(RoomIdError):
         super().__init__(
             f"claim {claim!r} value {value!r} cannot own rooms: it must "
             f"match {_SEGMENT_RULE} (after any flattening)"
+        )
+
+
+class BadOwnerClaim(RoomIdError):
+    def __init__(self, claim):
+        self.claim = claim
+        super().__init__(
+            f"owner claim {claim!r} must be an identifier ({CLAIM_RE.pattern})"
+        )
+
+
+class BadOwnerPart(RoomIdError):
+    def __init__(self, owner):
+        self.owner = owner
+        super().__init__(f"room owner {owner!r} must match {_SEGMENT_RULE}")
+
+
+class NoAccessRule(RoomIdError):
+    def __init__(self, owner):
+        self.owner = owner
+        super().__init__(
+            f"room owner {owner!r} needs an access rule (a JSONPath over a "
+            "user's claims)"
         )
 
 
@@ -89,13 +121,13 @@ class NotAProvisionedRoomId(RoomIdError):
 class RoomOwner:
     """Who owns a provisioned room.
 
-    ``owner`` is the id part; ``claim`` / ``claim_value`` are the raw claim
-    an access grant matches.
+    ``owner`` is the id part; ``json_path`` is the access rule granting the
+    owner the room: a soliplex ACL JSONPath matching the owner's principals
+    in a user's claims.
     """
 
-    claim: str
-    claim_value: str
     owner: str
+    json_path: str
 
 
 @dataclasses.dataclass(frozen=True)
@@ -119,19 +151,45 @@ def flatten(value: str) -> str:
     return value.replace("@", "_")
 
 
+def claim_json_path(claim: str, value: str) -> str:
+    """The access rule matching users whose ``claim`` is ``value``.
+
+    Raises :class:`BadOwnerClaim` when ``claim`` is not an identifier.
+    """
+    if not CLAIM_RE.fullmatch(claim):
+        raise BadOwnerClaim(claim)
+    return f"$[?$.{claim} == {json.dumps(value)}]"
+
+
+def named_owner(owner: str, json_path: str) -> RoomOwner:
+    """Name a room's owner explicitly: its id part, and its access rule.
+
+    Raises :class:`BadOwnerPart` when ``owner`` does not fit the segment
+    rule, and :class:`NoAccessRule` when ``json_path`` is blank.
+    """
+    if not is_segment(owner):
+        raise BadOwnerPart(owner)
+    if not json_path.strip():
+        raise NoAccessRule(owner)
+    return RoomOwner(owner=owner, json_path=json_path)
+
+
 def owner_from_claims(
     claims: collections.abc.Mapping,
     *,
     claim: str = DEFAULT_OWNER_CLAIM,
     flatten_value: bool = False,
 ) -> RoomOwner:
-    """Derive the room owner from the requester's token ``claims``.
+    """Derive the requester's own room owner from their token ``claims``.
 
-    Reads ``claims[claim]``, flattening it when ``flatten_value`` is true.
-    Raises :class:`OwnerClaimMissing` when the claim is absent, and
-    :class:`BadOwner` when its value is not a string or does not fit the
-    segment rule.
+    Reads ``claims[claim]``, flattening it when ``flatten_value`` is true;
+    the access rule matches the raw value. Raises :class:`BadOwnerClaim`
+    when ``claim`` is not an identifier, :class:`OwnerClaimMissing` when
+    the claim is absent, and :class:`BadOwner` when its value is not a
+    string or does not fit the segment rule.
     """
+    if not CLAIM_RE.fullmatch(claim):
+        raise BadOwnerClaim(claim)
     if claim not in claims:
         raise OwnerClaimMissing(claim)
 
@@ -143,7 +201,7 @@ def owner_from_claims(
     if not is_segment(owner):
         raise BadOwner(claim, value)
 
-    return RoomOwner(claim=claim, claim_value=value, owner=owner)
+    return RoomOwner(owner=owner, json_path=claim_json_path(claim, value))
 
 
 def validate_slug(slug: str) -> None:

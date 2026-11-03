@@ -29,7 +29,7 @@ _BAD_SEGMENTS = [
 
 def _owner(owner="alice"):
     return room_ids.RoomOwner(
-        claim="preferred_username", claim_value=owner, owner=owner
+        owner=owner, json_path=f'$[?$.preferred_username == "{owner}"]'
     )
 
 
@@ -67,6 +67,59 @@ def test_flatten(value, expected):
     assert result == expected
 
 
+# ---- claim_json_path ----
+
+
+@pytest.mark.parametrize(
+    "claim, value, expected",
+    [
+        ("preferred_username", "alice", '$[?$.preferred_username == "alice"]'),
+        ("email", "a@b.example", '$[?$.email == "a@b.example"]'),
+        ("sub", 'say "hi"', '$[?$.sub == "say \\"hi\\""]'),
+    ],
+)
+def test_claim_json_path(claim, value, expected):
+    result = room_ids.claim_json_path(claim, value)
+
+    assert result == expected
+
+
+@pytest.mark.parametrize("claim", ["", "1st", "a.b", "a b", "a]"])
+def test_claim_json_path_rejects_a_bad_claim(claim):
+    with pytest.raises(room_ids.BadOwnerClaim) as caught:
+        room_ids.claim_json_path(claim, "alice")
+
+    assert caught.value.claim == claim
+
+
+# ---- named_owner ----
+
+
+def test_named_owner():
+    result = room_ids.named_owner("staff", "$[?'staff' in @.groups]")
+
+    assert result == room_ids.RoomOwner(
+        owner="staff", json_path="$[?'staff' in @.groups]"
+    )
+
+
+@pytest.mark.parametrize("owner", _BAD_SEGMENTS)
+def test_named_owner_rejects_a_bad_owner_part(owner):
+    with pytest.raises(room_ids.BadOwnerPart) as caught:
+        room_ids.named_owner(owner, "$[?'staff' in @.groups]")
+
+    assert caught.value.owner == owner
+
+
+@pytest.mark.parametrize("json_path", ["", "   "])
+def test_named_owner_needs_an_access_rule(json_path):
+    with pytest.raises(room_ids.NoAccessRule) as caught:
+        room_ids.named_owner("staff", json_path)
+
+    assert caught.value.owner == "staff"
+    assert "needs an access rule" in str(caught.value)
+
+
 # ---- owner_from_claims ----
 
 
@@ -94,8 +147,18 @@ def test_owner_from_claims(claims, kwargs, expected_value, expected_owner):
     result = room_ids.owner_from_claims(claims, **kwargs)
 
     assert result == room_ids.RoomOwner(
-        claim=claim, claim_value=expected_value, owner=expected_owner
+        owner=expected_owner,
+        json_path=f'$[?$.{claim} == "{expected_value}"]',
     )
+
+
+def test_owner_from_claims_rejects_a_bad_claim():
+    claims = {"a.b": "alice"}
+
+    with pytest.raises(room_ids.BadOwnerClaim) as caught:
+        room_ids.owner_from_claims(claims, claim="a.b")
+
+    assert caught.value.claim == "a.b"
 
 
 def test_owner_from_claims_requires_the_claim():
@@ -190,9 +253,8 @@ def test_slugify_rejects_names_yielding_nothing(name):
 
 def test_make_room_id():
     owner = room_ids.RoomOwner(
-        claim="email",
-        claim_value="bharney@sitename.example",
         owner="bharney_sitename.example",
+        json_path='$[?$.email == "bharney@sitename.example"]',
     )
 
     result = room_ids.make_room_id(owner, "marketing")
