@@ -345,14 +345,34 @@ The backend's installation API, called as the provisioner.
 
 - `read_secret(path) -> str` — the signing secret, stripped.
 - `mint_service_token(secret, claims, *, lifetime=300) -> str`.
+- `validate_service_token(secret, token) -> dict` — the token's claims; raises
+  `InvalidServiceToken` (an `interfaces.InvalidToken`).
 - `call(base_url, method, path, *, token=None, timeout=30) -> dict` — a call
   under `/api`.
 - `check_access(base_url, *, token=None)` — raises unless the backend admits
   the token as an admin's.
 - `reload_rooms(base_url, *, token=None) -> dict` — the rooms reload's delta;
   `loaded(delta, room_id)` says whether it loaded the room.
-- `BackendError` and its subclasses: `SecretUnreadable`, `AccessDenied`,
-  `RequestFailed`.
+- `BackendError` and its subclasses: `SecretUnreadable`, `AccessDenied` (also
+  an `interfaces.AccessRefused`), `RequestFailed`.
+
+## `soliplex_concierge.provisioner.service`
+
+The [Provisioner REST API](provisioner-rest-api.md), served over a
+deployment's adapters (see
+[Serving it](../tasks/provisioners/index.md#serving-it)).
+
+- `create_app(provisioner, admission) -> fastapi.FastAPI` — the application;
+  `app.state.access` records whether the backend admits the provisioner, and
+  the lifespan starts `watch_access`.
+- `watch_access(backend, access, *, sleep=time.sleep)` — check
+  `backend.check_access` until it passes, every `ACCESS_RETRY` seconds while
+  refused and `BACKEND_RETRY` while unreachable.
+- `Access` — the watcher's record: `state() -> (admitted, problem)`,
+  `update(admitted, problem=None)`.
+- `Requests` / `Request` — the in-memory request registry.
+- `requester_id(provisioner, claims)` — how the service recognizes a
+  request's requester (their own owner part).
 
 ## `soliplex_concierge.gitea_admin`
 
