@@ -84,6 +84,11 @@ async def test_check_all_passes_a_conforming_service():
             "naming the owner '../escape', by an admin: expected HTTP 400",
         ),
         (
+            contract.check_rejects_an_unknown_predicate,
+            "accept-any-predicate",
+            "by an admin: expected HTTP 400, got HTTP 202",
+        ),
+        (
             contract.check_admin_names_an_owner,
             "ignore-named-owner",
             "expected a room id owned by",

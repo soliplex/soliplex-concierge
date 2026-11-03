@@ -34,20 +34,51 @@ def test_room_request_defaults():
     }
 
 
-def test_room_request_with_an_owner():
-    result = api.RoomRequest.model_validate_json(
-        '{"name": "Staff Notes", "owner": '
-        '{"owner": "staff", "json_path": "$[?\'staff\' in @.groups]"}}'
+@pytest.mark.parametrize(
+    "owner",
+    [
+        {"owner": "bharney", "claim": "email", "value": "b@example.com"},
+        {"owner": "foremen", "predicate": "is_foreman"},
+    ],
+    ids=["claim", "predicate"],
+)
+def test_room_request_with_an_owner(owner):
+    result = api.RoomRequest.model_validate(
+        {"name": "Staff Notes", "owner": owner}
     )
 
-    assert result.owner == api.RoomOwner(
-        owner="staff", json_path="$[?'staff' in @.groups]"
-    )
+    assert result.owner == api.RoomOwner(**owner)
 
 
-def test_room_owner_forbids_unknown_fields():
+@pytest.mark.parametrize(
+    "owner",
+    [
+        {"owner": "x"},
+        {"owner": "x", "claim": "email"},
+        {"owner": "x", "value": "b@example.com"},
+        {"owner": "x", "claim": "email", "value": "b", "predicate": "p"},
+        {"owner": "x", "json_path": "$"},
+    ],
+    ids=["no-form", "claim-only", "value-only", "both-forms", "raw-rule"],
+)
+def test_room_owner_needs_exactly_one_form(owner):
     with pytest.raises(pydantic.ValidationError):
-        api.RoomOwner(owner="staff", json_path="$", claim="groups")
+        api.RoomOwner(**owner)
+
+
+def test_room_owner_reports_its_forms():
+    with pytest.raises(pydantic.ValidationError) as caught:
+        api.RoomOwner(owner="x", claim="email", predicate="is_staff")
+
+    [error] = caught.value.errors()
+    invalid = error["ctx"]["error"]
+    assert type(invalid) is api.OwnerFormInvalid
+    assert (invalid.claim, invalid.value, invalid.predicate) == (
+        "email",
+        None,
+        "is_staff",
+    )
+    assert "predicate='is_staff'" in str(invalid)
 
 
 def test_request_state_defaults():

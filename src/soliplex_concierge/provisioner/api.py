@@ -30,7 +30,8 @@ Routes and statuses
 
   - ``202``: admitted; :class:`Accepted`. The room is created in the
     background: ``GET /rooms/{room_id}`` reports how that goes.
-  - ``400``: the name, slug or named owner yields no usable room id;
+  - ``400``: the name, slug or named owner yields no usable room id, or
+    the owner's predicate is not one the installation registers;
     :class:`Error`
   - ``401``: no service token, or one that is not valid; :class:`Error`
   - ``403``: the requester is not admitted, or names an owner without
@@ -98,18 +99,49 @@ class State(enum.StrEnum):
     FAILED = "failed"  # the room was not created
 
 
+class OwnerFormInvalid(ValueError):
+    """A :class:`RoomOwner` names its owner in neither form, or in both.
+
+    Pydantic reports it as a validation error, keeping it in the error's
+    context.
+    """
+
+    def __init__(self, claim, value, predicate):
+        self.claim, self.value, self.predicate = claim, value, predicate
+        super().__init__(
+            "name the owner by 'claim' and 'value', or by 'predicate' "
+            f"(got claim={claim!r}, value={value!r}, "
+            f"predicate={predicate!r})"
+        )
+
+
 class RoomOwner(pydantic.BaseModel):
     """A room's owner, as an admin names it.
 
-    ``owner`` is the room id's owner part; ``json_path`` is the access rule
-    granting the owner the room: a soliplex ACL JSONPath over a user's
-    claims.
+    ``owner`` is the room id's owner part. Whom it grants the room is given
+    in one of two forms, from which the service builds the access rule:
+
+    - ``claim`` and ``value``: users whose ``claim`` is ``value`` (e.g.
+      ``email`` is ``bharney@example.com``)
+    - ``predicate``: users whose claims the named predicate passes, a
+      function the installation registers under ``meta.jsonpath_functions``
     """
 
     model_config = pydantic.ConfigDict(extra="forbid")
 
     owner: str
-    json_path: str
+    claim: str | None = None
+    value: str | None = None
+    predicate: str | None = None
+
+    @pydantic.model_validator(mode="after")
+    def _one_form(self) -> "RoomOwner":
+        by_claim = self.claim is not None and self.value is not None
+        by_predicate = self.predicate is not None
+        partial = (self.claim is None) != (self.value is None)
+        if partial or by_claim == by_predicate:
+            raise OwnerFormInvalid(self.claim, self.value, self.predicate)
+        return self
 
 
 class RoomRequest(pydantic.BaseModel):
