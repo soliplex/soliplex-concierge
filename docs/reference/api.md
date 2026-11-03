@@ -137,11 +137,15 @@ user's claims (`service_claims(user)`: the profile's claims, less `iat` /
 [Provisioner REST API](provisioner-rest-api.md): answers are parsed as its models,
 and an answer naming another version of it fails with `IncompatibleService`.
 
-**`async request_room(ctx, name, description=None, slug=None) -> RoomRequestAccepted`**
+**`async request_room(ctx, name, description=None, slug=None, owner=None, owner_claim=None, owner_value=None, owner_predicate=None) -> RoomRequestAccepted`**
 
 Sends `POST /rooms`. Returns `RoomRequestAccepted(status="accepted",
 room_id, issue_url)` when the service is creating the room, and
 `RoomRequestAccepted(status="not_admitted")` when it does not admit the user.
+`owner`, with either `owner_claim` and `owner_value` or `owner_predicate`,
+names a room owner other than the user; a service refusing that (the user is
+not an admin) returns `status="owner_not_permitted"`. The body carries only
+the fields given, so services that predate them never see them.
 When the service does not answer within `request_timeout`, it asks once
 more; a `409` naming the room (`"room_id"`) then returns
 `RoomRequestAccepted(status="already_requested", room_id)`.
@@ -155,6 +159,12 @@ steps and `error`. `RoomRequestState` is the API's `RequestState`.
 **Exceptions** — reported to the model rather than ending the run:
 
 - `BadSlug(pydantic_ai.ModelRetry)` — the slug the model passed is unusable.
+- `OwnerIncomplete(pydantic_ai.ModelRetry)` — the owner arguments are in
+  neither form, or both.
+- `UnknownPredicateName(pydantic_ai.ModelRetry)` — `owner_predicate` is not
+  one the installation registers; the message lists those it does.
+- `BadOwner(pydantic_ai.ModelRetry)` — the service refused the named owner
+  (or the slug beside it) as unusable.
 - `BadRoomName(pydantic_ai.ToolFailed)` — the room name is unusable; ask the
   user for another.
 - `RoomTaken(pydantic_ai.ToolFailed)` — the room id is taken, or already being
@@ -206,8 +216,9 @@ constants.
 
 - `RoomRequest` — the body of `POST /rooms`: `name`, `description`, `slug`,
   and `owner` (no other fields).
-- `RoomOwner` — an owner an admin names: `owner` (the id's owner part) and
-  `json_path` (its access rule).
+- `RoomOwner` — an owner an admin names: `owner` (the id's owner part), with
+  either `claim` and `value` or `predicate`; any other combination raises
+  `OwnerFormInvalid(ValueError)`, which keeps them as attributes.
 - `Accepted` — the `202` answer: `room_id`, `issue_url`.
 - `RequestState` — the `GET /rooms/{room_id}` answer: `room_id`, `state` (a
   `State`), `issue_url`, `incomplete`, `error`.
