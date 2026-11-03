@@ -1273,6 +1273,14 @@ missing or invalid token gets <code>401</code>, with a <code>WWW-Authenticate: B
 room's id is <code>&lt;owner&gt;:&lt;slug&gt;</code>: the owner part derives from one of the
 requester's claims, and the slug is the request's <code>slug</code>, or else is derived
 from its <code>name</code>.</p>
+<p>An admin may make someone other than themselves the room's owner (a group,
+say) with the optional <code>owner</code>, a <code>RoomOwner</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Staff Notes&quot;</span><span class="p">,</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w"> </span><span class="nt">&quot;owner&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;owner&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;staff&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;json_path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;$[?&#39;staff&#39; in @.groups]&quot;</span><span class="p">}}</span>
+</span></code></pre></div>
+<p><code>owner.owner</code> is the room id's owner part, and <code>owner.json_path</code> is the access
+rule granting the owner the room: a soliplex ACL JSONPath over a user's
+claims. The requester is still the one who asked, and may see the request.</p>
 <table>
 <thead>
 <tr>
@@ -1290,7 +1298,7 @@ from its <code>name</code>.</p>
 <tr>
 <td><code>400</code></td>
 <td><code>Error</code>: <code>detail</code></td>
-<td>The name or slug yields no usable room id</td>
+<td>The name, slug or named owner yields no usable room id</td>
 </tr>
 <tr>
 <td><code>401</code></td>
@@ -1300,7 +1308,7 @@ from its <code>name</code>.</p>
 <tr>
 <td><code>403</code></td>
 <td><code>Error</code></td>
-<td>The requester is not admitted</td>
+<td>The requester is not admitted, or names an owner without being an admin</td>
 </tr>
 <tr>
 <td><code>409</code></td>

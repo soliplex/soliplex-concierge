@@ -1067,6 +1067,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#soliplex_conciergeprovisionerservice" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.provisioner.service</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#soliplex_conciergegitea_admin" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1319,6 +1330,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         <code>soliplex_concierge.provisioner.soliplex_api</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#soliplex_conciergeprovisionerservice" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.provisioner.service</code>
       </span>
     </span>
   </a>
@@ -1609,8 +1631,10 @@ constants.</p>
 </ul>
 <p><strong>Models</strong> (pydantic)</p>
 <ul>
-<li><code>RoomRequest</code> — the body of <code>POST /rooms</code>: <code>name</code>, <code>description</code>, <code>slug</code>
-  (no other fields).</li>
+<li><code>RoomRequest</code> — the body of <code>POST /rooms</code>: <code>name</code>, <code>description</code>, <code>slug</code>,
+  and <code>owner</code> (no other fields).</li>
+<li><code>RoomOwner</code> — an owner an admin names: <code>owner</code> (the id's owner part) and
+  <code>json_path</code> (its access rule).</li>
 <li><code>Accepted</code> — the <code>202</code> answer: <code>room_id</code>, <code>issue_url</code>.</li>
 <li><code>RequestState</code> — the <code>GET /rooms/{room_id}</code> answer: <code>room_id</code>, <code>state</code> (a
   <code>State</code>), <code>issue_url</code>, <code>incomplete</code>, <code>error</code>.</li>
@@ -1629,7 +1653,8 @@ constants.</p>
 <li><code>async check_health</code>, <code>check_requires_a_token</code>,
   <code>check_refuses_an_invalid_token</code>, <code>check_refuses_the_unadmitted</code>,
   <code>check_rejects_a_malformed_body</code>, <code>check_rejects_a_bad_slug</code>,
-  <code>check_accepts_and_reports</code>, <code>check_hides_requests_from_others</code>,
+  <code>check_refuses_a_named_owner_from_a_non_admin</code>, <code>check_rejects_a_bad_owner</code>,
+  <code>check_admin_names_an_owner</code>, <code>check_accepts_and_reports</code>, <code>check_hides_requests_from_others</code>,
   <code>check_reports_unknown_requests</code>, <code>check_refuses_an_existing_room</code> — each
   takes the harness.</li>
 <li><code>ContractViolation(AssertionError)</code> — a broken contract;
@@ -1665,6 +1690,11 @@ constants.</p>
 <li><code>Provisioned</code> — a created room: <code>request</code>, <code>commit</code>, <code>issue</code>, <code>unfinished</code>.</li>
 <li><code>RoomStore</code>, <code>DatabaseRegistrar</code>, <code>UploadsArea</code>, <code>Authz</code>, <code>Backend</code>,
   <code>IssueTracker</code> (each a <code>typing.Protocol</code>) — the adapters.</li>
+<li><code>Admission(typing.Protocol)</code> — a service's <code>claims(token)</code>,
+  <code>is_admitted(token)</code> and <code>is_admin(token)</code>.</li>
+<li><code>InvalidToken(Exception)</code> — <code>Admission.claims</code> refuses a token;
+  <code>AccessRefused(Exception)</code> — <code>Backend.check_access</code> finds the backend
+  refusing the provisioner.</li>
 </ul>
 <h2 id="soliplex_conciergeprovisionerprovision"><code>soliplex_concierge.provisioner.provision</code></h2>
 <p>The steps of provisioning a room, and their guarantees (see
@@ -1726,21 +1756,44 @@ it sees it (<code>environment</code>).</p>
   owner's rule READ and WRITE.</li>
 <li><code>set_policy(cli, environment, room_id, policy)</code>,
   <code>remove_policy(cli, environment, room_id)</code>, <code>audit_rooms(cli, environment)</code>.</li>
-<li><code>CliFailed(Exception)</code> — the command could not run, or failed.</li>
+<li><code>is_admin(cli, environment, token) -&gt; bool</code>,
+  <code>may(cli, environment, token, room_id, permission) -&gt; bool</code> — the
+  <code>admin-users check</code> and <code>room-authz check</code> verdicts for a service token.</li>
+<li><code>CliFailed(Exception)</code> — the command could not run, or failed;
+  <code>NoVerdict(CliFailed)</code> — a check gave no verdict.</li>
 </ul>
 <h2 id="soliplex_conciergeprovisionersoliplex_api"><code>soliplex_concierge.provisioner.soliplex_api</code></h2>
 <p>The backend's installation API, called as the provisioner.</p>
 <ul>
 <li><code>read_secret(path) -&gt; str</code> — the signing secret, stripped.</li>
 <li><code>mint_service_token(secret, claims, *, lifetime=300) -&gt; str</code>.</li>
+<li><code>validate_service_token(secret, token) -&gt; dict</code> — the token's claims; raises
+  <code>InvalidServiceToken</code> (an <code>interfaces.InvalidToken</code>).</li>
 <li><code>call(base_url, method, path, *, token=None, timeout=30) -&gt; dict</code> — a call
   under <code>/api</code>.</li>
 <li><code>check_access(base_url, *, token=None)</code> — raises unless the backend admits
   the token as an admin's.</li>
 <li><code>reload_rooms(base_url, *, token=None) -&gt; dict</code> — the rooms reload's delta;
   <code>loaded(delta, room_id)</code> says whether it loaded the room.</li>
-<li><code>BackendError</code> and its subclasses: <code>SecretUnreadable</code>, <code>AccessDenied</code>,
-  <code>RequestFailed</code>.</li>
+<li><code>BackendError</code> and its subclasses: <code>SecretUnreadable</code>, <code>AccessDenied</code> (also
+  an <code>interfaces.AccessRefused</code>), <code>RequestFailed</code>.</li>
+</ul>
+<h2 id="soliplex_conciergeprovisionerservice"><code>soliplex_concierge.provisioner.service</code></h2>
+<p>The <a href="../provisioner-rest-api/">Provisioner REST API</a>, served over a
+deployment's adapters (see
+<a href="../../tasks/provisioners/#serving-it">Serving it</a>).</p>
+<ul>
+<li><code>create_app(provisioner, admission) -&gt; fastapi.FastAPI</code> — the application;
+  <code>app.state.access</code> records whether the backend admits the provisioner, and
+  the lifespan starts <code>watch_access</code>.</li>
+<li><code>watch_access(backend, access, *, sleep=time.sleep)</code> — check
+  <code>backend.check_access</code> until it passes, every <code>ACCESS_RETRY</code> seconds while
+  refused and <code>BACKEND_RETRY</code> while unreachable.</li>
+<li><code>Access</code> — the watcher's record: <code>state() -&gt; (admitted, problem)</code>,
+  <code>update(admitted, problem=None)</code>.</li>
+<li><code>Requests</code> / <code>Request</code> — the in-memory request registry.</li>
+<li><code>requester_id(provisioner, claims)</code> — how the service recognizes a
+  request's requester (their own owner part).</li>
 </ul>
 <h2 id="soliplex_conciergegitea_admin"><code>soliplex_concierge.gitea_admin</code></h2>
 <p>The implementation behind the admin <code>gitea_issues.py</code> CLI. Every function talks

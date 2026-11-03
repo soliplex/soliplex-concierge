@@ -1012,6 +1012,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#serving-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Serving it
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#checking-an-implementation-against-the-contract" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1307,6 +1318,44 @@ the wording to you:</p>
 </span></code></pre></div>
 <p><code>provisioned.unfinished</code> lists what remains to do once the room is committed;
 it is empty when the room is fully live.</p>
+<h2 id="serving-it">Serving it</h2>
+<p><code>soliplex_concierge.provisioner.service.create_app(provisioner, admission)</code>
+builds a FastAPI application serving the
+<a href="../../reference/provisioner-rest-api/">Provisioner REST API</a> over your
+adapters. Besides the <code>Provisioner</code>, it takes an <code>interfaces.Admission</code>, which
+decides who is asking and whether they may:</p>
+<ul>
+<li><code>claims(token)</code>: the claims of the caller's service token, raising
+  <code>interfaces.InvalidToken</code> (or a subclass) when it is not valid</li>
+<li><code>is_admitted(token)</code>: whether its holder may request rooms (an admin, or
+  WRITE on <code>__provision__</code>)</li>
+<li><code>is_admin(token)</code>: whether its holder is an admin, who may name a room's
+  owner and see anyone's requests</li>
+</ul>
+<p>The toolkit has the pieces for a soliplex installation:
+<code>soliplex_api.validate_service_token</code> (its <code>InvalidServiceToken</code> is an
+<code>InvalidToken</code>), and <code>soliplex_cli.is_admin</code> and <code>soliplex_cli.may</code>, the
+<code>admin-users check</code> and <code>room-authz check</code> verdicts.</p>
+<p>The application's lifespan starts a watcher that calls your
+<code>Backend.check_access</code> until the backend admits the provisioner; until then,
+<code>GET /ok</code> answers <code>503</code> with the reason. Raise <code>interfaces.AccessRefused</code> (or
+a subclass, such as <code>soliplex_api.AccessDenied</code>) when the backend refuses the
+provisioner: the watcher logs it as an error and checks again every
+<code>service.ACCESS_RETRY</code> seconds. Any other error counts as the backend being
+unreachable: a warning, checked again every <code>service.BACKEND_RETRY</code> seconds.</p>
+<p>Your wiring module builds the adapters, and a factory returns the application:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">provision</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">service</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_app</span><span class="p">():</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">provisioner</span> <span class="o">=</span> <span class="n">provision</span><span class="o">.</span><span class="n">Provisioner</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>  <span class="c1"># your adapters</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="k">return</span> <span class="n">service</span><span class="o">.</span><span class="n">create_app</span><span class="p">(</span><span class="n">provisioner</span><span class="p">,</span> <span class="n">MyAdmission</span><span class="p">(</span><span class="o">...</span><span class="p">))</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uvicorn<span class="w"> </span>--factory<span class="w"> </span>my_deployment.provisioner:create_app<span class="w"> </span>--port<span class="w"> </span><span class="m">8090</span>
+</span></code></pre></div>
+<p>Run one worker: the service keeps its requests' state in memory. A restart
+loses it, and the tracking issue remains the record.</p>
 <h2 id="checking-an-implementation-against-the-contract">Checking an implementation against the contract</h2>
 <p><code>soliplex_concierge.provisioner.contract</code> checks that an implementation keeps
 the contract. It drives the implementation's ASGI application in-process and
@@ -1329,14 +1378,14 @@ application breaks the contract.</p>
 </ul>
 <h3 id="run-the-checks">Run the checks</h3>
 <p>Await the checks from your implementation's own tests:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">contract</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">anyio</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_keeps_the_provisioner_contract</span><span class="p">(</span><span class="n">harness</span><span class="p">):</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="k">await</span> <span class="n">contract</span><span class="o">.</span><span class="n">check_all</span><span class="p">(</span><span class="n">harness</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">contract</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">anyio</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_keeps_the_provisioner_contract</span><span class="p">(</span><span class="n">harness</span><span class="p">):</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    <span class="k">await</span> <span class="n">contract</span><span class="o">.</span><span class="n">check_all</span><span class="p">(</span><span class="n">harness</span><span class="p">)</span>
 </span></code></pre></div>
 <p><code>check_all</code> runs every check in <code>contract.ALL_CHECKS</code> and stops at the first
 failure. Each <code>check_*</code> function also runs on its own, which helps when you
@@ -1348,7 +1397,8 @@ are working on one part of the contract.</p>
   harness at a disposable stack or fakes.</li>
 <li>The checks drive the application through <code>httpx2.ASGITransport</code>, which does
   not run its lifespan: anything the lifespan would start (such as a
-  readiness watcher) must already be in place.</li>
+  readiness watcher) must already be in place. For an application from
+  <code>service.create_app</code>, call <code>app.state.access.update(True)</code> in the harness.</li>
 </ul>
 
 
