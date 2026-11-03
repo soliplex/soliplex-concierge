@@ -3309,6 +3309,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+provisioner = [
+    { name = "fastapi" },
+    { name = "uvicorn", extra = ["standard"] },
+]
 truststore = [
     { name = "truststore" },
 ]
@@ -3327,6 +3331,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fastapi", marker = "extra == 'provisioner'" },
     { name = "httpx2", specifier = ">=2.12.0" },
     { name = "pyyaml" },
     { name = "ruamel-yaml" },
@@ -3334,8 +3339,9 @@ requires-dist = [
     { name = "soliplex-plumber", specifier = ">=0.2.1" },
     { name = "soliplex-skills", specifier = ">=0.5" },
     { name = "truststore", marker = "extra == 'truststore'" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'provisioner'" },
 ]
-provides-extras = ["truststore"]
+provides-extras = ["truststore", "provisioner"]
 
 [package.metadata.requires-dev]
 dev = [
