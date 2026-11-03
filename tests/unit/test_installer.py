@@ -672,6 +672,108 @@ def test_patch_room_config(temp_dir, owner, repo):
     assert tool["repo"] == (repo if repo is not None else "soliplex-requests")
 
 
+def test_patch_room_config_stamps_the_version(temp_dir):
+    src = ASSETS / "rooms" / installer.ASSET_ROOM
+    room = temp_dir / "room"
+    shutil.copytree(src, room)
+    cfg = room / "room_config.yaml"
+
+    installer._patch_room_config(cfg, _opts(), version="9.9.9")
+
+    lines = cfg.read_text().splitlines()
+    assert lines[0] == "# Installed by soliplex-concierge-installer 9.9.9"
+    assert _load(cfg)["id"] == "about_concierge-test"
+
+
+def test_patch_room_config_keeps_a_header(temp_dir):
+    src = ASSETS / "rooms" / installer.ASSET_ROOM
+    room = temp_dir / "room"
+    shutil.copytree(src, room)
+    cfg = room / "room_config.yaml"
+    cfg.write_text("# The about room.\n#   (a template)\n\n" + cfg.read_text())
+
+    installer._patch_room_config(cfg, _opts(), version="9.9.9")
+
+    lines = cfg.read_text().splitlines()
+    assert lines[:5] == [
+        "# The about room.",
+        "#   (a template)",
+        "",
+        "# Installed by soliplex-concierge-installer 9.9.9",
+        'id: "about_concierge-test"',
+    ]
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("id: x\n", "# S\nid: x\n"),
+        ("# h\n  # h2\n\nid: x\n", "# h\n  # h2\n\n# S\nid: x\n"),
+        ("# only a comment\n", "# only a comment\n# S\n"),
+        ("", "# S\n"),
+    ],
+    ids=["no-header", "header", "all-header", "empty"],
+)
+def test_stamped(monkeypatch, text, expected):
+    monkeypatch.setattr(installer, "STAMP", "S")
+
+    result = installer._stamped(text, "9.9.9")
+
+    assert result == expected
+
+
+def test_patch_room_config_without_a_version(temp_dir):
+    src = ASSETS / "rooms" / installer.ASSET_ROOM
+    room = temp_dir / "room"
+    shutil.copytree(src, room)
+    cfg = room / "room_config.yaml"
+
+    installer._patch_room_config(cfg, _opts())
+
+    assert not cfg.read_text().startswith("#")
+
+
+# --- installer_version ----------------------------------------------------
+
+
+def test_installer_version_of_the_bundle():
+    result = installer.installer_version(ASSETS)
+
+    assert result == "0.7.0"
+
+
+@pytest.mark.parametrize(
+    "skill_md",
+    [
+        None,
+        "# no front matter\n",
+        "---\nname: x\n",
+        "---\nname: x\n---\n",
+        "---\nmetadata: flat\n---\n",
+        "---\nmetadata:\n  version: ''\n---\n",
+        "---\n- a list\n---\n",
+    ],
+    ids=[
+        "missing",
+        "no-front-matter",
+        "unclosed",
+        "no-metadata",
+        "metadata-not-a-mapping",
+        "empty-version",
+        "not-a-mapping",
+    ],
+)
+def test_installer_version_unknown(temp_dir, skill_md):
+    assets = temp_dir / "assets"
+    assets.mkdir()
+    if skill_md is not None:
+        (temp_dir / "SKILL.md").write_text(skill_md)
+
+    result = installer.installer_version(assets)
+
+    assert result is None
+
+
 # --- install_room / install_skill -----------------------------------------
 
 
@@ -695,9 +797,13 @@ def test_install_room_added(stack):
     )
 
     rooms = stack / "backend" / "environment" / "rooms"
-    cfg = _load(rooms / "about_concierge-test" / "room_config.yaml")
+    cfg_path = rooms / "about_concierge-test" / "room_config.yaml"
+    cfg = _load(cfg_path)
     assert room_action == installer.ADDED
     assert cfg["id"] == "about_concierge-test"
+    assert cfg_path.read_text().startswith(
+        "# Installed by soliplex-concierge-installer 0.7.0\n"
+    )
     # the enumerated room_paths gains the new room (via install_room_from)
     assert room_paths_action == installer.ADDED
     inst = _load(stack / "backend" / "environment" / "installation.yaml")
