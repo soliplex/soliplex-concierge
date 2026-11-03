@@ -1273,14 +1273,28 @@ missing or invalid token gets <code>401</code>, with a <code>WWW-Authenticate: B
 room's id is <code>&lt;owner&gt;:&lt;slug&gt;</code>: the owner part derives from one of the
 requester's claims, and the slug is the request's <code>slug</code>, or else is derived
 from its <code>name</code>.</p>
-<p>An admin may make someone other than themselves the room's owner (a group,
-say) with the optional <code>owner</code>, a <code>RoomOwner</code>:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Staff Notes&quot;</span><span class="p">,</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w"> </span><span class="nt">&quot;owner&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;owner&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;staff&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;json_path&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;$[?&#39;staff&#39; in @.groups]&quot;</span><span class="p">}}</span>
+<p>An admin may make someone other than themselves the room's owner with the
+optional <code>owner</code>, a <code>RoomOwner</code>. <code>owner.owner</code> is the room id's owner part.
+Whom the room is granted to is given in one of two forms:</p>
+<ul>
+<li>
+<p>a claim and its exact value, for one person:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Q3 Plans&quot;</span><span class="p">,</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w"> </span><span class="nt">&quot;owner&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;owner&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bharney&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;claim&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;email&quot;</span><span class="p">,</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">           </span><span class="nt">&quot;value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bharney@example.com&quot;</span><span class="p">}}</span>
 </span></code></pre></div>
-<p><code>owner.owner</code> is the room id's owner part, and <code>owner.json_path</code> is the access
-rule granting the owner the room: a soliplex ACL JSONPath over a user's
-claims. The requester is still the one who asked, and may see the request.</p>
+</li>
+<li>
+<p>a predicate the installation registers under <code>meta.jsonpath_functions</code>,
+  applied to a user's claims as a whole, for everyone it recognizes:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Quarry Notes&quot;</span><span class="p">,</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w"> </span><span class="nt">&quot;owner&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;owner&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;foremen&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;predicate&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;is_foreman&quot;</span><span class="p">}}</span>
+</span></code></pre></div>
+</li>
+</ul>
+<p>The service builds the access rule (a soliplex ACL JSONPath) from the form;
+no caller writes one, and an <code>owner</code> with a <code>json_path</code> is a <code>422</code>. The
+requester is still the one who asked, and may see the request.</p>
 <table>
 <thead>
 <tr>
@@ -1298,7 +1312,7 @@ claims. The requester is still the one who asked, and may see the request.</p>
 <tr>
 <td><code>400</code></td>
 <td><code>Error</code>: <code>detail</code></td>
-<td>The name, slug or named owner yields no usable room id</td>
+<td>The name, slug or named owner yields no usable room id, or the owner's predicate is not registered</td>
 </tr>
 <tr>
 <td><code>401</code></td>
@@ -1318,7 +1332,7 @@ claims. The requester is still the one who asked, and may see the request.</p>
 <tr>
 <td><code>422</code></td>
 <td></td>
-<td>The body is not a <code>RoomRequest</code></td>
+<td>The body is not a <code>RoomRequest</code> (including an <code>owner</code> in neither form, or both)</td>
 </tr>
 <tr>
 <td><code>500</code></td>

@@ -1173,6 +1173,14 @@ calls <code>request_room</code>:</p>
 <li><strong>Not admitted</strong> — the provisioner admits only admins, and users granted
   WRITE on the reserved room id <code>__provision__</code>. For anyone else, the agent
   files the request as an issue, as below.</li>
+<li><strong>For someone else</strong> — an admin may ask for a room owned by another person,
+  or by everyone a predicate the installation registers recognizes (a role,
+  say). The agent settles whom with them, as a claim and its exact value
+  (<code>email</code> is <code>bharney@example.com</code>) or a predicate's name, plus the room id's
+  owner part, and asks them to confirm before requesting it; it never writes
+  an access rule itself. Anyone else who names an owner gets
+  <strong>owner not permitted</strong>, and the agent offers the room as their own, or
+  files the request as an issue naming whom it is for.</li>
 <li><strong>Failed</strong> — a name already taken sends the agent back to the user for
   another; when the provisioner cannot take the request at all (for example,
   a stack without the service), the agent files it as an issue.</li>

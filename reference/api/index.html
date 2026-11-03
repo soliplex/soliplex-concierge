@@ -1001,6 +1001,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#soliplex_conciergeprovisioneraccess_rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.provisioner.access_rules</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#soliplex_conciergeprovisionerinterfaces" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1264,6 +1275,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         <code>soliplex_concierge.provisioner.room_ids</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#soliplex_conciergeprovisioneraccess_rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>soliplex_concierge.provisioner.access_rules</code>
       </span>
     </span>
   </a>
@@ -1571,10 +1593,14 @@ user's claims (<code>service_claims(user)</code>: the profile's claims, less <co
 <code>URL_SAFE_TOKEN_SECRET</code>. The service's API is the
 <a href="../provisioner-rest-api/">Provisioner REST API</a>: answers are parsed as its models,
 and an answer naming another version of it fails with <code>IncompatibleService</code>.</p>
-<p><strong><code>async request_room(ctx, name, description=None, slug=None) -&gt; RoomRequestAccepted</code></strong></p>
+<p><strong><code>async request_room(ctx, name, description=None, slug=None, owner=None, owner_claim=None, owner_value=None, owner_predicate=None) -&gt; RoomRequestAccepted</code></strong></p>
 <p>Sends <code>POST /rooms</code>. Returns <code>RoomRequestAccepted(status="accepted",
 room_id, issue_url)</code> when the service is creating the room, and
 <code>RoomRequestAccepted(status="not_admitted")</code> when it does not admit the user.
+<code>owner</code>, with either <code>owner_claim</code> and <code>owner_value</code> or <code>owner_predicate</code>,
+names a room owner other than the user; a service refusing that (the user is
+not an admin) returns <code>status="owner_not_permitted"</code>. The body carries only
+the fields given, so services that predate them never see them.
 When the service does not answer within <code>request_timeout</code>, it asks once
 more; a <code>409</code> naming the room (<code>"room_id"</code>) then returns
 <code>RoomRequestAccepted(status="already_requested", room_id)</code>.</p>
@@ -1585,6 +1611,12 @@ steps and <code>error</code>. <code>RoomRequestState</code> is the API's <code>R
 <p><strong>Exceptions</strong> — reported to the model rather than ending the run:</p>
 <ul>
 <li><code>BadSlug(pydantic_ai.ModelRetry)</code> — the slug the model passed is unusable.</li>
+<li><code>OwnerIncomplete(pydantic_ai.ModelRetry)</code> — the owner arguments are in
+  neither form, or both.</li>
+<li><code>UnknownPredicateName(pydantic_ai.ModelRetry)</code> — <code>owner_predicate</code> is not
+  one the installation registers; the message lists those it does.</li>
+<li><code>BadOwner(pydantic_ai.ModelRetry)</code> — the service refused the named owner
+  (or the slug beside it) as unusable.</li>
 <li><code>BadRoomName(pydantic_ai.ToolFailed)</code> — the room name is unusable; ask the
   user for another.</li>
 <li><code>RoomTaken(pydantic_ai.ToolFailed)</code> — the room id is taken, or already being
@@ -1633,8 +1665,9 @@ constants.</p>
 <ul>
 <li><code>RoomRequest</code> — the body of <code>POST /rooms</code>: <code>name</code>, <code>description</code>, <code>slug</code>,
   and <code>owner</code> (no other fields).</li>
-<li><code>RoomOwner</code> — an owner an admin names: <code>owner</code> (the id's owner part) and
-  <code>json_path</code> (its access rule).</li>
+<li><code>RoomOwner</code> — an owner an admin names: <code>owner</code> (the id's owner part), with
+  either <code>claim</code> and <code>value</code> or <code>predicate</code>; any other combination raises
+  <code>OwnerFormInvalid(ValueError)</code>, which keeps them as attributes.</li>
 <li><code>Accepted</code> — the <code>202</code> answer: <code>room_id</code>, <code>issue_url</code>.</li>
 <li><code>RequestState</code> — the <code>GET /rooms/{room_id}</code> answer: <code>room_id</code>, <code>state</code> (a
   <code>State</code>), <code>issue_url</code>, <code>incomplete</code>, <code>error</code>.</li>
@@ -1670,14 +1703,30 @@ constants.</p>
 <li><code>RoomId(owner, slug)</code> — an id, split; <code>str()</code> joins it.</li>
 <li><code>owner_from_claims(claims, *, claim="preferred_username", flatten_value=False)</code>
   — the requester's own owner, its rule matching the claim's raw value.</li>
-<li><code>named_owner(owner, json_path)</code> — any other owner, such as a group.</li>
-<li><code>claim_json_path(claim, value)</code> — the rule matching users whose <code>claim</code> is
-  <code>value</code>.</li>
+<li><code>named_owner(owner, json_path)</code> — any other owner, such as a group, with
+  a rule from <code>access_rules</code>.</li>
 <li><code>slugify(name)</code>, <code>validate_slug(slug)</code>, <code>make_room_id(owner, slug)</code>,
   <code>parse_room_id(room_id)</code>, <code>is_segment(value)</code>, <code>flatten(value)</code>.</li>
 <li><code>RoomIdError</code> and its subclasses (<code>OwnerClaimMissing</code>, <code>BadOwner</code>,
-  <code>BadOwnerClaim</code>, <code>BadOwnerPart</code>, <code>NoAccessRule</code>, <code>BadSlug</code>, <code>SlugEmpty</code>,
+  <code>BadOwnerPart</code>, <code>NoAccessRule</code>, <code>BadSlug</code>, <code>SlugEmpty</code>,
   <code>NotAProvisionedRoomId</code>) — an unusable owner, name, slug or id.</li>
+</ul>
+<h2 id="soliplex_conciergeprovisioneraccess_rules"><code>soliplex_concierge.provisioner.access_rules</code></h2>
+<p>Access rules for a room's owner, built from the forms a room agent may use; no
+agent writes JSONPath. Stdlib only.</p>
+<ul>
+<li><code>claim_rule(claim, value)</code> — the rule matching users whose <code>claim</code> is
+  <code>value</code>, as soliplex spells its <code>email</code> / <code>preferred_username</code> shortcuts;
+  <code>check_claim(claim)</code> checks the claim alone.</li>
+<li><code>claim_value_rule(claims, claim) -&gt; (value, rule)</code> — the claim's value in a
+  user's <code>claims</code>, and the rule matching it; raises <code>ClaimMissing</code> (a
+  <code>KeyError</code>) or <code>ClaimNotAString</code> (a <code>ValueError</code>).</li>
+<li><code>predicate_rule(name)</code> — <code>$[?&lt;name&gt;($)]</code>: the rule matching users whose
+  claims, as a whole, pass a predicate the installation registers under
+  <code>meta.jsonpath_functions</code>.</li>
+<li><code>CLAIM_RE</code>, <code>PREDICATE_RE</code> — the names a rule can use.</li>
+<li><code>AccessRuleError</code> and its subclasses (<code>BadOwnerClaim</code>, <code>BadPredicateName</code>,
+  <code>UnknownPredicate</code>) — a rule that cannot be built.</li>
 </ul>
 <h2 id="soliplex_conciergeprovisionerinterfaces"><code>soliplex_concierge.provisioner.interfaces</code></h2>
 <p>What the core hands its adapters, and what it asks of them (see
@@ -1767,6 +1816,9 @@ it sees it (<code>environment</code>).</p>
 <ul>
 <li><code>read_secret(path) -&gt; str</code> — the signing secret, stripped.</li>
 <li><code>mint_service_token(secret, claims, *, lifetime=300) -&gt; str</code>.</li>
+<li><code>registered_predicates() -&gt; frozenset[str]</code> — the predicates soliplex's
+  JSONPath environment holds (in the backend, the installation's
+  <code>meta.jsonpath_functions</code>), less the RFC 9535 built-ins.</li>
 <li><code>validate_service_token(secret, token) -&gt; dict</code> — the token's claims; raises
   <code>InvalidServiceToken</code> (an <code>interfaces.InvalidToken</code>).</li>
 <li><code>call(base_url, method, path, *, token=None, timeout=30) -&gt; dict</code> — a call
