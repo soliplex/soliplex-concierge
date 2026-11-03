@@ -30,9 +30,11 @@ Routes and statuses
 
   - ``202``: admitted; :class:`Accepted`. The room is created in the
     background: ``GET /rooms/{room_id}`` reports how that goes.
-  - ``400``: the name or slug yields no usable room id; :class:`Error`
+  - ``400``: the name, slug or named owner yields no usable room id;
+    :class:`Error`
   - ``401``: no service token, or one that is not valid; :class:`Error`
-  - ``403``: the requester is not admitted; :class:`Error`
+  - ``403``: the requester is not admitted, or names an owner without
+    being an admin; :class:`Error`
   - ``409``: the room exists, or a request for it is in flight;
     :class:`Refusal`, naming the room
   - ``422``: the body is not a :class:`RoomRequest`
@@ -51,9 +53,10 @@ Routes and statuses
   - ``503``: it cannot yet (for instance, the backend does not admit the
     provisioner itself); plain text saying why
 
-Room ids are ``<owner>:<slug>``: the owner part derives from one of the
-requester's claims, the slug from the request's ``slug``, or else from its
-``name``.
+Room ids are ``<owner>:<slug>``. The room's owner is the requester, its
+owner part derived from one of their claims, unless an admin names another
+in the request's ``owner`` (a :class:`RoomOwner`: a group, say). The slug
+is the request's ``slug``, or else derives from its ``name``.
 
 Versions
 --------
@@ -95,14 +98,33 @@ class State(enum.StrEnum):
     FAILED = "failed"  # the room was not created
 
 
+class RoomOwner(pydantic.BaseModel):
+    """A room's owner, as an admin names it.
+
+    ``owner`` is the room id's owner part; ``json_path`` is the access rule
+    granting the owner the room: a soliplex ACL JSONPath over a user's
+    claims.
+    """
+
+    model_config = pydantic.ConfigDict(extra="forbid")
+
+    owner: str
+    json_path: str
+
+
 class RoomRequest(pydantic.BaseModel):
-    """The body of ``POST /rooms``."""
+    """The body of ``POST /rooms``.
+
+    ``owner``, which only an admin may give, makes someone other than the
+    requester the room's owner.
+    """
 
     model_config = pydantic.ConfigDict(extra="forbid")
 
     name: str
     description: str | None = None
     slug: str | None = None
+    owner: RoomOwner | None = None
 
 
 class Accepted(pydantic.BaseModel):

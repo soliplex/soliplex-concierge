@@ -157,8 +157,8 @@ decides who is asking and whether they may:
   `interfaces.InvalidToken` (or a subclass) when it is not valid
 - `is_admitted(token)`: whether its holder may request rooms (an admin, or
   WRITE on `__provision__`)
-- `is_admin(token)`: whether its holder is an admin, who may see anyone's
-  requests
+- `is_admin(token)`: whether its holder is an admin, who may name a room's
+  owner and see anyone's requests
 
 The toolkit has the pieces for a soliplex installation:
 `soliplex_api.validate_service_token` (its `InvalidServiceToken` is an

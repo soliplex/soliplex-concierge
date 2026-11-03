@@ -204,8 +204,10 @@ constants.
 
 **Models** (pydantic)
 
-- `RoomRequest` — the body of `POST /rooms`: `name`, `description`, `slug`
-  (no other fields).
+- `RoomRequest` — the body of `POST /rooms`: `name`, `description`, `slug`,
+  and `owner` (no other fields).
+- `RoomOwner` — an owner an admin names: `owner` (the id's owner part) and
+  `json_path` (its access rule).
 - `Accepted` — the `202` answer: `room_id`, `issue_url`.
 - `RequestState` — the `GET /rooms/{room_id}` answer: `room_id`, `state` (a
   `State`), `issue_url`, `incomplete`, `error`.
@@ -225,7 +227,8 @@ Checks that an implementation keeps the API's contract (see
 - `async check_health`, `check_requires_a_token`,
   `check_refuses_an_invalid_token`, `check_refuses_the_unadmitted`,
   `check_rejects_a_malformed_body`, `check_rejects_a_bad_slug`,
-  `check_accepts_and_reports`, `check_hides_requests_from_others`,
+  `check_refuses_a_named_owner_from_a_non_admin`, `check_rejects_a_bad_owner`,
+  `check_admin_names_an_owner`, `check_accepts_and_reports`, `check_hides_requests_from_others`,
   `check_reports_unknown_requests`, `check_refuses_an_existing_room` — each
   takes the harness.
 - `ContractViolation(AssertionError)` — a broken contract;

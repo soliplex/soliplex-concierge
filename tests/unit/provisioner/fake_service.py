@@ -39,6 +39,9 @@ FAULTS = frozenset(
         "hide-from-admins",  # hides a request from admins
         "unknown-as-pending",  # reports unknown requests as pending
         "overwrite",  # accepts a request for an existing room
+        "anyone-names-owners",  # lets a non-admin name an owner
+        "accept-any-owner",  # accepts unusable owner parts
+        "ignore-named-owner",  # gives an admin's room to the admin
     }
 )
 
@@ -47,6 +50,7 @@ class _LenientRequest(pydantic.BaseModel):
     name: str
     description: str | None = None
     slug: str | None = None
+    owner: api.RoomOwner | None = None
 
 
 def slugify(name: str) -> str:
@@ -115,6 +119,19 @@ def create_app(faults: frozenset[str] = frozenset()) -> fastapi.FastAPI:
             raise fastapi.HTTPException(
                 status_code=403, detail="the requester may not request rooms"
             )
+        if body.owner is not None:
+            if role != "admin" and "anyone-names-owners" not in faults:
+                raise fastapi.HTTPException(
+                    status_code=403, detail="only an admin may name owners"
+                )
+            named = body.owner.owner
+            if not _SLUG_RE.fullmatch(named):
+                if "accept-any-owner" not in faults:
+                    raise fastapi.HTTPException(
+                        status_code=400, detail=f"unusable owner {named!r}"
+                    )
+            if "ignore-named-owner" not in faults:
+                owner = named
         slug = body.slug if body.slug is not None else slugify(body.name)
         if not _SLUG_RE.fullmatch(slug) and "accept-any-slug" not in faults:
             raise fastapi.HTTPException(

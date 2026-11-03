@@ -11,7 +11,7 @@ The application serves the contract in
 
 - ``POST /rooms`` admits a request (:func:`provision.admit_room`), answers
   ``202``, then creates the room in the background
-  (:func:`provision.create_room`)
+  (:func:`provision.create_room`); an admin may name the room's owner
 - ``GET /rooms/{room_id}`` reports a request's state, to its requester or
   an admin
 - ``GET /ok`` answers ``200`` once the backend admits the provisioner; a
@@ -43,6 +43,8 @@ BACKEND_RETRY = 5
 
 TOKEN_REQUIRED = "a bearer service token is required"
 TOKEN_INVALID = "the service token is not valid"
+NOT_ADMITTED = "the requester may not request rooms"
+NOT_AN_ADMIN = "only an admin may name a room's owner"
 
 logger = logging.getLogger(__name__)
 
@@ -304,17 +306,24 @@ def post_room(
     """Admit a room request, then create the room in the background."""
     claims = _claims(admission, token)
     if not _check(admission.is_admitted, token, "admission"):
-        raise fastapi.HTTPException(
-            status_code=403, detail="the requester may not request rooms"
-        )
+        raise fastapi.HTTPException(status_code=403, detail=NOT_ADMITTED)
+    if body.owner is not None:
+        if not _check(admission.is_admin, token, "admin access"):
+            raise fastapi.HTTPException(status_code=403, detail=NOT_AN_ADMIN)
 
     try:
+        owner = (
+            None
+            if body.owner is None
+            else room_ids.named_owner(body.owner.owner, body.owner.json_path)
+        )
         request = provision.plan_room(
             claims,
             name=body.name,
             provisioner=provisioner,
             description=body.description,
             slug=body.slug,
+            owner=owner,
         )
     except room_ids.RoomIdError as error:
         raise _http_error(400, error) from error

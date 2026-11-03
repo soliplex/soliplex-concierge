@@ -30,7 +30,24 @@ def test_room_request_defaults():
         "name": "Q3 Plans",
         "description": None,
         "slug": None,
+        "owner": None,
     }
+
+
+def test_room_request_with_an_owner():
+    result = api.RoomRequest.model_validate_json(
+        '{"name": "Staff Notes", "owner": '
+        '{"owner": "staff", "json_path": "$[?\'staff\' in @.groups]"}}'
+    )
+
+    assert result.owner == api.RoomOwner(
+        owner="staff", json_path="$[?'staff' in @.groups]"
+    )
+
+
+def test_room_owner_forbids_unknown_fields():
+    with pytest.raises(pydantic.ValidationError):
+        api.RoomOwner(owner="staff", json_path="$", claim="groups")
 
 
 def test_request_state_defaults():

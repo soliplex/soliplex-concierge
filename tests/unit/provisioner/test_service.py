@@ -155,6 +155,58 @@ async def test_post_room_not_admitted(app, script):
     assert script.journal == []
 
 
+STAFF = {"owner": "staff", "json_path": "$[?'staff' in @.groups]"}
+
+
+@pytest.mark.anyio
+async def test_post_room_admin_names_the_owner(app, script):
+    response = await _post(app, token="root-token", owner=STAFF)
+
+    assert response.status_code == 202
+    assert response.json()["room_id"] == "staff:q3-plans"
+    [provisioned] = script.resolved
+    assert provisioned.request.owner == room_ids.RoomOwner(**STAFF)
+    assert (
+        provisioned.request.requester_claims
+        == (fake_parts.TOKENS["root-token"])
+    )
+    assert app.state.requests.get("staff:q3-plans").requester == "root"
+
+
+@pytest.mark.anyio
+async def test_post_room_non_admin_names_the_owner(app, script):
+    response = await _post(app, owner=STAFF)
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": service.NOT_AN_ADMIN}
+    assert script.journal == []
+
+
+@pytest.mark.anyio
+async def test_post_room_admin_check_fails_for_a_named_owner(app, admission):
+    admission.errors["is_admin"] = RuntimeError("no verdict")
+
+    response = await _post(app, token="root-token", owner=STAFF)
+
+    assert response.status_code == 500
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "owner, detail",
+    [
+        ({"owner": "../escape", "json_path": "$"}, "'../escape'"),
+        ({"owner": "staff", "json_path": "  "}, "needs an access rule"),
+    ],
+    ids=["bad-owner-part", "blank-rule"],
+)
+async def test_post_room_admin_names_an_unusable_owner(app, owner, detail):
+    response = await _post(app, token="root-token", owner=owner)
+
+    assert response.status_code == 400
+    assert detail in response.json()["detail"]
+
+
 @pytest.mark.anyio
 async def test_post_room_bad_slug(app):
     response = await _post(app, slug="../escape")

@@ -299,9 +299,10 @@ async def request_room(
         RoomRequestAccepted: the 'status', and for an accepted request its
             'room_id' and 'issue_url'.
     """
+    # Unset fields stay out: services that predate them refuse them.
     body = api.RoomRequest(
         name=name, description=description, slug=slug
-    ).model_dump()
+    ).model_dump(exclude_unset=True)
     timeout = ctx.deps.tool_configs[config.RR_TOOL_KIND].request_timeout
 
     async def post():
