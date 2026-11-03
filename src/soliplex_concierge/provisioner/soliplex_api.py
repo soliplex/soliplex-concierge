@@ -16,6 +16,8 @@ import urllib.request
 
 from soliplex import token_mint
 
+from soliplex_concierge.provisioner import interfaces
+
 SERVICE_TOKEN_LIFETIME = 300
 HTTP_TIMEOUT = 30
 
@@ -30,7 +32,13 @@ class SecretUnreadable(BackendError):
         super().__init__(f"cannot read the signing secret from {path}")
 
 
-class AccessDenied(BackendError):
+class InvalidServiceToken(interfaces.InvalidToken):
+    def __init__(self, reason):
+        self.reason = reason
+        super().__init__(f"the service token is not valid: {reason}")
+
+
+class AccessDenied(BackendError, interfaces.AccessRefused):
     """The backend refused the provisioner's credentials (401 / 403)."""
 
     def __init__(self, url, code):
@@ -68,6 +76,18 @@ def mint_service_token(
     return token_mint.mint_service_token(
         secret, dict(claims), expires_in=lifetime
     )
+
+
+def validate_service_token(secret: str, token: str) -> dict:
+    """The claims of the service token ``token``, signed with ``secret``.
+
+    Raises :class:`InvalidServiceToken` when it is not valid (a bad
+    signature, or expired).
+    """
+    claims, reason = token_mint.load_service_token(secret, token)
+    if claims is None:
+        raise InvalidServiceToken(reason)
+    return claims
 
 
 def call(

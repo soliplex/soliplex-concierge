@@ -11,6 +11,9 @@ creates, and every word it writes, comes from the deployment's adapters:
 - :class:`Backend`: the Soliplex backend that serves the room
 - :class:`IssueTracker` (optional): the request's tracking issue
 
+A provisioner service (:mod:`soliplex_concierge.provisioner.service`) also
+needs an :class:`Admission`: who is asking, and whether they may.
+
 The core passes them data (a :class:`RoomRequest`, the tracking
 :class:`Issue`, each step's outcome); they render what the deployment's
 stack needs, in its own words.
@@ -35,6 +38,21 @@ import datetime
 import typing
 
 from soliplex_concierge.provisioner import room_ids
+
+
+class InvalidToken(Exception):
+    """A caller's service token is not valid; the message says why.
+
+    :meth:`Admission.claims` raises it (or a subclass).
+    """
+
+
+class AccessRefused(Exception):
+    """The backend refuses the provisioner's own credentials.
+
+    :meth:`Backend.check_access` raises it (or a subclass) when the backend
+    answers, but refuses; any other error means it could not be asked.
+    """
 
 
 @dataclasses.dataclass(frozen=True)
@@ -161,6 +179,28 @@ class Backend(typing.Protocol):
         self, request: RoomRequest
     ) -> collections.abc.Sequence[str]:
         """Have the backend load the room."""
+
+
+class Admission(typing.Protocol):
+    """Who is asking for a room, and whether they may.
+
+    Each method takes the caller's bearer token: a soliplex service token
+    holding the requester's claims (see :mod:`api`).
+    """
+
+    def claims(self, token: str) -> collections.abc.Mapping:
+        """The token's claims; raise :class:`InvalidToken` if it is not
+        valid."""
+
+    def is_admitted(self, token: str) -> bool:
+        """May the token's holder request rooms?
+
+        The contract's rule: they are an admin, or hold WRITE on the
+        reserved room id ``__provision__``.
+        """
+
+    def is_admin(self, token: str) -> bool:
+        """Is the token's holder an admin of the installation?"""
 
 
 class IssueTracker(typing.Protocol):

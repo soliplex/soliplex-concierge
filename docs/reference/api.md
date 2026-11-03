@@ -263,6 +263,11 @@ What the core hands its adapters, and what it asks of them (see
 - `Provisioned` — a created room: `request`, `commit`, `issue`, `unfinished`.
 - `RoomStore`, `DatabaseRegistrar`, `UploadsArea`, `Authz`, `Backend`,
   `IssueTracker` (each a `typing.Protocol`) — the adapters.
+- `Admission(typing.Protocol)` — a service's `claims(token)`,
+  `is_admitted(token)` and `is_admin(token)`.
+- `InvalidToken(Exception)` — `Admission.claims` refuses a token;
+  `AccessRefused(Exception)` — `Backend.check_access` finds the backend
+  refusing the provisioner.
 
 ## `soliplex_concierge.provisioner.provision`
 
@@ -328,7 +333,11 @@ it sees it (`environment`).
   owner's rule READ and WRITE.
 - `set_policy(cli, environment, room_id, policy)`,
   `remove_policy(cli, environment, room_id)`, `audit_rooms(cli, environment)`.
-- `CliFailed(Exception)` — the command could not run, or failed.
+- `is_admin(cli, environment, token) -> bool`,
+  `may(cli, environment, token, room_id, permission) -> bool` — the
+  `admin-users check` and `room-authz check` verdicts for a service token.
+- `CliFailed(Exception)` — the command could not run, or failed;
+  `NoVerdict(CliFailed)` — a check gave no verdict.
 
 ## `soliplex_concierge.provisioner.soliplex_api`
 

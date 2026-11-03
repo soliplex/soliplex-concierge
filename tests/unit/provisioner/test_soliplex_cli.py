@@ -206,3 +206,71 @@ def test_audit_rooms(recorded):
             (0,),
         )
     ]
+
+
+# ---- checks ----
+
+
+@pytest.mark.parametrize(
+    "output, expected",
+    [
+        ('{"is_admin": true}', True),
+        ('{"is_admin": false}', False),
+        ('{"is_admin": "yes"}', False),
+    ],
+)
+def test_is_admin(recorded, output, expected):
+    recorded.output = output
+
+    result = soliplex_cli.is_admin("soliplex-cli", ENVIRONMENT, "t0ken")
+
+    assert result is expected
+    assert recorded.calls == [
+        (
+            "soliplex-cli",
+            ("admin-users", "--quiet", "check", ENVIRONMENT),
+            "t0ken",
+            (0, 1),
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "output, expected",
+    [('{"allowed": true}', True), ('{"allowed": false}', False)],
+)
+def test_may(recorded, output, expected):
+    recorded.output = output
+
+    result = soliplex_cli.may(
+        "soliplex-cli", ENVIRONMENT, "t0ken", "__provision__", "write"
+    )
+
+    assert result is expected
+    assert recorded.calls == [
+        (
+            "soliplex-cli",
+            (
+                "room-authz",
+                "--quiet",
+                "check",
+                ENVIRONMENT,
+                "__provision__",
+                "--permission",
+                "write",
+            ),
+            "t0ken",
+            (0, 1),
+        )
+    ]
+
+
+@pytest.mark.parametrize("output", ["", "not json", "[1]", '{"other": 1}'])
+def test_is_admin_without_a_verdict(recorded, output):
+    recorded.output = output
+
+    with pytest.raises(soliplex_cli.NoVerdict) as caught:
+        soliplex_cli.is_admin("soliplex-cli", ENVIRONMENT, "t0ken")
+
+    assert isinstance(caught.value, soliplex_cli.CliFailed)
+    assert caught.value.output == output.strip()
