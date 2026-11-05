@@ -25,6 +25,7 @@ import httpx2
 import pydantic
 
 from soliplex_concierge.provisioner import api
+from soliplex_concierge.provisioner import room_ids
 
 BASE_URL = "http://provisioner"
 NOT_A_TOKEN = "not-a-service-token"
@@ -57,6 +58,10 @@ class Harness(typing.Protocol):
       application does not admit
     - ``occupy(name)``: make the room that ``admitted_token``'s requester
       would get for a request named ``name`` exist already
+
+    Optionally, ``room_id_separator``: the separator joining the owner and
+    name parts of the room ids the application composes (by default
+    :data:`room_ids.DEFAULT_SEPARATOR`).
     """
 
     app: typing.Any
@@ -66,6 +71,10 @@ class Harness(typing.Protocol):
     not_admitted_token: str
 
     def occupy(self, name: str) -> None: ...
+
+
+def _room_id_separator(harness: Harness) -> str:
+    return getattr(harness, "room_id_separator", room_ids.DEFAULT_SEPARATOR)
 
 
 def _expect(condition: bool, message: str) -> None:
@@ -287,8 +296,9 @@ async def check_admin_names_an_owner(harness: Harness) -> None:
     what = "POST /rooms naming an owner, by an admin"
     _expect_status(response, 202, what)
     accepted = _parse(api.Accepted, response, what)
+    separator = _room_id_separator(harness)
     _expect(
-        accepted.room_id.startswith(f"{owner_part}:"),
+        accepted.room_id.startswith(f"{owner_part}{separator}"),
         f"{what}: expected a room id owned by {owner_part!r}, got "
         f"{accepted.room_id!r}",
     )

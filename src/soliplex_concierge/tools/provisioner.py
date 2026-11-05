@@ -341,9 +341,10 @@ async def request_room(
 ) -> RoomRequestAccepted:
     """Ask the room provisioner to create a new private room.
 
-    The room's id is '<owner>:<slug>': the owner comes from the user's
-    identity, the slug from 'name' unless you pass one. Only the owner gets
-    access to the room.
+    The room's id joins an owner part and a slug (e.g.
+    'alice--q3-plans'): the owner comes from the user's identity, the slug
+    from 'name' unless you pass one. Only the owner gets access to the
+    room.
 
     An administrator may ask for a room owned by someone else: pass
     'owner', with whom it grants the room in one of two forms, and only
@@ -370,8 +371,8 @@ async def request_room(
         name: the room's human-readable name, as the user gave it.
         description: a one-line description of the room's purpose; defaults
             to the name.
-        slug: the room id's second part (letters, digits, '.', '_', '-');
-            omit it to derive one from the name.
+        slug: the room id's second part: lowercase letters and digits,
+            joined by single '-'; omit it to derive one from the name.
         owner: the room id's first part, for a room owned by someone other
             than the user (letters, digits, '.', '_', '-').
         owner_claim: with 'owner_value', the claim a user must hold.

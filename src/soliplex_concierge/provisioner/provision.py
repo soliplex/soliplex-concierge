@@ -120,6 +120,7 @@ class Provisioner:
     backend: interfaces.Backend
     tracker: interfaces.IssueTracker | None = None
     owner_claim: str = room_ids.DEFAULT_OWNER_CLAIM
+    room_id_separator: str = room_ids.DEFAULT_SEPARATOR
     flatten_owner: bool = False
 
 
@@ -144,7 +145,8 @@ def plan_room(
     """Work out the room a requester (``requester_claims``) asks for.
 
     ``name`` is the room's human-readable name; ``slug`` (derived from it
-    when omitted) completes the room id ``<owner>:<slug>``; ``description``
+    when omitted) completes the room id (owner part, the provisioner's
+    ``room_id_separator``, slug); ``description``
     defaults to the name. ``owner`` (see :func:`room_ids.named_owner`)
     makes someone other than the requester the room's owner; whether the
     requester may do that is for the caller to decide. Without it, the
@@ -160,9 +162,12 @@ def plan_room(
             requester_claims,
             claim=provisioner.owner_claim,
             flatten_value=provisioner.flatten_owner,
+            separator=provisioner.room_id_separator,
         )
     room_id = room_ids.make_room_id(
-        owner, slug if slug is not None else room_ids.slugify(name)
+        owner,
+        slug if slug is not None else room_ids.slugify(name),
+        separator=provisioner.room_id_separator,
     )
     return interfaces.RoomRequest(
         requester_claims=requester_claims,

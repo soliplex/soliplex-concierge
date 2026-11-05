@@ -15,7 +15,7 @@ from soliplex_concierge.provisioner import room_ids
 
 CLAIMS = {"preferred_username": "alice", "email": "alice@example.com"}
 NOW = datetime.datetime(2026, 11, 3, 12, 0, tzinfo=datetime.UTC)
-ROOM = "alice:q3-plans"
+ROOM = "alice--q3-plans"
 
 # The calls of a clean admission, in order.
 ADMISSION = [
@@ -95,7 +95,7 @@ def test_plan_room_with_a_slug_and_a_description():
         now=NOW,
     )
 
-    assert result.room == "alice:plans"
+    assert result.room == "alice--plans"
     assert result.description == "Plans for Q3"
 
 
@@ -108,8 +108,54 @@ def test_plan_room_flattens_the_owner_claim():
         CLAIMS, name="Q3 Plans", provisioner=provisioner, now=NOW
     )
 
-    assert result.room == "alice_example.com:q3-plans"
+    assert result.room == "alice_example.com--q3-plans"
     assert result.owner.json_path == '$[?$.email == "alice@example.com"]'
+
+
+def test_plan_room_with_a_room_id_separator():
+    provisioner = fake_parts.make_provisioner(
+        fake_parts.Script(), room_id_separator=":"
+    )
+
+    result = provision.plan_room(
+        CLAIMS, name="Q3 Plans", provisioner=provisioner, now=NOW
+    )
+
+    assert result.room == "alice:q3-plans"
+    assert result.room_id == room_ids.RoomId(
+        owner="alice", slug="q3-plans", separator=":"
+    )
+
+
+def test_plan_room_replaces_the_separator_in_the_owner():
+    provisioner = fake_parts.make_provisioner(
+        fake_parts.Script(), room_id_separator="__"
+    )
+    claims = {"preferred_username": "jo__smith"}
+
+    result = provision.plan_room(
+        claims, name="Q3 Plans", provisioner=provisioner, now=NOW
+    )
+
+    assert result.room == "jo-smith__q3-plans"
+    assert result.owner.json_path == '$[?$.preferred_username == "jo__smith"]'
+
+
+def test_plan_room_refuses_a_slug_carrying_the_separator():
+    provisioner = fake_parts.make_provisioner(
+        fake_parts.Script(), room_id_separator="__"
+    )
+
+    with pytest.raises(room_ids.BadSlug) as caught:
+        provision.plan_room(
+            CLAIMS,
+            name="Q3 Plans",
+            provisioner=provisioner,
+            slug="q3__plans",
+            now=NOW,
+        )
+
+    assert caught.value.separator == "__"
 
 
 def test_plan_room_for_a_named_owner():
@@ -120,7 +166,7 @@ def test_plan_room_for_a_named_owner():
         CLAIMS, name="Q3 Plans", provisioner=provisioner, owner=staff, now=NOW
     )
 
-    assert result.room == "staff:q3-plans"
+    assert result.room == "staff--q3-plans"
     assert result.owner is staff
     assert result.requester_claims == CLAIMS
 
@@ -489,7 +535,7 @@ def test_provision_room():
         now=NOW,
     )
 
-    assert result.request.room == "staff:plans"
+    assert result.request.room == "staff--plans"
     assert result.request.requester_claims == CLAIMS
     assert result.request.description == "Plans for Q3"
     assert result.request.requested_at == NOW

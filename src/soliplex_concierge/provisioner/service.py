@@ -166,6 +166,7 @@ def requester_id(
             claims,
             claim=provisioner.owner_claim,
             flatten_value=provisioner.flatten_owner,
+            separator=provisioner.room_id_separator,
         ).owner
     except (room_ids.RoomIdError, access_rules.AccessRuleError):
         return None
@@ -278,7 +279,9 @@ def _named_owner(
         rule = access_rules.predicate_rule(named.predicate)
     else:
         rule = access_rules.claim_rule(named.claim, named.value)
-    return room_ids.named_owner(named.owner, rule)
+    return room_ids.named_owner(
+        named.owner, rule, separator=provisioner.room_id_separator
+    )
 
 
 def _create(

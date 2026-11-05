@@ -85,7 +85,7 @@ HEALTH_PATH = "/ok"
 def room_path(room_id: str) -> str:
     """The path of the request for room ``room_id``, quoted as one segment.
 
-    The ``:`` separating a room id's parts stays as is.
+    A ``:`` separating a room id's parts (the legacy separator) stays as is.
     """
     return f"{ROOMS_PATH}/{urllib.parse.quote(room_id, safe=':')}"
 
