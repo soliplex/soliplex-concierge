@@ -107,10 +107,15 @@ class ProvisioningFailed(ProvisionError):
 
 @dataclasses.dataclass(frozen=True)
 class Provisioner:
-    """A deployment's adapters, and how it derives a room's owner.
+    """A deployment's adapters, and how it derives a room's id.
 
     ``owner_claim`` names the requester's claim a room's owner part comes
     from; ``flatten_owner`` flattens it (see :func:`room_ids.flatten`).
+    ``room_id_separator`` joins the owner part and the slug (default
+    :data:`room_ids.DEFAULT_SEPARATOR`; ``":"`` keeps the legacy form).
+
+    Raises :class:`room_ids.BadSeparator` for an unusable separator (see
+    :func:`room_ids.validate_separator`).
     """
 
     store: interfaces.RoomStore
@@ -122,6 +127,9 @@ class Provisioner:
     owner_claim: str = room_ids.DEFAULT_OWNER_CLAIM
     room_id_separator: str = room_ids.DEFAULT_SEPARATOR
     flatten_owner: bool = False
+
+    def __post_init__(self) -> None:
+        room_ids.validate_separator(self.room_id_separator)
 
 
 @dataclasses.dataclass(frozen=True)

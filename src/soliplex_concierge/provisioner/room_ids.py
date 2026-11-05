@@ -1,10 +1,16 @@
 """Ids for rooms the provisioner creates on request.
 
-A provisioned room's id is ``<owner>:<slug>``: ``owner`` names the room's
-owner, ``slug`` is the name the requester chose. A deployment may use the
-id as, for instance, the room's directory name, its LanceDB stem, or its
-uploads directory, so each part must be a safe single path segment of at
-most :data:`MAX_SEGMENT` characters.
+A provisioned room's id is ``<owner><separator><slug>`` (by default
+``<owner>--<slug>``): ``owner`` names the room's owner, ``slug`` names the
+room among the owner's rooms, and the separator is the deployment's (see
+:func:`validate_separator`). A deployment may use the id as, for instance,
+the room's directory name, its LanceDB stem, or its uploads directory, so
+each part must be a safe single path segment of at most
+:data:`MAX_SEGMENT` characters.
+
+Neither part ever contains the separator, so an id splits into its parts
+one way only: an owner part has each separator replaced (see
+:func:`without_separator`), and a slug carrying one is refused.
 
 A :class:`RoomOwner` pairs the owner part with the access rule that grants
 the owner the room: a soliplex ACL JSONPath over a user's claims (see
@@ -19,11 +25,14 @@ email-shaped values fit the segment rule. Flattening is neither invertible
 nor injective, so the access rule matches the raw claim value, never the
 owner part.
 
-The slug is the requester's explicit choice or, by default, derived from
-the room's human-readable name by :func:`slugify`.
+The requester gives the room a human-readable name (its title), from which
+:func:`slugify` derives the slug; its output never contains a valid
+separator. A requester who asks for a specific slug gets it when it fits
+(:func:`validate_slug`); otherwise the request is refused, so they can
+retry with another.
 
-Operator-curated rooms keep flat ids (no ``:``), so they never collide with
-a provisioned one.
+Operator-curated rooms keep flat ids (no separator), so they never collide
+with a provisioned one.
 
 Stdlib only.
 """
@@ -45,12 +54,20 @@ DEFAULT_OWNER_CLAIM = "preferred_username"
 # (see :func:`without_separator`) and slugs carrying it are refused, which
 # keeps the split of an id into its parts unique.
 SEGMENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-# Keeps '<owner>:<slug>.lancedb' well inside a 255-byte file name.
+# Keeps '<owner><separator><slug>.lancedb' well inside a 255-byte file name.
 MAX_SEGMENT = 64
+MAX_SEPARATOR = 8
 _SEGMENT_RULE = f"{SEGMENT_RE.pattern}, at most {MAX_SEGMENT} characters"
 
 # What 'slugify' collapses into one '-'.
 _NON_SLUG_RE = re.compile(r"[^a-z0-9]+")
+# What 'slugify' output is made of: a separator drawn only from these, and
+# holding no '--', occurs inside some slug.
+_SLUG_CHARS_RE = re.compile(r"[a-z0-9-]+")
+# Never in a separator: path separators, and what Windows file names, URIs
+# or S3 keys refuse or treat specially. ':' stays allowed, so a deployment
+# can keep the legacy separator.
+_UNSAFE_SEPARATOR_CHARS = frozenset('/\\<>"|?*#%')
 
 
 class RoomIdError(Exception):
@@ -93,6 +110,14 @@ class BadSlug(RoomIdError):
         super().__init__(
             f"room slug {slug!r} must match {_SEGMENT_RULE} and must not "
             f"contain {separator!r}"
+        )
+
+
+class BadSeparator(RoomIdError):
+    def __init__(self, separator, reason):
+        self.separator, self.reason = separator, reason
+        super().__init__(
+            f"room id separator {separator!r} is unusable: {reason}"
         )
 
 
@@ -148,6 +173,38 @@ def is_segment(value: str) -> bool:
 def flatten(value: str) -> str:
     """Map an email-shaped claim value onto the segment character set."""
     return value.replace("@", "_")
+
+
+def validate_separator(separator: str) -> None:
+    """Raise :class:`BadSeparator` unless ``separator`` can join room ids.
+
+    It must be printable ASCII of 1 to :data:`MAX_SEPARATOR` characters,
+    hold no whitespace, no ``/ \\ < > " | ? * # %``, and must not be able
+    to occur inside a :func:`slugify` output (so neither ``-`` nor any run
+    of lowercase letters, digits and single ``-``).
+    """
+    if not separator:
+        raise BadSeparator(separator, "it is empty")
+    if len(separator) > MAX_SEPARATOR:
+        raise BadSeparator(
+            separator, f"it is longer than {MAX_SEPARATOR} characters"
+        )
+    unsafe = sorted(
+        {
+            char
+            for char in separator
+            if char in _UNSAFE_SEPARATOR_CHARS
+            or not char.isascii()
+            or not char.isprintable()
+            or char.isspace()
+        }
+    )
+    if unsafe:
+        raise BadSeparator(separator, f"it contains {''.join(unsafe)!r}")
+    if _SLUG_CHARS_RE.fullmatch(separator) and "--" not in separator:
+        raise BadSeparator(
+            separator, "slugs derived from room names can contain it"
+        )
 
 
 def without_separator(value: str, separator: str = DEFAULT_SEPARATOR) -> str:

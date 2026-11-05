@@ -61,7 +61,8 @@ class RoomRequest:
 
     ``requester_claims`` are the token claims of whoever asked; ``owner``
     is whom the room belongs to, which need not be the requester (see
-    :mod:`room_ids`). ``room_id`` is ``<owner>:<slug>``.
+    :mod:`room_ids`). ``room_id`` joins the owner part and the slug with
+    the provisioner's ``room_id_separator``.
     """
 
     requester_claims: collections.abc.Mapping

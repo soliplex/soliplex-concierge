@@ -68,6 +68,50 @@ def test_flatten(value, expected):
     assert result == expected
 
 
+# ---- validate_separator ----
+
+
+@pytest.mark.parametrize(
+    "separator",
+    [room_ids.DEFAULT_SEPARATOR, "--", ":", "__", "_", "~", "-_", "a--b", "X"],
+)
+def test_validate_separator_accepts(separator):
+    result = room_ids.validate_separator(separator)
+
+    assert result is None
+
+
+@pytest.mark.parametrize(
+    "separator, reason",
+    [
+        ("", "it is empty"),
+        ("~" * (room_ids.MAX_SEPARATOR + 1), "it is longer than 8 characters"),
+        ("/", "it contains '/'"),
+        ("\\", "it contains '\\\\'"),
+        ("?#", "it contains '#?'"),
+        ("%", "it contains '%'"),
+        (" ", "it contains ' '"),
+        ("\t", "it contains '\\t'"),
+        ("\x00", "it contains '\\x00'"),
+        ("\u2192", "it contains '\u2192'"),
+        ("-", "slugs derived from room names can contain it"),
+        ("x", "slugs derived from room names can contain it"),
+        ("a-b", "slugs derived from room names can contain it"),
+        ("-a-", "slugs derived from room names can contain it"),
+    ],
+)
+def test_validate_separator_rejects(separator, reason):
+    with pytest.raises(room_ids.RoomIdError) as caught:
+        room_ids.validate_separator(separator)
+
+    assert type(caught.value) is room_ids.BadSeparator
+    assert caught.value.separator == separator
+    assert caught.value.reason == reason
+    assert str(caught.value) == (
+        f"room id separator {separator!r} is unusable: {reason}"
+    )
+
+
 # ---- without_separator ----
 
 

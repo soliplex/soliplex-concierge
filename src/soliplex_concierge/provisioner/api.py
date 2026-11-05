@@ -54,7 +54,8 @@ Routes and statuses
   - ``503``: it cannot yet (for instance, the backend does not admit the
     provisioner itself); plain text saying why
 
-Room ids are ``<owner>:<slug>``. The room's owner is the requester, its
+Room ids are ``<owner><separator><slug>``, the separator being the
+deployment's (by default ``--``). The room's owner is the requester, its
 owner part derived from one of their claims, unless an admin names another
 in the request's ``owner`` (a :class:`RoomOwner`: a group, say). The slug
 is the request's ``slug``, or else derives from its ``name``.

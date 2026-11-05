@@ -60,6 +60,28 @@ def _admitted(script, provisioner):
     return admitted
 
 
+# ---- Provisioner ----
+
+
+@pytest.mark.parametrize("separator", ["--", ":", "__"])
+def test_provisioner_accepts_a_room_id_separator(separator):
+    result = fake_parts.make_provisioner(
+        fake_parts.Script(), room_id_separator=separator
+    )
+
+    assert result.room_id_separator == separator
+
+
+@pytest.mark.parametrize("separator", ["", "-", "/", "a b"])
+def test_provisioner_rejects_a_bad_room_id_separator(separator):
+    with pytest.raises(room_ids.BadSeparator) as caught:
+        fake_parts.make_provisioner(
+            fake_parts.Script(), room_id_separator=separator
+        )
+
+    assert caught.value.separator == separator
+
+
 # ---- plan_room ----
 
 
