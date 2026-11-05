@@ -7,6 +7,7 @@ from soliplex_concierge.provisioner import api
 @pytest.mark.parametrize(
     "room_id, expected",
     [
+        ("phreddy--q3-plans", "/rooms/phreddy--q3-plans"),
         ("phreddy:q3-plans", "/rooms/phreddy:q3-plans"),
         ("a:b/../ok", "/rooms/a:b%2F..%2Fok"),
         ("a b:c?d#e", "/rooms/a%20b:c%3Fd%23e"),

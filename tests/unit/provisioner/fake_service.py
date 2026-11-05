@@ -55,6 +55,11 @@ class _LenientRequest(pydantic.BaseModel):
     owner: api.RoomOwner | None = None
 
 
+# This fake composes room ids the legacy way, so its harness names the
+# separator (the contract's default is ``room_ids.DEFAULT_SEPARATOR``).
+SEPARATOR = ":"
+
+
 def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
@@ -146,7 +151,7 @@ def create_app(faults: frozenset[str] = frozenset()) -> fastapi.FastAPI:
             raise fastapi.HTTPException(
                 status_code=400, detail=f"unusable slug {slug!r}"
             )
-        room_id = f"{owner}:{slug}"
+        room_id = f"{owner}{SEPARATOR}{slug}"
         if room_id in app.state.rooms and "overwrite" not in faults:
             refusal = api.Refusal(
                 detail=f"room {room_id!r} exists", room_id=room_id
@@ -201,6 +206,7 @@ class FakeHarness:
     other_token: str = "bob-token"
     admin_token: str = "root-token"
     not_admitted_token: str = "carol-token"
+    room_id_separator: str = SEPARATOR
 
     def occupy(self, name: str) -> None:
-        self.app.state.rooms.add(f"alice:{slugify(name)}")
+        self.app.state.rooms.add(f"alice{SEPARATOR}{slugify(name)}")
