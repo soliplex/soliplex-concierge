@@ -1270,11 +1270,16 @@ missing or invalid token gets <code>401</code>, with a <code>WWW-Authenticate: B
 <div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Q3 Plans&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Plans for Q3&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;slug&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;q3-plans&quot;</span><span class="p">}</span>
 </span></code></pre></div>
 <p><code>description</code> and <code>slug</code> are optional, and no other field is allowed. The new
-room's id is <code>&lt;owner&gt;:&lt;slug&gt;</code>: the owner part derives from one of the
-requester's claims, and the slug is the request's <code>slug</code>, or else is derived
-from its <code>name</code>.</p>
+room's id is <code>&lt;owner&gt;&lt;separator&gt;&lt;slug&gt;</code>, the separator being the
+deployment's (by default <code>--</code>, as in <code>alice--q3-plans</code>). The owner part
+derives from one of the requester's claims: lowercased by default, with any
+separator in it replaced. The slug derives from the request's <code>name</code>, unless
+the request asks for a specific <code>slug</code>; one that does not fit (including one
+containing the separator) is a <code>400</code>, and the caller may retry with another.</p>
 <p>An admin may make someone other than themselves the room's owner with the
-optional <code>owner</code>, a <code>RoomOwner</code>. <code>owner.owner</code> is the room id's owner part.
+optional <code>owner</code>, a <code>RoomOwner</code>. <code>owner.owner</code> is the room id's owner part,
+normalized as a claimed one is (lowercased by default, any separator
+replaced).
 Whom the room is granted to is given in one of two forms:</p>
 <ul>
 <li>
@@ -1345,8 +1350,8 @@ requester is still the one who asked, and may see the request.</p>
 out for itself. The concierge relies on this when it retries a request that
 timed out: a <code>409</code> naming the room means the first attempt got through.</p>
 <h3 id="get-roomsroom_id"><code>GET /rooms/{room_id}</code></h3>
-<p>The room id is quoted as one path segment, with its <code>:</code> left as is
-(<code>api.room_path</code>).</p>
+<p>The room id is quoted as one path segment (<code>api.room_path</code>); the default
+<code>--</code> separator needs no quoting, and a legacy <code>:</code> is left as is.</p>
 <table>
 <thead>
 <tr>

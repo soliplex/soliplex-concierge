@@ -1681,7 +1681,9 @@ constants.</p>
 <ul>
 <li><code>Harness(typing.Protocol)</code> — the application under test (<code>app</code>), service
   tokens for its requesters (<code>admitted_token</code>, <code>other_token</code>, <code>admin_token</code>,
-  <code>not_admitted_token</code>), and <code>occupy(name)</code>.</li>
+  <code>not_admitted_token</code>), and <code>occupy(name)</code>; optionally <code>room_id_separator</code>
+  (the separator in the room ids it composes, by default
+  <code>room_ids.DEFAULT_SEPARATOR</code>).</li>
 <li><code>async check_all(harness)</code> — runs every check in <code>ALL_CHECKS</code>.</li>
 <li><code>async check_health</code>, <code>check_requires_a_token</code>,
   <code>check_refuses_an_invalid_token</code>, <code>check_refuses_the_unadmitted</code>,
@@ -1695,21 +1697,38 @@ constants.</p>
   API's model for it.</li>
 </ul>
 <h2 id="soliplex_conciergeprovisionerroom_ids"><code>soliplex_concierge.provisioner.room_ids</code></h2>
-<p>Ids of provisioned rooms (<code>&lt;owner&gt;:&lt;slug&gt;</code>), and their owners (see
-<a href="../../tasks/provisioners/#the-owner-and-the-requester">The owner and the requester</a>).</p>
+<p>Ids of provisioned rooms (<code>&lt;owner&gt;&lt;separator&gt;&lt;slug&gt;</code>, by default
+<code>&lt;owner&gt;--&lt;slug&gt;</code>), and their owners (see
+<a href="../../tasks/provisioners/#the-owner-and-the-requester">The owner and the requester</a>).
+Neither part ever contains the separator: owner parts have it replaced, and
+slugs carrying it are refused.</p>
 <ul>
+<li><code>DEFAULT_SEPARATOR</code> (<code>"--"</code>), <code>DEFAULT_OWNER_CLAIM</code>
+  (<code>"preferred_username"</code>), <code>MAX_SEGMENT</code>, <code>MAX_SEPARATOR</code>.</li>
 <li><code>RoomOwner(owner, json_path)</code> — the id's owner part, and the access rule (a
   soliplex ACL JSONPath) granting the owner the room.</li>
-<li><code>RoomId(owner, slug)</code> — an id, split; <code>str()</code> joins it.</li>
-<li><code>owner_from_claims(claims, *, claim="preferred_username", flatten_value=False)</code>
-  — the requester's own owner, its rule matching the claim's raw value.</li>
-<li><code>named_owner(owner, json_path)</code> — any other owner, such as a group, with
-  a rule from <code>access_rules</code>.</li>
-<li><code>slugify(name)</code>, <code>validate_slug(slug)</code>, <code>make_room_id(owner, slug)</code>,
-  <code>parse_room_id(room_id)</code>, <code>is_segment(value)</code>, <code>flatten(value)</code>.</li>
+<li><code>RoomId(owner, slug, separator=DEFAULT_SEPARATOR)</code> — an id, split; <code>str()</code>
+  joins it.</li>
+<li><code>owner_from_claims(claims, *, claim="preferred_username",
+  flatten_value=False, lowercase_value=True, separator=DEFAULT_SEPARATOR)</code> —
+  the requester's own owner, its rule matching the claim's raw value.</li>
+<li><code>named_owner(owner, json_path, separator=DEFAULT_SEPARATOR,
+  lowercase=True)</code> — any other owner, such as a group, with a rule from
+  <code>access_rules</code>.</li>
+<li><code>validate_separator(separator)</code> — refuses a separator that is empty, longer
+  than <code>MAX_SEPARATOR</code>, not printable ASCII, holds whitespace or any of
+  <code>/ \ &lt; &gt; " | ? * # %</code>, or could occur inside a <code>slugify</code> output (such as
+  <code>-</code>).</li>
+<li><code>without_separator(value, separator=DEFAULT_SEPARATOR)</code> — <code>value</code> with each
+  separator replaced by <code>-</code> (or <code>_</code>, when the separator holds <code>-</code>).</li>
+<li><code>slugify(name)</code>, <code>validate_slug(slug, separator=DEFAULT_SEPARATOR)</code>,
+  <code>make_room_id(owner, slug, separator=DEFAULT_SEPARATOR)</code>,
+  <code>parse_room_id(room_id, separator=DEFAULT_SEPARATOR)</code>, <code>is_segment(value)</code>,
+  <code>flatten(value)</code>.</li>
 <li><code>RoomIdError</code> and its subclasses (<code>OwnerClaimMissing</code>, <code>BadOwner</code>,
   <code>BadOwnerPart</code>, <code>NoAccessRule</code>, <code>BadSlug</code>, <code>SlugEmpty</code>,
-  <code>NotAProvisionedRoomId</code>) — an unusable owner, name, slug or id.</li>
+  <code>NotAProvisionedRoomId</code>, <code>BadSeparator</code>) — an unusable owner, name, slug,
+  id or separator.</li>
 </ul>
 <h2 id="soliplex_conciergeprovisioneraccess_rules"><code>soliplex_concierge.provisioner.access_rules</code></h2>
 <p>Access rules for a room's owner, built from the forms a room agent may use; no
@@ -1750,8 +1769,10 @@ agent writes JSONPath. Stdlib only.</p>
 <a href="../../tasks/provisioners/#what-the-core-does">What the core does</a>).</p>
 <ul>
 <li><code>Provisioner(store, registrar, uploads, authz, backend, tracker=None,
-  owner_claim="preferred_username", flatten_owner=False)</code> — a deployment's
-  adapters.</li>
+  owner_claim="preferred_username", room_id_separator="--",
+  flatten_owner=False, lowercase_owner=True)</code> — a deployment's adapters, and
+  how it derives a room's id; raises <code>room_ids.BadSeparator</code> for an unusable
+  separator (<code>":"</code> keeps the legacy form).</li>
 <li><code>plan_room(requester_claims, *, name, provisioner, description=None,
   slug=None, owner=None, now=None) -&gt; RoomRequest</code> — changes nothing.</li>
 <li><code>admit_room(request, provisioner) -&gt; Admitted</code> — checks, then files the
