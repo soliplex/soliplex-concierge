@@ -42,12 +42,17 @@ The body is a `RoomRequest`:
 ```
 
 `description` and `slug` are optional, and no other field is allowed. The new
-room's id is `<owner>:<slug>`: the owner part derives from one of the
-requester's claims, and the slug is the request's `slug`, or else is derived
-from its `name`.
+room's id is `<owner><separator><slug>`, the separator being the
+deployment's (by default `--`, as in `alice--q3-plans`). The owner part
+derives from one of the requester's claims: lowercased by default, with any
+separator in it replaced. The slug derives from the request's `name`, unless
+the request asks for a specific `slug`; one that does not fit (including one
+containing the separator) is a `400`, and the caller may retry with another.
 
 An admin may make someone other than themselves the room's owner with the
-optional `owner`, a `RoomOwner`. `owner.owner` is the room id's owner part.
+optional `owner`, a `RoomOwner`. `owner.owner` is the room id's owner part,
+normalized as a claimed one is (lowercased by default, any separator
+replaced).
 Whom the room is granted to is given in one of two forms:
 
 - a claim and its exact value, for one person:
@@ -86,8 +91,8 @@ timed out: a `409` naming the room means the first attempt got through.
 
 ### `GET /rooms/{room_id}`
 
-The room id is quoted as one path segment, with its `:` left as is
-(`api.room_path`).
+The room id is quoted as one path segment (`api.room_path`); the default
+`--` separator needs no quoting, and a legacy `:` is left as is.
 
 | Status | Body | Meaning |
 |---|---|---|

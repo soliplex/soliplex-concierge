@@ -107,10 +107,21 @@ class ProvisioningFailed(ProvisionError):
 
 @dataclasses.dataclass(frozen=True)
 class Provisioner:
-    """A deployment's adapters, and how it derives a room's owner.
+    """A deployment's adapters, and how it derives a room's id.
 
-    ``owner_claim`` names the requester's claim a room's owner part comes
-    from; ``flatten_owner`` flattens it (see :func:`room_ids.flatten`).
+    - ``owner_claim`` names the requester's claim from which a room's owner
+      part derives.
+
+    - ``flatten_owner`` flattens it (see :func:`room_ids.flatten`).
+
+    - ``lowercase_owner`` lowercases it (as well as any owner provided by
+      the admin).
+
+    - ``room_id_separator`` joins the owner part and the slug (default
+      :data:`room_ids.DEFAULT_SEPARATOR`; ``":"`` keeps the legacy form).
+
+    Raises :class:`room_ids.BadSeparator` for an unusable separator (see
+    :func:`room_ids.validate_separator`).
     """
 
     store: interfaces.RoomStore
@@ -120,7 +131,12 @@ class Provisioner:
     backend: interfaces.Backend
     tracker: interfaces.IssueTracker | None = None
     owner_claim: str = room_ids.DEFAULT_OWNER_CLAIM
+    room_id_separator: str = room_ids.DEFAULT_SEPARATOR
     flatten_owner: bool = False
+    lowercase_owner: bool = True
+
+    def __post_init__(self) -> None:
+        room_ids.validate_separator(self.room_id_separator)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -144,7 +160,8 @@ def plan_room(
     """Work out the room a requester (``requester_claims``) asks for.
 
     ``name`` is the room's human-readable name; ``slug`` (derived from it
-    when omitted) completes the room id ``<owner>:<slug>``; ``description``
+    when omitted) completes the room id (owner part, the provisioner's
+    ``room_id_separator``, slug); ``description``
     defaults to the name. ``owner`` (see :func:`room_ids.named_owner`)
     makes someone other than the requester the room's owner; whether the
     requester may do that is for the caller to decide. Without it, the
@@ -160,9 +177,13 @@ def plan_room(
             requester_claims,
             claim=provisioner.owner_claim,
             flatten_value=provisioner.flatten_owner,
+            lowercase_value=provisioner.lowercase_owner,
+            separator=provisioner.room_id_separator,
         )
     room_id = room_ids.make_room_id(
-        owner, slug if slug is not None else room_ids.slugify(name)
+        owner,
+        slug if slug is not None else room_ids.slugify(name),
+        separator=provisioner.room_id_separator,
     )
     return interfaces.RoomRequest(
         requester_claims=requester_claims,

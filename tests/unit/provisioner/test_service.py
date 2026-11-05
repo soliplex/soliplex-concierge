@@ -20,7 +20,7 @@ from soliplex_concierge.provisioner import provision
 from soliplex_concierge.provisioner import room_ids
 from soliplex_concierge.provisioner import service
 
-ROOM = "alice:q3-plans"
+ROOM = "alice--q3-plans"
 ISSUE_URL = fake_parts.FakeIssue().url
 
 
@@ -75,7 +75,9 @@ class _Harness:
         self.not_admitted_token = "carol-token"
 
     def occupy(self, name):
-        self.script.rooms.add(f"alice:{room_ids.slugify(name)}")
+        self.script.rooms.add(
+            str(room_ids.RoomId(owner="alice", slug=room_ids.slugify(name)))
+        )
 
 
 @pytest.mark.anyio
@@ -99,7 +101,7 @@ async def test_post_room(app, script, token):
     assert response.status_code == 202
     assert response.headers[api.API_VERSION_HEADER] == api.API_VERSION
     owner = "alice" if token == "alice-token" else "root"
-    room = f"{owner}:q3-plans"
+    room = f"{owner}--q3-plans"
     assert api.Accepted.model_validate_json(response.content) == (
         api.Accepted(room_id=room, issue_url=ISSUE_URL)
     )
@@ -157,16 +159,18 @@ async def test_post_room_not_admitted(app, script):
 
 STAFF = {"owner": "staff", "predicate": "is_staff"}
 BHARNEY = {"owner": "bharney", "claim": "email", "value": "b@example.com"}
+NIGHTS = {"owner": "Night--Shift", "predicate": "is_staff"}
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "owner, room, json_path",
     [
-        (STAFF, "staff:q3-plans", "$[?is_staff($)]"),
-        (BHARNEY, "bharney:q3-plans", '$[?$.email == "b@example.com"]'),
+        (STAFF, "staff--q3-plans", "$[?is_staff($)]"),
+        (BHARNEY, "bharney--q3-plans", '$[?$.email == "b@example.com"]'),
+        (NIGHTS, "night_shift--q3-plans", "$[?is_staff($)]"),
     ],
-    ids=["predicate", "claim"],
+    ids=["predicate", "claim", "separator-in-owner"],
 )
 async def test_post_room_admin_names_the_owner(
     app, script, owner, room, json_path
@@ -177,7 +181,7 @@ async def test_post_room_admin_names_the_owner(
     assert response.json()["room_id"] == room
     [provisioned] = script.resolved
     assert provisioned.request.owner == room_ids.RoomOwner(
-        owner=owner["owner"], json_path=json_path
+        owner=room.removesuffix("--q3-plans"), json_path=json_path
     )
     assert (
         provisioned.request.requester_claims
@@ -512,6 +516,14 @@ def test_requests_release():
             {"email": "a@b.example"},
             {"owner_claim": "email", "flatten_owner": True},
             "a_b.example",
+        ),
+        ({"preferred_username": "jo--smith"}, {}, "jo_smith"),
+        ({"preferred_username": "Alice"}, {}, "alice"),
+        ({"preferred_username": "Alice"}, {"lowercase_owner": False}, "Alice"),
+        (
+            {"preferred_username": "jo__smith"},
+            {"room_id_separator": "__"},
+            "jo-smith",
         ),
         ({"sub": "x"}, {}, None),
     ],
