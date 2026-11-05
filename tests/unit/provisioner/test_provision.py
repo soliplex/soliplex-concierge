@@ -163,6 +163,23 @@ def test_plan_room_replaces_the_separator_in_the_owner():
     assert result.owner.json_path == '$[?$.preferred_username == "jo__smith"]'
 
 
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [({}, "alice--q3-plans"), ({"lowercase_owner": False}, "Alice--q3-plans")],
+    ids=["default", "keep-case"],
+)
+def test_plan_room_lowercases_the_owner(kwargs, expected):
+    provisioner = fake_parts.make_provisioner(fake_parts.Script(), **kwargs)
+    claims = {"preferred_username": "Alice"}
+
+    result = provision.plan_room(
+        claims, name="Q3 Plans", provisioner=provisioner, now=NOW
+    )
+
+    assert result.room == expected
+    assert result.owner.json_path == '$[?$.preferred_username == "Alice"]'
+
+
 def test_plan_room_refuses_a_slug_carrying_the_separator():
     provisioner = fake_parts.make_provisioner(
         fake_parts.Script(), room_id_separator="__"

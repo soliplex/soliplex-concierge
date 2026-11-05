@@ -152,9 +152,11 @@ def test_named_owner():
     [
         ("night--shift", {}, "night_shift"),
         ("night:shift", {"separator": ":"}, "night-shift"),
+        ("Night--Shift", {}, "night_shift"),
+        ("Night--Shift", {"lowercase": False}, "Night_Shift"),
     ],
 )
-def test_named_owner_replaces_the_separator(owner, kw, expected):
+def test_named_owner_normalizes(owner, kw, expected):
     result = room_ids.named_owner(owner, "$[?'staff' in @.groups]", **kw)
 
     assert result.owner == expected
@@ -197,6 +199,19 @@ def test_named_owner_needs_an_access_rule(json_path):
             "bharney_sitename.example",
         ),
         ({"preferred_username": "jo--smith"}, {}, "jo--smith", "jo_smith"),
+        ({"preferred_username": "Alice"}, {}, "Alice", "alice"),
+        (
+            {"preferred_username": "Alice"},
+            {"lowercase_value": False},
+            "Alice",
+            "Alice",
+        ),
+        (
+            {"email": "Jo.Smith@Example.COM"},
+            {"claim": "email", "flatten_value": True},
+            "Jo.Smith@Example.COM",
+            "jo.smith_example.com",
+        ),
         (
             {"preferred_username": "jo:smith"},
             {"separator": ":"},

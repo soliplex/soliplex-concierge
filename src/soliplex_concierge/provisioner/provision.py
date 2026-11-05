@@ -109,10 +109,16 @@ class ProvisioningFailed(ProvisionError):
 class Provisioner:
     """A deployment's adapters, and how it derives a room's id.
 
-    ``owner_claim`` names the requester's claim a room's owner part comes
-    from; ``flatten_owner`` flattens it (see :func:`room_ids.flatten`).
-    ``room_id_separator`` joins the owner part and the slug (default
-    :data:`room_ids.DEFAULT_SEPARATOR`; ``":"`` keeps the legacy form).
+    - ``owner_claim`` names the requester's claim from which a room's owner
+      part derives.
+
+    - ``flatten_owner`` flattens it (see :func:`room_ids.flatten`).
+
+    - ``lowercase_owner`` lowercases it (as well as any owner provided by
+      the admin).
+
+    - ``room_id_separator`` joins the owner part and the slug (default
+      :data:`room_ids.DEFAULT_SEPARATOR`; ``":"`` keeps the legacy form).
 
     Raises :class:`room_ids.BadSeparator` for an unusable separator (see
     :func:`room_ids.validate_separator`).
@@ -127,6 +133,7 @@ class Provisioner:
     owner_claim: str = room_ids.DEFAULT_OWNER_CLAIM
     room_id_separator: str = room_ids.DEFAULT_SEPARATOR
     flatten_owner: bool = False
+    lowercase_owner: bool = True
 
     def __post_init__(self) -> None:
         room_ids.validate_separator(self.room_id_separator)
@@ -170,6 +177,7 @@ def plan_room(
             requester_claims,
             claim=provisioner.owner_claim,
             flatten_value=provisioner.flatten_owner,
+            lowercase_value=provisioner.lowercase_owner,
             separator=provisioner.room_id_separator,
         )
     room_id = room_ids.make_room_id(

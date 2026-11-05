@@ -159,7 +159,7 @@ async def test_post_room_not_admitted(app, script):
 
 STAFF = {"owner": "staff", "predicate": "is_staff"}
 BHARNEY = {"owner": "bharney", "claim": "email", "value": "b@example.com"}
-NIGHTS = {"owner": "night--shift", "predicate": "is_staff"}
+NIGHTS = {"owner": "Night--Shift", "predicate": "is_staff"}
 
 
 @pytest.mark.anyio
@@ -518,6 +518,8 @@ def test_requests_release():
             "a_b.example",
         ),
         ({"preferred_username": "jo--smith"}, {}, "jo_smith"),
+        ({"preferred_username": "Alice"}, {}, "alice"),
+        ({"preferred_username": "Alice"}, {"lowercase_owner": False}, "Alice"),
         (
             {"preferred_username": "jo__smith"},
             {"room_id_separator": "__"},

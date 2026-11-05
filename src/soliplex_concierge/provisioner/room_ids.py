@@ -21,9 +21,10 @@ derives the requester's own.
 
 A requester's owner part is the value of a configured claim (default
 ``preferred_username``), optionally *flattened* (``@`` -> ``_``) so
-email-shaped values fit the segment rule. Flattening is neither invertible
-nor injective, so the access rule matches the raw claim value, never the
-owner part.
+email-shaped values fit the segment rule, and lowercased by default, so
+ids differing only by case never land in one directory on a
+case-insensitive file system. Neither step is invertible nor injective, so
+the access rule matches the raw claim value, never the owner part.
 
 The requester gives the room a human-readable name (its title), from which
 :func:`slugify` derives the slug; its output never contains a valid
@@ -221,15 +222,20 @@ def without_separator(value: str, separator: str = DEFAULT_SEPARATOR) -> str:
 
 
 def named_owner(
-    owner: str, json_path: str, separator: str = DEFAULT_SEPARATOR
+    owner: str,
+    json_path: str,
+    separator: str = DEFAULT_SEPARATOR,
+    lowercase: bool = True,
 ) -> RoomOwner:
     """Name a room's owner explicitly: its id part, and its access rule.
 
-    Each ``separator`` in ``owner`` is replaced (see
-    :func:`without_separator`). Raises :class:`BadOwnerPart` when the
-    result does not fit the segment rule, and :class:`NoAccessRule` when
-    ``json_path`` is blank.
+    ``owner`` is lowercased when ``lowercase`` is true, and each
+    ``separator`` in it replaced (see :func:`without_separator`). Raises
+    :class:`BadOwnerPart` when the result does not fit the segment rule,
+    and :class:`NoAccessRule` when ``json_path`` is blank.
     """
+    if lowercase:
+        owner = owner.lower()
     owner = without_separator(owner, separator)
     if not is_segment(owner):
         raise BadOwnerPart(owner)
@@ -243,13 +249,15 @@ def owner_from_claims(
     *,
     claim: str = DEFAULT_OWNER_CLAIM,
     flatten_value: bool = False,
+    lowercase_value: bool = True,
     separator: str = DEFAULT_SEPARATOR,
 ) -> RoomOwner:
     """Derive the requester's own room owner from their token ``claims``.
 
-    Reads ``claims[claim]``, flattening it when ``flatten_value`` is true
-    and replacing each ``separator`` (see :func:`without_separator`); the
-    access rule matches the raw value. Raises
+    Reads ``claims[claim]``, flattening it when ``flatten_value`` is true,
+    lowercasing it when ``lowercase_value`` is true, and replacing each
+    ``separator`` (see :func:`without_separator`); the access rule matches
+    the raw value. Raises
     :class:`access_rules.BadOwnerClaim` when ``claim`` is not an
     identifier, :class:`OwnerClaimMissing` when the claim is absent, and
     :class:`BadOwner` when its value is not a string or does not fit the
@@ -263,6 +271,8 @@ def owner_from_claims(
         raise BadOwner(claim, error.value) from error
 
     owner = flatten(value) if flatten_value else value
+    if lowercase_value:
+        owner = owner.lower()
     owner = without_separator(owner, separator)
     if not is_segment(owner):
         raise BadOwner(claim, value)
