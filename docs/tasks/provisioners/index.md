@@ -68,17 +68,61 @@ belongs to (`owner`, a `room_ids.RoomOwner`). The owner pairs the room id's
 owner part with its access rule, a soliplex ACL JSONPath over a user's claims:
 
 - by default, `plan_room` derives the requester's own owner from one of their
-  claims (`Provisioner.owner_claim`, flattened when `flatten_owner` is set),
-  with a rule matching that claim's value
+  claims (`Provisioner.owner_claim`, flattened when `flatten_owner` is set,
+  lowercased unless `lowercase_owner` is false), with a rule matching that
+  claim's raw value
 - given `owner=room_ids.named_owner(...)`, it makes someone else the owner,
   for instance everyone a predicate recognizes; whether the requester may do
   that is for the caller to decide
+
+Either way, any `Provisioner.room_id_separator` in the owner part is
+replaced, so a room id splits into owner and slug one way only; a requested
+slug containing the separator is refused instead.
 
 Build a named owner's rule with `access_rules`, never by hand:
 `claim_rule(claim, value)` for one person, or `predicate_rule(name)` for a
 predicate the installation registers under `meta.jsonpath_functions`. A
 service built with `service.create_app` does this itself, from the request's
 `owner`, and refuses a predicate your `Authz.predicates()` does not list.
+
+For example, with a `provisioner` built as in [The toolkit](#the-toolkit)
+and its defaults, a user asking for a room for themselves gives it a title;
+the slug derives from that, and the owner part from their
+`preferred_username`, lowercased:
+
+```python
+request = provision.plan_room(
+    {"preferred_username": "Alice.Smith"},
+    name="Q3 Plans & Budget",
+    provisioner=provisioner,
+)
+request.room          # 'alice.smith--q3-plans-budget'
+request.owner         # RoomOwner(owner='alice.smith',
+                      #   json_path='$[?$.preferred_username == "Alice.Smith"]')
+```
+
+The access rule matches the raw claim value, `Alice.Smith`, so the
+lowercasing never costs Alice her room.
+
+An admin creating a room for a group names its owner, identified by a
+predicate the installation registers (here `is_foreman`); the owner part is
+normalized the same way, and the admin stays the requester:
+
+```python
+foremen = room_ids.named_owner(
+    "Foremen", access_rules.predicate_rule("is_foreman")
+)
+request = provision.plan_room(
+    admin_claims,
+    name="Quarry Notes",
+    provisioner=provisioner,
+    owner=foremen,
+)
+request.room          # 'foremen--quarry-notes'
+request.owner         # RoomOwner(owner='foremen',
+                      #   json_path='$[?is_foreman($)]')
+request.requester_claims is admin_claims   # True
+```
 
 `Authz.grant_owner` grants the room to `request.owner.json_path`, whoever
 that is.
@@ -220,6 +264,8 @@ A `Harness` is any object with these attributes:
   does not admit
 - `occupy(name)`: make the room that `admitted_token`'s requester would get for
   a request named `name` exist already
+- optionally, `room_id_separator`: the separator in the room ids the
+  application composes (by default `room_ids.DEFAULT_SEPARATOR`, `--`)
 
 ### Run the checks
 
