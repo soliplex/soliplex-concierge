@@ -363,6 +363,36 @@ def test_resolve_label_ids_missing_raises():
         gitea_admin._resolve_label_ids(HOST, TOKEN, OWNER, REPO, ["denied"])
 
 
+def test_label_issue():
+    patched, client = _patch_client_seq(
+        get=[[{"name": "denied", "id": 8}], []],
+        post=[[{"name": "denied", "id": 8}]],
+    )
+
+    with patched:
+        result = gitea_admin.label_issue(
+            HOST, TOKEN, OWNER, REPO, 7, ["denied"]
+        )
+
+    assert result == [{"name": "denied", "id": 8}]
+    client.post.assert_called_once_with(
+        f"{BASE}/7/labels",
+        headers=HEADERS,
+        json={"labels": [8]},
+    )
+
+
+def test_label_issue_missing_raises():
+    patched, _client = _patch_client_seq(
+        get=[[{"name": "approved", "id": 7}], []]
+    )
+
+    with patched, pytest.raises(ValueError, match="provision-failed"):
+        gitea_admin.label_issue(
+            HOST, TOKEN, OWNER, REPO, 7, ["provision-failed"]
+        )
+
+
 def test_init_labels_all_missing():
     patched, client = _patch_client_seq(
         get=[[]], post=[{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}]

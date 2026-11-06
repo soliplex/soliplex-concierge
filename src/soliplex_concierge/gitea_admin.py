@@ -205,11 +205,19 @@ def _resolve_label_ids(
     if missing:
         names_repr = ", ".join(missing)
         msg = (
-            f"missing label(s) {names_repr!r} on {owner}/{repo}; "
-            "run 'gitea_issues.py init' to create them"
+            f"missing label(s) {names_repr!r} on {owner}/{repo}; create "
+            "them first ('gitea_issues.py init' creates the request labels)"
         )
         raise ValueError(msg)
     return [by_name[name] for name in names]
+
+
+def label_issue(
+    host: str, token: str, owner: str, repo: str, number: int, names: list[str]
+) -> list[dict]:
+    """Attach the named request labels to an issue; return its labels."""
+    ids = _resolve_label_ids(host, token, owner, repo, names)
+    return add_labels_to_issue(host, token, owner, repo, number, ids)
 
 
 def init_labels(
@@ -246,8 +254,7 @@ def approve_issue(
     body: str | None = None,
 ) -> dict:
     """Label an issue 'approved', record the decision, and close it."""
-    ids = _resolve_label_ids(host, token, owner, repo, ["approved"])
-    add_labels_to_issue(host, token, owner, repo, number, ids)
+    label_issue(host, token, owner, repo, number, ["approved"])
     return close_issue(
         host, token, owner, repo, number, _decision_comment("approved", body)
     )
@@ -262,8 +269,7 @@ def deny_issue(
     body: str | None = None,
 ) -> dict:
     """Label an issue 'denied', record the decision, and close it."""
-    ids = _resolve_label_ids(host, token, owner, repo, ["denied"])
-    add_labels_to_issue(host, token, owner, repo, number, ids)
+    label_issue(host, token, owner, repo, number, ["denied"])
     return close_issue(
         host, token, owner, repo, number, _decision_comment("denied", body)
     )

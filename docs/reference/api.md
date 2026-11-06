@@ -458,6 +458,9 @@ parameters.
   create a label.
 - `add_labels_to_issue(host, token, owner, repo, number, label_ids) -> list[dict]`
   — attach label ids to an issue.
+- `label_issue(host, token, owner, repo, number, names) -> list[dict]` —
+  resolve the named labels to their ids and attach them to the issue; raises
+  when a name is missing on the repository (create it first).
 - `init_labels(host, token, owner, repo) -> dict[str, str]` — create any missing
   request labels; returns `{name: "created" | "exists"}`.
 

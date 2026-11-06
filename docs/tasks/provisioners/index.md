@@ -141,7 +141,9 @@ the wording to you:
 - `soliplex_api`: reading the signing secret, minting service tokens, and
   calling the backend's installation API
 - the concierge's own Gitea calls, `tools.gitea.create_gitea_issue_sync` and
-  `gitea_admin`, for an issue tracker on Gitea
+  `gitea_admin`, for an issue tracker on Gitea — `gitea_admin.label_issue`
+  tags one with the named labels a deployment's tracker decides on, among
+  those defined on the repository
 
 For example, an uploads area on a local directory:
 
