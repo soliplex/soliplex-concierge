@@ -1312,7 +1312,9 @@ the wording to you:</p>
 <li><code>soliplex_api</code>: reading the signing secret, minting service tokens, and
   calling the backend's installation API</li>
 <li>the concierge's own Gitea calls, <code>tools.gitea.create_gitea_issue_sync</code> and
-  <code>gitea_admin</code>, for an issue tracker on Gitea</li>
+  <code>gitea_admin</code>, for an issue tracker on Gitea — <code>gitea_admin.label_issue</code>
+  tags one with the named labels a deployment's tracker decides on, among
+  those defined on the repository</li>
 </ul>
 <p>For example, an uploads area on a local directory:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">dataclasses</span>
