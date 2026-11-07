@@ -20,13 +20,13 @@ class CliFailed(Exception):
         super().__init__(f"'{cli} {' '.join(command)}' failed:\n{output}")
 
 
-def run(
+def _run(
     cli: str,
-    *command: str,
-    stdin: str | None = None,
-    ok_codes: tuple[int, ...] = (0,),
-) -> str:
-    """Run ``cli <command>``; return its standard output.
+    command: tuple[str, ...],
+    stdin: str | None,
+    ok_codes: tuple[int, ...],
+) -> subprocess.CompletedProcess[str]:
+    """Run ``cli <command>``; return the completed process.
 
     Raises :class:`CliFailed` when it cannot run, or exits with a code not
     in ``ok_codes``.
@@ -42,7 +42,22 @@ def run(
         raise CliFailed(cli, command, str(error)) from error
     if result.returncode not in ok_codes:
         raise CliFailed(cli, command, (result.stdout + result.stderr).strip())
-    return result.stdout
+    return result
+
+
+def run(
+    cli: str,
+    *command: str,
+    stdin: str | None = None,
+    ok_codes: tuple[int, ...] = (0,),
+) -> str:
+    """Run ``cli <command>``; return its standard output.
+
+    Raises :class:`CliFailed` when it cannot run, or exits with a code not
+    in ``ok_codes``.  Discards the CLI's stderr on success: callers which
+    need it use :func:`_run`.
+    """
+    return _run(cli, command, stdin, ok_codes).stdout
 
 
 class NoVerdict(CliFailed):
@@ -50,11 +65,13 @@ class NoVerdict(CliFailed):
 
 
 def _verdict(cli, command, key, token) -> bool:
-    output = run(cli, *command, stdin=token, ok_codes=(0, 1))
+    result = _run(cli, command, token, (0, 1))
     try:
-        verdict = json.loads(output)[key]
+        verdict = json.loads(result.stdout)[key]
     except (json.JSONDecodeError, TypeError, KeyError) as error:
-        raise NoVerdict(cli, command, output.strip()) from error
+        raise NoVerdict(
+            cli, command, (result.stdout + result.stderr).strip()
+        ) from error
     return verdict is True
 
 

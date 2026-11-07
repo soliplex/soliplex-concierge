@@ -5,6 +5,7 @@
 """
 
 import json
+import subprocess
 import sys
 
 import pytest
@@ -17,11 +18,17 @@ ROOM = "alice:q3-plans"
 
 @pytest.fixture
 def fake_cli(tmp_path):
-    """A stand-in CLI: echoes its args and stdin, exits $FAKE_RC."""
+    """A stand-in CLI: echoes its args and stdin, exits $FAKE_RC.
+
+    If ``$FAKE_STDERR`` is set, it also prints it to stderr first.
+    """
     script = tmp_path / "soliplex-cli"
     script.write_text(
         f"#!{sys.executable}\n"
         "import os, sys\n"
+        "stderr = os.environ.get('FAKE_STDERR')\n"
+        "if stderr:\n"
+        "    print(stderr, file=sys.stderr)\n"
         "print(' '.join(sys.argv[1:]), sys.stdin.read())\n"
         "sys.exit(int(os.environ.get('FAKE_RC', '0')))\n"
     )
@@ -31,17 +38,26 @@ def fake_cli(tmp_path):
 
 @pytest.fixture
 def recorded(monkeypatch):
-    """Replace ``run``; record each call, answering ``recorded.output``."""
+    """Replace ``_run``; record each call, answering ``recorded.output``.
+
+    ``recorded.stderr`` fills the fake process's stderr.
+    """
 
     class Recorded:
         output = ""
+        stderr = ""
         calls = []
 
-    def run(cli, *command, stdin=None, ok_codes=(0,)):
+    def _run(cli, command, stdin, ok_codes):
         Recorded.calls.append((cli, command, stdin, ok_codes))
-        return Recorded.output
+        return subprocess.CompletedProcess(
+            [cli, *command],
+            returncode=0,
+            stdout=Recorded.output,
+            stderr=Recorded.stderr,
+        )
 
-    monkeypatch.setattr(soliplex_cli, "run", run)
+    monkeypatch.setattr(soliplex_cli, "_run", _run)
     Recorded.calls = []
     return Recorded
 
@@ -274,3 +290,17 @@ def test_is_admin_without_a_verdict(recorded, output):
 
     assert isinstance(caught.value, soliplex_cli.CliFailed)
     assert caught.value.output == output.strip()
+
+
+def test_check_crash_reports_stderr(fake_cli, monkeypatch):
+    """A crashed check surfaces its stderr in the NoVerdict message."""
+    monkeypatch.setenv("FAKE_RC", "1")
+    monkeypatch.setenv("FAKE_STDERR", "MissingEnvVar: GITEA_HOST")
+
+    with pytest.raises(soliplex_cli.NoVerdict) as caught:
+        soliplex_cli.is_admin(fake_cli, ENVIRONMENT, "t0ken")
+
+    assert caught.value.output == (
+        "admin-users --quiet check /environment t0ken\n"
+        "MissingEnvVar: GITEA_HOST"
+    )
