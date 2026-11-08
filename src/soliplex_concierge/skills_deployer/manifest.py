@@ -115,7 +115,7 @@ def _walk_tree(
     deadline: float,
 ):
     """Walk git trees after checking each object's uncompressed size."""
-    command = ["git", "-C", str(repo)]
+    command = ["git", "--no-replace-objects", "-C", str(repo)]
     trees = [(b"", revision)]
     count = 0
     while trees:

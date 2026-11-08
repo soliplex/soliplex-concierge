@@ -165,6 +165,7 @@ def test_unknown_revision(repository):
     result = subprocess.run(
         [
             "git",
+            "--no-replace-objects",
             "-C",
             str(repo),
             "ls-tree",
@@ -314,6 +315,7 @@ def test_oversized_commit_is_rejected_without_reading(repository, monkeypatch):
     assert commands == [
         [
             "git",
+            "--no-replace-objects",
             "-C",
             str(repo),
             "cat-file",
@@ -437,15 +439,7 @@ def test_commands_terminate_options_before_revision(repository, monkeypatch):
     assert commands == [
         [
             "git",
-            "-C",
-            str(repo),
-            "cat-file",
-            "-Z",
-            "--batch-check=%(objecttype) %(objectsize)",
-        ],
-        ["git", "-C", str(repo), "cat-file", "commit", revision],
-        [
-            "git",
+            "--no-replace-objects",
             "-C",
             str(repo),
             "cat-file",
@@ -454,6 +448,25 @@ def test_commands_terminate_options_before_revision(repository, monkeypatch):
         ],
         [
             "git",
+            "--no-replace-objects",
+            "-C",
+            str(repo),
+            "cat-file",
+            "commit",
+            revision,
+        ],
+        [
+            "git",
+            "--no-replace-objects",
+            "-C",
+            str(repo),
+            "cat-file",
+            "-Z",
+            "--batch-check=%(objecttype) %(objectsize)",
+        ],
+        [
+            "git",
+            "--no-replace-objects",
             "-C",
             str(repo),
             "ls-tree",
@@ -465,6 +478,7 @@ def test_commands_terminate_options_before_revision(repository, monkeypatch):
         ],
         [
             "git",
+            "--no-replace-objects",
             "-C",
             str(repo),
             "cat-file",
@@ -473,6 +487,7 @@ def test_commands_terminate_options_before_revision(repository, monkeypatch):
         ],
         [
             "git",
+            "--no-replace-objects",
             "-C",
             str(repo),
             "ls-tree",
@@ -756,3 +771,44 @@ def test_preserves_empty_directories_at_multiple_depths(repository):
         Entry("100644", blob.decode(), 1, "acme-a/resources/populated.txt"),
         Entry("040000", empty.decode(), 0, "empty"),
     ]
+
+
+@pytest.mark.parametrize("kind", ["commit", "tree", "blob"])
+def test_read_tree_ignores_replacement_objects(repository, kind):
+    repo = repository({"acme-a/SKILL.md": "original"})
+    revision = _head(repo)
+    original_tree = _git(repo, "rev-parse", "HEAD^{tree}").strip()
+    original_blob = _git(repo, "rev-parse", "HEAD:acme-a/SKILL.md").strip()
+    expected_entries, expected_violations = read_tree(repo, revision)
+    assert expected_violations == []
+    assert [(entry.path, entry.size) for entry in expected_entries] == [
+        ("acme-a/SKILL.md", len("original"))
+    ]
+    replacement_blob = _git(
+        repo, "hash-object", "-w", "--stdin", input=b"replacement content"
+    ).strip()
+    replacement_skill = _tree(
+        repo, [b"100644 blob " + replacement_blob + b"\tSKILL.md"]
+    )
+    replacement_tree = _tree(
+        repo, [b"040000 tree " + replacement_skill + b"\tacme-b"]
+    )
+    replacement_commit = _commit_tree(repo, replacement_tree)
+    originals = {
+        "commit": revision,
+        "tree": original_tree,
+        "blob": original_blob,
+    }
+    replacements = {
+        "commit": replacement_commit,
+        "tree": replacement_tree,
+        "blob": replacement_blob,
+    }
+    _git(repo, "replace", originals[kind], replacements[kind])
+
+    assert read_tree(repo, revision) == (expected_entries, [])
+    entries, violations = read_tree(repo, revision, max_tree_bytes=1)
+    assert entries == []
+    assert len(violations) == 1
+    assert violations[0].check == Check.LIMITS
+    assert "exceeds 1 bytes" in violations[0].message
