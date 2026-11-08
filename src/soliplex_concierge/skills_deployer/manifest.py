@@ -7,9 +7,15 @@ import re
 import selectors
 import subprocess
 import time
+import unicodedata
 
 from soliplex_concierge.skills_deployer.model import ALLOWED_MODES
+from soliplex_concierge.skills_deployer.model import RESERVED_PREFIXES
+from soliplex_concierge.skills_deployer.model import RESOURCES_DIRNAME
 from soliplex_concierge.skills_deployer.model import SKILL_FILENAME
+from soliplex_concierge.skills_deployer.model import SKILL_NAME_MAX
+from soliplex_concierge.skills_deployer.model import SKILL_NAME_RE
+from soliplex_concierge.skills_deployer.model import TEAM_SLUG_RE
 from soliplex_concierge.skills_deployer.model import Check
 from soliplex_concierge.skills_deployer.model import Entry
 from soliplex_concierge.skills_deployer.model import Limits
@@ -258,6 +264,95 @@ def read_tree(
     return entries, sorted(violations, key=lambda v: (v.check, v.path))
 
 
+def _normalized(value: str) -> str:
+    """Normalize names for collision checks."""
+    return unicodedata.normalize(
+        "NFD", unicodedata.normalize("NFD", value).casefold()
+    )
+
+
+def _check_layout(
+    path: str, parts: list[str], *, is_directory: bool
+) -> list[Violation]:
+    """Check the components and placement of one entry."""
+    is_skill_md = (
+        len(parts) == 2 and parts[1] == SKILL_FILENAME and not is_directory
+    )
+    is_resource = len(parts) >= 3 and parts[1] == RESOURCES_DIRNAME
+    rules = (
+        (
+            "" in parts or ".." in parts,
+            "Use relative paths without empty components or '..'",
+        ),
+        (
+            any(part.startswith(".") for part in parts),
+            "Remove path components starting with '.'",
+        ),
+        (
+            not (
+                is_skill_md
+                or is_resource
+                or (
+                    is_directory
+                    and (
+                        len(parts) == 1
+                        or (len(parts) == 2 and parts[1] == RESOURCES_DIRNAME)
+                    )
+                )
+            ),
+            "Place files at <skill>/SKILL.md or <skill>/resources/<path>",
+        ),
+        (
+            any(
+                _normalized(part) == _normalized(SKILL_FILENAME)
+                and not (index == 1 and is_skill_md)
+                for index, part in enumerate(parts)
+            ),
+            "Use SKILL.md only at <skill>/SKILL.md with that exact casing",
+        ),
+        (
+            any(
+                _normalized(part) == _normalized(RESOURCES_DIRNAME)
+                and part != RESOURCES_DIRNAME
+                for part in parts
+            ),
+            "Spell every resources component as 'resources'",
+        ),
+    )
+    return [
+        Violation(Check.LAYOUT, path, message)
+        for failed, message in rules
+        if failed
+    ]
+
+
+def _check_name(team: str, name: str) -> list[Violation]:
+    """Check a skill directory's spelling and team ownership."""
+    rules = (
+        (
+            not SKILL_NAME_RE.fullmatch(name),
+            f"Skill name must match {SKILL_NAME_RE.pattern}",
+        ),
+        (
+            len(name) > SKILL_NAME_MAX,
+            f"Skill name must be at most {SKILL_NAME_MAX} characters",
+        ),
+        (
+            not name.startswith(f"{team}-"),
+            f"Skill name must start with '{team}-'",
+        ),
+        (
+            name.startswith(RESERVED_PREFIXES),
+            f"Skill name must not start with {RESERVED_PREFIXES!r}",
+        ),
+    )
+    return [
+        Violation(Check.NAME, name, message)
+        for failed, message in rules
+        if failed
+    ]
+
+
 def _check_limits(
     entries: list[Entry], skill_count: int, limits: Limits
 ) -> list[Violation]:
@@ -309,3 +404,64 @@ def _check_limits(
         for path, label, actual, maximum in measurements
         if actual > maximum
     ]
+
+
+def check_structure(
+    team: str,
+    entries: list[Entry],
+    *,
+    other_names: set[str],
+    limits: Limits,
+) -> list[Violation]:
+    """Report layout, naming, mode and limit violations."""
+    if not TEAM_SLUG_RE.fullmatch(team):
+        message = f"Team slug must match {TEAM_SLUG_RE.pattern}"
+        raise ValueError(message)
+
+    violations = []
+    skill_counts: dict[str, int] = {}
+    for entry in entries:
+        path = entry.path
+        parts = path.split("/")
+        violations.extend(
+            _check_layout(path, parts, is_directory=entry.mode == "040000")
+        )
+        if (
+            not parts[0].startswith(".")
+            and parts[0]
+            and (len(parts) >= 2 or entry.mode == "040000")
+        ):
+            skill_counts.setdefault(parts[0], 0)
+            if (
+                len(parts) == 2
+                and parts[1] == SKILL_FILENAME
+                and entry.mode in ALLOWED_MODES
+            ):
+                skill_counts[parts[0]] += 1
+        if entry.mode not in ALLOWED_MODES and entry.mode != "040000":
+            violations.append(
+                Violation(
+                    Check.MODE,
+                    path,
+                    f"Mode {entry.mode} is forbidden, use 100644 or 100755",
+                )
+            )
+        if any(_normalized(part) == "scripts" for part in parts):
+            violations.append(
+                Violation(Check.SCRIPTS, path, "Remove scripts components")
+            )
+
+    for name, count in skill_counts.items():
+        violations.extend(_check_name(team, name))
+        if count != 1:
+            violations.append(
+                Violation(
+                    Check.LAYOUT,
+                    name,
+                    f"Skill needs exactly one SKILL.md, found {count}",
+                )
+            )
+    violations.extend(_check_limits(entries, len(skill_counts), limits))
+    return sorted(
+        violations, key=lambda violation: (violation.check, violation.path)
+    )

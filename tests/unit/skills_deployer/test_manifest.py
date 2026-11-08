@@ -1,5 +1,6 @@
 """Check skill manifests against trees built with real git objects."""
 
+import dataclasses
 import subprocess
 import sys
 import time
@@ -8,10 +9,12 @@ import pytest
 
 from soliplex_concierge.skills_deployer.manifest import _records
 from soliplex_concierge.skills_deployer.manifest import _TreeLimitError
+from soliplex_concierge.skills_deployer.manifest import check_structure
 from soliplex_concierge.skills_deployer.manifest import read_tree
 from soliplex_concierge.skills_deployer.model import Check
 from soliplex_concierge.skills_deployer.model import Entry
 from soliplex_concierge.skills_deployer.model import Limits
+from soliplex_concierge.skills_deployer.model import Violation
 
 
 def _git(repo, *args, input=None):
@@ -648,6 +651,566 @@ def test_reader_keeps_forbidden_modes_and_blob_sizes(repository):
     }
 
 
+def _check(repo, *, team="acme", other_names=None, limits=None):
+    """Check the structure of a committed test tree."""
+    entries, violations = read_tree(repo, _head(repo))
+    assert violations == []
+    return check_structure(
+        team,
+        entries,
+        other_names=other_names or set(),
+        limits=limits or Limits(),
+    )
+
+
+def test_valid_two_skill_tree(repository):
+    files = {
+        "acme-one/SKILL.md": "one",
+        "acme-one/resources/tool.txt": "hello",
+        "acme-two/SKILL.md": "two",
+        "acme-two/resources/nested/é.txt": "é",
+    }
+    repo = repository(files, modes={"acme-one/resources/tool.txt": "100755"})
+
+    entries, violations = read_tree(repo, _head(repo))
+
+    assert violations == []
+    assert {entry.path: entry.size for entry in entries} == {
+        path: len(content.encode()) for path, content in files.items()
+    }
+    assert {entry.path: entry.mode for entry in entries} == {
+        path: "100755" if path.endswith("tool.txt") else "100644"
+        for path in files
+    }
+    for entry in entries:
+        assert (
+            entry.oid
+            == _git(repo, "rev-parse", f"HEAD:{entry.path}").decode().strip()
+        )
+    assert (
+        check_structure(
+            "acme", entries, other_names={"trusted-skill"}, limits=Limits()
+        )
+        == []
+    )
+
+
+def test_read_tree_preserves_delimiters_and_blob_sizes(repository):
+    files = {
+        "acme-a/SKILL.md": "",
+        "acme-a/resources/with\ttab\nand newline.txt": "123456789012",
+    }
+    repo = repository(files)
+
+    entries, violations = read_tree(repo, _head(repo))
+
+    assert violations == []
+    assert {entry.path: entry.size for entry in entries} == {
+        path: len(content) for path, content in files.items()
+    }
+    assert _check(repo) == []
+
+
+def test_empty_top_level_directory_counts_as_skill(repository):
+    repo = repository({})
+    empty = _tree(repo, [])
+    tree = _tree(repo, [b"040000 tree " + empty + b"\tacme-empty"])
+
+    entries, violations = read_tree(repo, _commit_tree(repo, tree))
+
+    assert violations == []
+    assert [(entry.path, entry.mode) for entry in entries] == [
+        ("acme-empty", "040000")
+    ]
+    violations = check_structure(
+        "acme", entries, other_names=set(), limits=Limits(max_skills=0)
+    )
+    assert [(v.check, v.path, v.message) for v in violations] == [
+        (
+            Check.LAYOUT,
+            "acme-empty",
+            "Skill needs exactly one SKILL.md, found 0",
+        ),
+        (Check.LIMITS, "", "Skill count 1 exceeds 0"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "kind", ["empty-tree", "nonempty-tree", "gitlink", "symlink"]
+)
+def test_only_blobs_satisfy_skill_md(repository, kind):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    blob = _git(repo, "rev-parse", "HEAD:acme-a/SKILL.md").strip()
+    if kind == "gitlink":
+        record = b"160000 commit " + _head(repo).encode()
+    elif kind == "symlink":
+        record = b"120000 blob " + blob
+    else:
+        records = (
+            [b"100644 blob " + blob + b"\tfile"]
+            if kind == "nonempty-tree"
+            else []
+        )
+        record = b"040000 tree " + _tree(repo, records)
+    skill = _tree(repo, [record + b"\tSKILL.md"])
+    tree = _tree(repo, [b"040000 tree " + skill + b"\tacme-a"])
+    entries, violations = read_tree(repo, _commit_tree(repo, tree))
+    assert violations == []
+
+    violations = check_structure(
+        "acme",
+        entries,
+        other_names=set(),
+        limits=Limits(max_skill_md_bytes=0),
+    )
+
+    path = "acme-a/SKILL.md"
+    if kind == "nonempty-tree":
+        path += "/file"
+    assert [entry.path for entry in entries] == [path]
+    expected = [
+        Violation(
+            Check.LAYOUT, "acme-a", "Skill needs exactly one SKILL.md, found 0"
+        )
+    ]
+    if kind in {"empty-tree", "nonempty-tree"}:
+        expected.extend(
+            [
+                Violation(
+                    Check.LAYOUT,
+                    path,
+                    (
+                        "Place files at <skill>/SKILL.md "
+                        "or <skill>/resources/<path>"
+                    ),
+                ),
+                Violation(
+                    Check.LAYOUT,
+                    path,
+                    (
+                        "Use SKILL.md only at <skill>/SKILL.md "
+                        "with that exact casing"
+                    ),
+                ),
+            ]
+        )
+    if kind in {"gitlink", "symlink"}:
+        mode = "160000" if kind == "gitlink" else "120000"
+        expected.append(
+            Violation(
+                Check.MODE,
+                path,
+                f"Mode {mode} is forbidden, use 100644 or 100755",
+            )
+        )
+    assert violations == expected
+
+
+@pytest.mark.parametrize(
+    "path, message",
+    [
+        ("README.md", "Place files"),
+        ("SKILL.md", "Use SKILL.md only"),
+        (".gitattributes", "starting with '.'"),
+        (".gitmodules", "starting with '.'"),
+        (".gitconfig/SKILL.md", "starting with '.'"),
+        ("acme-a/resources/.hidden/file.txt", "starting with '.'"),
+        ("acme-a/resources/.gitignore", "starting with '.'"),
+        ("acme-a/extra.txt", "Place files"),
+        ("acme-a/resources", "Place files"),
+        ("acme-a/skill.md", "Use SKILL.md only"),
+        ("acme-a/SKILL.MD", "Use SKILL.md only"),
+        ("acme-a/Skill.md", "Use SKILL.md only"),
+        ("acme-a/resources/SKILL.md", "Use SKILL.md only"),
+        ("acme-a/resources/skill.md/file.txt", "Use SKILL.md only"),
+        ("SKILL.md/resources/file.txt", "Use SKILL.md only"),
+        ("acme-a/SKILL.md/file.txt", "Use SKILL.md only"),
+        ("acme-a/Resources/file.txt", "Spell every resources"),
+        ("acme-a/RESOURCES/file.txt", "Spell every resources"),
+        (
+            "acme-a/resources/nested/Resources/file.txt",
+            "Spell every resources",
+        ),
+    ],
+)
+def test_layout_rejects_paths(repository, path, message):
+    repo = repository({path: "x"})
+
+    violations = _check(repo)
+
+    assert any(
+        violation.check == Check.LAYOUT
+        and violation.path == path
+        and message in violation.message
+        for violation in violations
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/acme-a/SKILL.md",
+        "acme-a//resources/file.txt",
+        "acme-a/resources/file.txt/",
+        "acme-a/resources/../file.txt",
+        "../SKILL.md",
+        "",
+    ],
+)
+def test_layout_rejects_unsafe_components(repository, path):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    entries, _ = read_tree(repo, _head(repo))
+    entries = [dataclasses.replace(entries[0], path=path)]
+
+    violations = check_structure(
+        "acme", entries, other_names=set(), limits=Limits()
+    )
+
+    assert any(
+        violation.check == Check.LAYOUT
+        and violation.path == path
+        and "relative paths" in violation.message
+        for violation in violations
+    )
+
+
+@pytest.mark.parametrize("copies", [0, 2])
+def test_each_skill_needs_exactly_one_skill_md(repository, copies):
+    repo = repository(
+        {"acme-a/SKILL.md": "x", "acme-a/resources/file.txt": "x"}
+    )
+    entries, _ = read_tree(repo, _head(repo))
+    entries = [entries[0]] * copies + entries[1:]
+
+    violations = check_structure(
+        "acme", entries, other_names=set(), limits=Limits()
+    )
+
+    assert [
+        (violation.path, violation.message)
+        for violation in violations
+        if violation.check == Check.LAYOUT
+    ] == [("acme-a", f"Skill needs exactly one SKILL.md, found {copies}")]
+
+
+@pytest.mark.parametrize(
+    "name, team, message",
+    [
+        ("acme-Bad", "acme", "must match"),
+        ("acme-bad_name", "acme", "must match"),
+        ("acme-bad--name", "acme", "must match"),
+        ("acme-" + "x" * 60, "acme", "at most 64 characters"),
+        ("other-skill", "acme", "start with 'acme-'"),
+        ("acmeish-skill", "acme", "start with 'acme-'"),
+        ("soliplex-skill", "soliplex", "must not start with"),
+        ("acme-a\n", "acme", "must match"),
+    ],
+)
+def test_skill_names(repository, name, team, message):
+    repo = repository({f"{name}/SKILL.md": "x"})
+
+    violations = _check(repo, team=team)
+
+    assert len(violations) == 1
+    assert violations[0].check == Check.NAME
+    assert violations[0].path == name
+    assert message in violations[0].message
+
+
+def test_longest_skill_name(repository):
+    repo = repository({f"acme-{'x' * 59}/SKILL.md": "x"})
+
+    violations = _check(repo)
+
+    assert violations == []
+
+
+@pytest.mark.parametrize("kind", ["symlink", "gitlink"])
+def test_forbidden_modes(repository, kind):
+    path = "acme-a/resources/link"
+    options = (
+        {"symlinks": {path: "missing-target"}}
+        if kind == "symlink"
+        else {"gitlinks": [path]}
+    )
+    repo = repository({"acme-a/SKILL.md": "x"}, **options)
+
+    entries, violations = read_tree(repo, _head(repo))
+
+    assert violations == []
+    link = next(entry for entry in entries if entry.path == path)
+    assert link.mode == ("120000" if kind == "symlink" else "160000")
+    assert link.size == (len("missing-target") if kind == "symlink" else 0)
+    assert link.oid == _git(repo, "rev-parse", f"HEAD:{path}").decode().strip()
+    violations = check_structure(
+        "acme", entries, other_names=set(), limits=Limits()
+    )
+    assert len(violations) == 1
+    assert violations[0].check == Check.MODE
+    assert violations[0].path == path
+    assert link.mode in violations[0].message
+
+
+def test_other_modes_are_forbidden(repository):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    entries, _ = read_tree(repo, _head(repo))
+    entries = [dataclasses.replace(entries[0], mode="100600")]
+
+    violations = check_structure(
+        "acme", entries, other_names=set(), limits=Limits()
+    )
+
+    assert [v.check for v in violations] == [Check.LAYOUT, Check.MODE]
+    assert "found 0" in violations[0].message
+    assert "100600" in violations[1].message
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "acme-a/scripts/tool.py",
+        "acme-a/resources/scripts/tool.py",
+        "acme-a/resources/nested/scripts/tool.py",
+        "acme-a/resources/Scripts/tool.py",
+        "acme-a/resources/SCRIPTS",
+        "scripts/SKILL.md",
+    ],
+)
+def test_scripts_at_any_depth(repository, path):
+    repo = repository({path: "x"})
+
+    violations = _check(repo)
+
+    assert [v.path for v in violations if v.check == Check.SCRIPTS] == [path]
+
+
+def test_script_substrings_are_allowed(repository):
+    repo = repository(
+        {
+            "acme-scripts/SKILL.md": "x",
+            "acme-scripts/resources/scripts.txt": "x",
+        }
+    )
+
+    violations = _check(repo)
+
+    assert violations == []
+
+
+@pytest.mark.parametrize(
+    "field, maximum, path, label",
+    [
+        ("max_skills", 0, "", "Skill count"),
+        ("max_entries", 1, "", "Entry count"),
+        ("max_depth", 2, "acme-a/resources/é.txt", "Path depth"),
+        (
+            "max_path_chars",
+            len("acme-a/resources/é.txt") - 1,
+            "acme-a/resources/é.txt",
+            "Path length in characters",
+        ),
+        ("max_skill_md_bytes", 3, "acme-a/SKILL.md", "SKILL.md size in bytes"),
+        ("max_file_bytes", 4, "acme-a/resources/é.txt", "File size in bytes"),
+        ("max_version_bytes", 8, "", "Total size in bytes"),
+    ],
+)
+def test_limits(repository, field, maximum, path, label):
+    repo = repository(
+        {"acme-a/SKILL.md": "éé", "acme-a/resources/é.txt": "12345"}
+    )
+    limits = dataclasses.replace(Limits(), **{field: maximum})
+
+    violations = _check(repo, limits=limits)
+
+    assert len(violations) == 1
+    assert violations[0].check == Check.LIMITS
+    assert violations[0].path == path
+    assert violations[0].message == f"{label} {maximum + 1} exceeds {maximum}"
+
+
+def test_limits_accept_exact_boundaries(repository):
+    repo = repository(
+        {"acme-a/SKILL.md": "éé", "acme-a/resources/é.txt": "12345"}
+    )
+    limits = Limits(
+        max_skills=1,
+        max_entries=2,
+        max_depth=3,
+        max_path_chars=len("acme-a/resources/é.txt"),
+        max_skill_md_bytes=4,
+        max_file_bytes=5,
+        max_version_bytes=9,
+    )
+
+    violations = _check(repo, limits=limits)
+
+    assert violations == []
+
+
+def test_limits_count_invalid_entries_and_distinct_skill_directories(
+    repository,
+):
+    repo = repository(
+        {"Bad/resources/file": "xx", "acme-a/SKILL.md": "x"},
+        symlinks={"acme-a/resources/link": "missing"},
+        gitlinks=["acme-a/resources/submodule"],
+    )
+
+    violations = _check(
+        repo,
+        limits=Limits(max_skills=1, max_entries=3, max_version_bytes=9),
+    )
+
+    assert [v.message for v in violations if v.check == Check.LIMITS] == [
+        "Skill count 2 exceeds 1",
+        "Entry count 4 exceeds 3",
+        "Total size in bytes 10 exceeds 9",
+    ]
+
+
+@pytest.mark.parametrize(
+    "team", ["", "bad-team", "Bad", "bad_team", "é", "acme\n"]
+)
+def test_bad_team_slug(repository, team):
+    repo = repository({})
+    entries, _ = read_tree(repo, _head(repo))
+
+    with pytest.raises(ValueError, match="Team slug must match"):
+        check_structure(team, entries, other_names=set(), limits=Limits())
+
+
+def test_numeric_team_slug(repository):
+    repo = repository({"123-skill/SKILL.md": "x"})
+
+    violations = _check(repo, team="123")
+
+    assert violations == []
+
+
+@pytest.mark.parametrize("path", ["SKILL.md", "acme-a/resources/SKILL.md"])
+def test_skill_md_size_only_applies_to_direct_skill_files(repository, path):
+    repo = repository({"acme-a/SKILL.md": "x", path: "xx"})
+
+    violations = _check(repo, limits=Limits(max_skill_md_bytes=1))
+
+    assert any(v.check == Check.LAYOUT for v in violations)
+    assert not any(v.check == Check.LIMITS for v in violations)
+
+
+def test_skill_count_excludes_hidden_unsafe_and_root_paths(repository):
+    repo = repository(
+        {
+            ".hidden/SKILL.md": "x",
+            "root-file": "x",
+            "acme-a/SKILL.md": "x",
+        }
+    )
+    entries, _ = read_tree(repo, _head(repo))
+    entries.append(dataclasses.replace(entries[0], path="../SKILL.md"))
+
+    violations = check_structure(
+        "acme", entries, other_names=set(), limits=Limits(max_skills=1)
+    )
+
+    assert any(v.check == Check.LAYOUT for v in violations)
+    assert not any(v.check == Check.LIMITS for v in violations)
+    assert not any(v.check == Check.NAME for v in violations)
+
+
+@pytest.mark.parametrize(
+    "field, maximum, label",
+    [
+        ("max_depth", 3, "Path depth"),
+        ("max_path_chars", 19, "Path length in characters"),
+        ("max_entries", 1, "Entry count"),
+    ],
+)
+def test_empty_directory_limits(repository, field, maximum, label):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    blob = _git(repo, "rev-parse", "HEAD:acme-a/SKILL.md").strip()
+    nested = _tree(repo, [])
+    for name in [b"bb", b"a"]:
+        nested = _tree(repo, [b"040000 tree " + nested + b"\t" + name])
+    skill = _tree(
+        repo,
+        [
+            b"100644 blob " + blob + b"\tSKILL.md",
+            b"040000 tree " + nested + b"\tresources",
+        ],
+    )
+    tree = _tree(repo, [b"040000 tree " + skill + b"\tacme-a"])
+    entries, errors = read_tree(repo, _commit_tree(repo, tree))
+    assert errors == []
+    path = "acme-a/resources/a/bb"
+    actual = {"max_depth": 4, "max_path_chars": len(path), "max_entries": 2}
+    for bound in [actual[field], maximum]:
+        limits = dataclasses.replace(Limits(), **{field: bound})
+        violations = check_structure(
+            "acme", entries, other_names=set(), limits=limits
+        )
+        if bound == actual[field]:
+            assert violations == []
+        else:
+            assert len(violations) == 1
+            assert violations[0].check == Check.LIMITS
+            assert violations[0].path == (
+                "" if field == "max_entries" else path
+            )
+            assert violations[0].message == (
+                f"{label} {actual[field]} exceeds {maximum}"
+            )
+
+
+@pytest.mark.parametrize("name", [b"BadName", b"acme-a"])
+def test_invalid_only_child_preserves_skill(repository, name):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    blob = _git(repo, "rev-parse", "HEAD:acme-a/SKILL.md").strip()
+    child = _tree(repo, [b"100644 blob " + blob + b"\t\xff"])
+    tree = _tree(repo, [b"040000 tree " + child + b"\t" + name])
+    entries, errors = read_tree(repo, _commit_tree(repo, tree))
+    assert len(errors) == 1
+    assert [entry.path for entry in entries] == [name.decode()]
+    violations = check_structure(
+        "acme", entries, other_names=set(), limits=Limits(max_skills=0)
+    )
+    assert (
+        Violation(
+            Check.LAYOUT,
+            name.decode(),
+            "Skill needs exactly one SKILL.md, found 0",
+        )
+        in violations
+    )
+    assert Violation(Check.LIMITS, "", "Skill count 1 exceeds 0") in violations
+    assert [v.check for v in violations].count(Check.NAME) == (
+        2 if name == b"BadName" else 0
+    )
+
+
+def test_empty_resources_is_allowed(repository):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    blob = _git(repo, "rev-parse", "HEAD:acme-a/SKILL.md").strip()
+    empty = _tree(repo, [])
+    skill = _tree(
+        repo,
+        [
+            b"100644 blob " + blob + b"\tSKILL.md",
+            b"040000 tree " + empty + b"\tresources",
+        ],
+    )
+    root = _tree(repo, [b"040000 tree " + skill + b"\tacme-a"])
+    entries, errors = read_tree(repo, _commit_tree(repo, root))
+    assert errors == []
+    assert {e.path for e in entries} == {
+        "acme-a/SKILL.md",
+        "acme-a/resources",
+    }
+    assert (
+        check_structure("acme", entries, other_names=set(), limits=Limits())
+        == []
+    )
+
+
 @pytest.mark.parametrize("output", [b"partial", b"complete\0partial"])
 def test_unterminated_subprocess_records(output):
     command = [sys.executable, "-c", f"import os; os.write(1, {output!r})"]
@@ -812,3 +1375,66 @@ def test_read_tree_ignores_replacement_objects(repository, kind):
     assert len(violations) == 1
     assert violations[0].check == Check.LIMITS
     assert "exceeds 1 bytes" in violations[0].message
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "Resources/empty",
+        "extra/empty",
+        "SKILL.md/empty",
+        "resources/SKILL.md/empty",
+    ],
+)
+def test_invalid_directories_with_empty_descendants(repository, path):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    blob = _git(repo, "rev-parse", "HEAD:acme-a/SKILL.md").strip()
+    tree = _tree(repo, [])
+    parts = path.split("/")
+    for part in reversed(parts[1:]):
+        tree = _tree(repo, [b"040000 tree " + tree + b"\t" + part.encode()])
+    records = [b"040000 tree " + tree + b"\t" + parts[0].encode()]
+    if parts[0] != "SKILL.md":
+        records.append(b"100644 blob " + blob + b"\tSKILL.md")
+    skill = _tree(repo, records)
+    root = _tree(repo, [b"040000 tree " + skill + b"\tacme-a"])
+    entries, errors = read_tree(repo, _commit_tree(repo, root))
+    assert errors == []
+    assert sum(e.path == "acme-a/" + path for e in entries) == 1
+    violations = check_structure(
+        "acme", entries, other_names=set(), limits=Limits()
+    )
+    expected = []
+    if parts[0] != "resources":
+        expected.append(
+            Violation(
+                Check.LAYOUT,
+                "acme-a/" + path,
+                "Place files at <skill>/SKILL.md or <skill>/resources/<path>",
+            )
+        )
+    if "SKILL.md" in parts:
+        expected.append(
+            Violation(
+                Check.LAYOUT,
+                "acme-a/" + path,
+                "Use SKILL.md only at <skill>/SKILL.md with that exact casing",
+            )
+        )
+    if parts[0] == "Resources":
+        expected.append(
+            Violation(
+                Check.LAYOUT,
+                "acme-a/" + path,
+                "Spell every resources component as 'resources'",
+            )
+        )
+    if parts[0] == "SKILL.md":
+        expected.append(
+            Violation(
+                Check.LAYOUT,
+                "acme-a",
+                "Skill needs exactly one SKILL.md, found 0",
+            )
+        )
+    assert violations == sorted(expected, key=lambda v: (v.check, v.path))
