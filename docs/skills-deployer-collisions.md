@@ -14,6 +14,7 @@ The following cases are exercised in `tests/unit/skills_deployer/test_manifest.p
 | Skill names colliding with another team or baseline, including canonical caseless Greek matching | `test_collisions_with_other_teams_and_baseline`, `test_other_names_use_canonical_caseless_matching` |
 | File versus populated directory, case and accent aliases, either traversal order | `test_file_directory_aliases` |
 | File versus empty or populated directory, one diagnostic per file, either order | `test_file_directory_collision_exactly_once` |
+| Multiple aliased files versus an empty or populated directory, both orders, retaining the file/file diagnostic | `test_all_aliased_files_collide_with_directory` |
 | Empty top-level directory versus populated skill, case and accent aliases, either order | `test_empty_top_level_directory_collides_with_skill` |
 | Nested populated/populated and populated/empty directory aliases, multiple sibling files, either order | `test_directory_directory_aliases` |
 | Empty/empty, empty/populated, populated/empty and populated/populated directory aliases at both skill and resource levels, all four normalization examples, either order | `test_directory_occupancy_matrix` |

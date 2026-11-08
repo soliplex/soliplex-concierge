@@ -1914,3 +1914,49 @@ def test_published_skill_names_identify_owner(repository, published):
             "Skill name 'triage' is already published by team acme",
         )
     ]
+
+
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_all_aliased_files_collide_with_directory(empty, reverse):
+    files = ["acme-a/resources/foo", "acme-a/resources/FOO"]
+    directory = "acme-a/resources/Foo"
+    entries = [Entry("100644", "a" * 40, 1, path) for path in files]
+    entries.append(
+        Entry(
+            "040000" if empty else "100644",
+            "a" * 40,
+            0,
+            directory if empty else directory + "/x",
+        )
+    )
+    if reverse:
+        entries.reverse()
+        files.reverse()
+    collisions = [
+        v
+        for v in check_structure(
+            "acme", entries, other_names={}, limits=Limits()
+        )
+        if v.check == Check.COLLISION
+    ]
+    expected = [
+        Violation(
+            Check.COLLISION,
+            path,
+            f"File collides with directory {directory!r} "
+            "after canonical caseless matching",
+        )
+        for path in files
+    ]
+    expected.append(
+        Violation(
+            Check.COLLISION,
+            files[1],
+            f"Path collides with {files[0]!r} "
+            "after canonical caseless matching",
+        )
+    )
+    assert sorted(collisions, key=lambda v: (v.path, v.message)) == sorted(
+        expected, key=lambda v: (v.path, v.message)
+    )

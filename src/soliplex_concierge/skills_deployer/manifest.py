@@ -413,6 +413,7 @@ def _check_collisions(entries: list[Entry]) -> list[Violation]:
     components: dict[tuple[str, str], tuple[str, str]] = {}
     reported: set[tuple[str, str]] = set()
     files: dict[str, str] = {}
+    file_paths: dict[str, str] = {}
     for entry in entries:
         parts = entry.path.split("/")
         depth = len(parts) if entry.mode == "040000" else len(parts) - 1
@@ -438,6 +439,7 @@ def _check_collisions(entries: list[Entry]) -> list[Violation]:
                 )
         if entry.mode != "040000":
             key = _normalized(entry.path)
+            file_paths[entry.path] = key
             if key in files:
                 violations.append(
                     Violation(
@@ -449,7 +451,7 @@ def _check_collisions(entries: list[Entry]) -> list[Violation]:
                 )
             else:
                 files[key] = entry.path
-    for key, path in files.items():
+    for path, key in file_paths.items():
         if key in directories:
             violations.append(
                 Violation(
