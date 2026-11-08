@@ -573,7 +573,9 @@ def test_invalid_directory_is_not_descended(repository):
     assert violations[0].path == repr(b"BadName/\xff")
 
 
-@pytest.mark.parametrize("mode", ["100644", "040000", "120000", "160000"])
+@pytest.mark.parametrize(
+    "mode", ["100644", "100755", "040000", "120000", "160000"]
+)
 def test_dimensions_include_empty_and_invalid_entries(mode):
     from soliplex_concierge.skills_deployer.manifest import _check_limits
 
@@ -606,7 +608,11 @@ def test_dimensions_include_empty_and_invalid_entries(mode):
         "Path depth 2 exceeds 1",
         f"Path length in characters {len(path)} exceeds {len(path) - 1}",
         "File size in bytes 2 exceeds 1",
-    ] + (["SKILL.md size in bytes 2 exceeds 1"] if mode == "100644" else [])
+    ] + (
+        ["SKILL.md size in bytes 2 exceeds 1"]
+        if mode in {"100644", "100755"}
+        else []
+    )
     assert all(v.check == Check.LIMITS for v in violations)
 
 
@@ -710,3 +716,43 @@ def test_reader_sorts_and_retains_utf8_diagnostics(
     assert [v.check for v in violations] == [Check.LAYOUT, Check.LAYOUT] + (
         [Check.LIMITS] if terminal_limit else []
     )
+
+
+def test_preserves_empty_directories_at_multiple_depths(repository):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    blob = _git(repo, "rev-parse", "HEAD:acme-a/SKILL.md").strip()
+    empty = _tree(repo, [])
+    nested = _tree(repo, [b"040000 tree " + empty + b"\tdeep"])
+    resources = _tree(
+        repo,
+        [
+            b"040000 tree " + empty + b"\tempty",
+            b"040000 tree " + nested + b"\tnested",
+            b"100644 blob " + blob + b"\tpopulated.txt",
+        ],
+    )
+    skill = _tree(
+        repo,
+        [
+            b"100644 blob " + blob + b"\tSKILL.md",
+            b"040000 tree " + resources + b"\tresources",
+        ],
+    )
+    root = _tree(
+        repo,
+        [
+            b"040000 tree " + skill + b"\tacme-a",
+            b"040000 tree " + empty + b"\tempty",
+        ],
+    )
+
+    entries, violations = read_tree(repo, _commit_tree(repo, root))
+
+    assert violations == []
+    assert sorted(entries, key=lambda entry: entry.path) == [
+        Entry("100644", blob.decode(), 1, "acme-a/SKILL.md"),
+        Entry("040000", empty.decode(), 0, "acme-a/resources/empty"),
+        Entry("040000", empty.decode(), 0, "acme-a/resources/nested/deep"),
+        Entry("100644", blob.decode(), 1, "acme-a/resources/populated.txt"),
+        Entry("040000", empty.decode(), 0, "empty"),
+    ]

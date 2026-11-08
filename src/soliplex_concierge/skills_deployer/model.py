@@ -6,10 +6,12 @@ A team's repository is read from git objects (:class:`Entry`), checked
 Checks use stable identifiers C1-C9.
 """
 
+import collections.abc
 import dataclasses
 import enum
 import pathlib
 import re
+import types
 
 #: Skill names Soliplex accepts (``soliplex/capabilities/filesystem.py``).
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -98,4 +100,11 @@ class Version:
     revision: str
     path: pathlib.Path
     skills: tuple[Skill, ...]
-    blob_digests: dict[str, str]  # path -> sha256 of the bytes written
+    blob_digests: collections.abc.Mapping[str, str]  # path -> sha256
+
+    def __post_init__(self):
+        object.__setattr__(
+            self,
+            "blob_digests",
+            types.MappingProxyType(dict(self.blob_digests)),
+        )

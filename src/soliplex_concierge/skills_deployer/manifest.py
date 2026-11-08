@@ -205,7 +205,11 @@ def read_tree(
     max_tree_bytes: int = 1024 * 1024,
     timeout: float = 30.0,
 ) -> tuple[list[Entry], list[Violation]]:
-    """Read bounded git entries, preserving empty directories."""
+    """Read bounded git entries, preserving empty directories.
+
+    Requires Git with support for ``cat-file -Z``. Commit and tree object
+    reads are size-bounded; blob sizes are recorded for dimension checks.
+    """
     if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", revision):
         message = "Revision must be a full 40 or 64 character lowercase hex id"
         raise ValueError(message)
