@@ -658,7 +658,7 @@ def _check(repo, *, team="acme", other_names=None, limits=None):
     return check_structure(
         team,
         entries,
-        other_names=other_names or set(),
+        other_names=other_names or {},
         limits=limits or Limits(),
     )
 
@@ -689,7 +689,10 @@ def test_valid_two_skill_tree(repository):
         )
     assert (
         check_structure(
-            "acme", entries, other_names={"trusted-skill"}, limits=Limits()
+            "acme",
+            entries,
+            other_names={"trusted-skill": "trusted"},
+            limits=Limits(),
         )
         == []
     )
@@ -723,7 +726,7 @@ def test_empty_top_level_directory_counts_as_skill(repository):
         ("acme-empty", "040000")
     ]
     violations = check_structure(
-        "acme", entries, other_names=set(), limits=Limits(max_skills=0)
+        "acme", entries, other_names={}, limits=Limits(max_skills=0)
     )
     assert [(v.check, v.path, v.message) for v in violations] == [
         (
@@ -760,7 +763,7 @@ def test_only_blobs_satisfy_skill_md(repository, kind):
     violations = check_structure(
         "acme",
         entries,
-        other_names=set(),
+        other_names={},
         limits=Limits(max_skill_md_bytes=0),
     )
 
@@ -863,7 +866,7 @@ def test_layout_rejects_unsafe_components(repository, path):
     entries = [dataclasses.replace(entries[0], path=path)]
 
     violations = check_structure(
-        "acme", entries, other_names=set(), limits=Limits()
+        "acme", entries, other_names={}, limits=Limits()
     )
 
     assert any(
@@ -883,7 +886,7 @@ def test_each_skill_needs_exactly_one_skill_md(repository, copies):
     entries = [entries[0]] * copies + entries[1:]
 
     violations = check_structure(
-        "acme", entries, other_names=set(), limits=Limits()
+        "acme", entries, other_names={}, limits=Limits()
     )
 
     assert [
@@ -900,8 +903,6 @@ def test_each_skill_needs_exactly_one_skill_md(repository, copies):
         ("acme-bad_name", "acme", "must match"),
         ("acme-bad--name", "acme", "must match"),
         ("acme-" + "x" * 60, "acme", "at most 64 characters"),
-        ("other-skill", "acme", "start with 'acme-'"),
-        ("acmeish-skill", "acme", "start with 'acme-'"),
         ("soliplex-skill", "soliplex", "must not start with"),
         ("acme-a\n", "acme", "must match"),
     ],
@@ -943,7 +944,7 @@ def test_forbidden_modes(repository, kind):
     assert link.size == (len("missing-target") if kind == "symlink" else 0)
     assert link.oid == _git(repo, "rev-parse", f"HEAD:{path}").decode().strip()
     violations = check_structure(
-        "acme", entries, other_names=set(), limits=Limits()
+        "acme", entries, other_names={}, limits=Limits()
     )
     assert len(violations) == 1
     assert violations[0].check == Check.MODE
@@ -957,7 +958,7 @@ def test_other_modes_are_forbidden(repository):
     entries = [dataclasses.replace(entries[0], mode="100600")]
 
     violations = check_structure(
-        "acme", entries, other_names=set(), limits=Limits()
+        "acme", entries, other_names={}, limits=Limits()
     )
 
     assert [v.check for v in violations] == [Check.LAYOUT, Check.MODE]
@@ -1069,14 +1070,14 @@ def test_limits_count_invalid_entries_and_distinct_skill_directories(
 
 
 @pytest.mark.parametrize(
-    "team", ["", "bad-team", "Bad", "bad_team", "é", "acme\n"]
+    "team", ["", "-bad", "bad-", "bad--team", "Bad", "bad_team", "é", "acme\n"]
 )
 def test_bad_team_slug(repository, team):
     repo = repository({})
     entries, _ = read_tree(repo, _head(repo))
 
     with pytest.raises(ValueError, match="Team slug must match"):
-        check_structure(team, entries, other_names=set(), limits=Limits())
+        check_structure(team, entries, other_names={}, limits=Limits())
 
 
 def test_numeric_team_slug(repository):
@@ -1109,7 +1110,7 @@ def test_skill_count_excludes_hidden_unsafe_and_root_paths(repository):
     entries.append(dataclasses.replace(entries[0], path="../SKILL.md"))
 
     violations = check_structure(
-        "acme", entries, other_names=set(), limits=Limits(max_skills=1)
+        "acme", entries, other_names={}, limits=Limits(max_skills=1)
     )
 
     assert any(v.check == Check.LAYOUT for v in violations)
@@ -1146,7 +1147,7 @@ def test_empty_directory_limits(repository, field, maximum, label):
     for bound in [actual[field], maximum]:
         limits = dataclasses.replace(Limits(), **{field: bound})
         violations = check_structure(
-            "acme", entries, other_names=set(), limits=limits
+            "acme", entries, other_names={}, limits=limits
         )
         if bound == actual[field]:
             assert violations == []
@@ -1171,7 +1172,7 @@ def test_invalid_only_child_preserves_skill(repository, name):
     assert len(errors) == 1
     assert [entry.path for entry in entries] == [name.decode()]
     violations = check_structure(
-        "acme", entries, other_names=set(), limits=Limits(max_skills=0)
+        "acme", entries, other_names={}, limits=Limits(max_skills=0)
     )
     assert (
         Violation(
@@ -1183,7 +1184,7 @@ def test_invalid_only_child_preserves_skill(repository, name):
     )
     assert Violation(Check.LIMITS, "", "Skill count 1 exceeds 0") in violations
     assert [v.check for v in violations].count(Check.NAME) == (
-        2 if name == b"BadName" else 0
+        1 if name == b"BadName" else 0
     )
 
 
@@ -1206,8 +1207,7 @@ def test_empty_resources_is_allowed(repository):
         "acme-a/resources",
     }
     assert (
-        check_structure("acme", entries, other_names=set(), limits=Limits())
-        == []
+        check_structure("acme", entries, other_names={}, limits=Limits()) == []
     )
 
 
@@ -1402,7 +1402,7 @@ def test_invalid_directories_with_empty_descendants(repository, path):
     assert errors == []
     assert sum(e.path == "acme-a/" + path for e in entries) == 1
     violations = check_structure(
-        "acme", entries, other_names=set(), limits=Limits()
+        "acme", entries, other_names={}, limits=Limits()
     )
     expected = []
     if parts[0] != "resources":
@@ -1438,3 +1438,23 @@ def test_invalid_directories_with_empty_descendants(repository, path):
             )
         )
     assert violations == sorted(expected, key=lambda v: (v.check, v.path))
+
+
+@pytest.mark.parametrize("team", ["acme", "team-a", "123"])
+def test_standard_skill_name(repository, team):
+    repo = repository({"triage/SKILL.md": "x"})
+
+    assert _check(repo, team=team) == []
+
+
+@pytest.mark.parametrize("published", ["triage", "TRIAGE"])
+def test_published_skill_names_identify_owner(repository, published):
+    repo = repository({"triage/SKILL.md": "x"})
+
+    assert _check(repo, team="docs", other_names={published: "acme"}) == [
+        Violation(
+            Check.COLLISION,
+            "triage",
+            "Skill name 'triage' is already published by team acme",
+        )
+    ]

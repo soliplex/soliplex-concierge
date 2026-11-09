@@ -326,8 +326,8 @@ def _check_layout(
     ]
 
 
-def _check_name(team: str, name: str) -> list[Violation]:
-    """Check a skill directory's spelling and team ownership."""
+def _check_name(name: str) -> list[Violation]:
+    """Check a skill directory's spelling."""
     rules = (
         (
             not SKILL_NAME_RE.fullmatch(name),
@@ -336,10 +336,6 @@ def _check_name(team: str, name: str) -> list[Violation]:
         (
             len(name) > SKILL_NAME_MAX,
             f"Skill name must be at most {SKILL_NAME_MAX} characters",
-        ),
-        (
-            not name.startswith(f"{team}-"),
-            f"Skill name must start with '{team}-'",
         ),
         (
             name.startswith(RESERVED_PREFIXES),
@@ -410,7 +406,7 @@ def check_structure(
     team: str,
     entries: list[Entry],
     *,
-    other_names: set[str],
+    other_names: dict[str, str],
     limits: Limits,
 ) -> list[Violation]:
     """Report layout, naming, mode and limit violations."""
@@ -451,8 +447,20 @@ def check_structure(
                 Violation(Check.SCRIPTS, path, "Remove scripts components")
             )
 
+    other_owners = {
+        _normalized(name): owner for name, owner in other_names.items()
+    }
     for name, count in skill_counts.items():
-        violations.extend(_check_name(team, name))
+        if _normalized(name) in other_owners:
+            violations.append(
+                Violation(
+                    Check.COLLISION,
+                    name,
+                    f"Skill name {name!r} is already published by team "
+                    f"{other_owners[_normalized(name)]}",
+                )
+            )
+        violations.extend(_check_name(name))
         if count != 1:
             violations.append(
                 Violation(
