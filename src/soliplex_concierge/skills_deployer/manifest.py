@@ -402,6 +402,68 @@ def _check_limits(
     ]
 
 
+def _check_collisions(entries: list[Entry]) -> list[Violation]:
+    """Compare files and each directory component under normalized parents.
+
+    Remember components separately from full paths: ancestor spelling aliases
+    must neither duplicate child aliases nor hide distinct descendant aliases.
+    """
+    violations = []
+    directories: dict[str, str] = {}
+    components: dict[tuple[str, str], tuple[str, str]] = {}
+    reported: set[tuple[str, str]] = set()
+    files: dict[str, str] = {}
+    file_paths: dict[str, str] = {}
+    for entry in entries:
+        parts = entry.path.split("/")
+        depth = len(parts) if entry.mode == "040000" else len(parts) - 1
+        for index in range(depth):
+            prefix = "/".join(parts[: index + 1])
+            parent = _normalized("/".join(parts[:index]))
+            key = (parent, _normalized(parts[index]))
+            previous, original = components.setdefault(
+                key, (parts[index], prefix)
+            )
+            directories.setdefault(_normalized(prefix), prefix)
+            report = (_normalized(prefix), parts[index])
+            # Skill aliases have their own check, regardless of occupancy.
+            if index and previous != parts[index] and report not in reported:
+                reported.add(report)
+                violations.append(
+                    Violation(
+                        Check.COLLISION,
+                        prefix,
+                        f"Directory collides with {original!r} "
+                        "after canonical caseless matching",
+                    )
+                )
+        if entry.mode != "040000":
+            key = _normalized(entry.path)
+            file_paths[entry.path] = key
+            if key in files:
+                violations.append(
+                    Violation(
+                        Check.COLLISION,
+                        entry.path,
+                        f"Path collides with {files[key]!r} "
+                        "after canonical caseless matching",
+                    )
+                )
+            else:
+                files[key] = entry.path
+    for path, key in file_paths.items():
+        if key in directories:
+            violations.append(
+                Violation(
+                    Check.COLLISION,
+                    path,
+                    f"File collides with directory {directories[key]!r} "
+                    "after canonical caseless matching",
+                )
+            )
+    return violations
+
+
 def check_structure(
     team: str,
     entries: list[Entry],
@@ -409,7 +471,7 @@ def check_structure(
     other_names: dict[str, str],
     limits: Limits,
 ) -> list[Violation]:
-    """Report layout, naming, mode and limit violations."""
+    """Report every layout, naming, collision, mode and limit violation."""
     if not TEAM_SLUG_RE.fullmatch(team):
         message = f"Team slug must match {TEAM_SLUG_RE.pattern}"
         raise ValueError(message)
@@ -447,19 +509,24 @@ def check_structure(
                 Violation(Check.SCRIPTS, path, "Remove scripts components")
             )
 
+    violations.extend(_check_collisions(entries))
     other_owners = {
         _normalized(name): owner for name, owner in other_names.items()
     }
+    names: dict[str, str] = {}
     for name, count in skill_counts.items():
-        if _normalized(name) in other_owners:
+        key = _normalized(name)
+        if key in names:
             violations.append(
                 Violation(
                     Check.COLLISION,
                     name,
-                    f"Skill name {name!r} is already published by team "
-                    f"{other_owners[_normalized(name)]}",
+                    f"Skill name collides with {names[key]!r} "
+                    "after canonical caseless matching",
                 )
             )
+        else:
+            names[key] = name
         violations.extend(_check_name(name))
         if count != 1:
             violations.append(
@@ -467,6 +534,15 @@ def check_structure(
                     Check.LAYOUT,
                     name,
                     f"Skill needs exactly one SKILL.md, found {count}",
+                )
+            )
+        if key in other_owners:
+            violations.append(
+                Violation(
+                    Check.COLLISION,
+                    name,
+                    f"Skill name {name!r} is already published by team "
+                    f"{other_owners[key]}",
                 )
             )
     violations.extend(_check_limits(entries, len(skill_counts), limits))

@@ -1211,6 +1211,462 @@ def test_empty_resources_is_allowed(repository):
     )
 
 
+@pytest.mark.parametrize(
+    "empty_name, skill_name",
+    [("ACME-A", "acme-a"), ("acme-e\u0301", "acme-é")],
+)
+@pytest.mark.parametrize("reverse", [False, True])
+def test_empty_top_level_directory_collides_with_skill(
+    repository, empty_name, skill_name, reverse
+):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    skill = _git(repo, "rev-parse", "HEAD:acme-a").strip()
+    empty = _tree(repo, [])
+    tree = _tree(
+        repo,
+        [
+            b"040000 tree " + empty + b"\t" + empty_name.encode(),
+            b"040000 tree " + skill + b"\t" + skill_name.encode(),
+        ],
+    )
+    entries, violations = read_tree(repo, _commit_tree(repo, tree))
+    assert violations == []
+    entries.sort(key=lambda entry: entry.path, reverse=reverse)
+
+    violations = check_structure(
+        "acme", entries, other_names={}, limits=Limits()
+    )
+
+    collisions = [v for v in violations if v.check == Check.COLLISION]
+    assert len(collisions) == 1
+    assert collisions[0].path in {empty_name, skill_name}
+    assert "canonical caseless matching" in collisions[0].message
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        ("a.txt", "A.txt"),
+        ("é.txt", "e\u0301.txt"),
+        ("Straße", "STRASSE"),
+        ("α\u0345\u0301", "άι"),
+    ],
+)
+def test_path_collisions(repository, first, second):
+    paths = [f"acme-a/resources/{name}" for name in (first, second)]
+    repo = repository({"acme-a/SKILL.md": "x", **dict.fromkeys(paths, "x")})
+
+    violations = _check(repo)
+
+    assert len(violations) == 1
+    assert violations[0].check == Check.COLLISION
+    assert violations[0].path in paths
+    assert "canonical caseless matching" in violations[0].message
+    assert (
+        repr(next(path for path in paths if path != violations[0].path))
+        in violations[0].message
+    )
+
+
+def test_collisions_cover_complete_paths(repository):
+    repo = repository({"acme-a/SKILL.md": "x", "ACME-A/SKILL.md": "x"})
+
+    violations = _check(repo)
+
+    assert any(
+        violation.check == Check.COLLISION
+        and "Path collides" in violation.message
+        for violation in violations
+    )
+
+
+@pytest.mark.parametrize(
+    "name, other_name",
+    [("acme-a", "ACME-A"), ("acme-é", "ACME-E\u0301")],
+)
+def test_collisions_with_other_teams_and_baseline(
+    repository, name, other_name
+):
+    repo = repository({f"{name}/SKILL.md": "x"})
+
+    violations = _check(
+        repo, other_names={other_name: "acme", "unrelated-skill": "docs"}
+    )
+
+    collisions = [v for v in violations if v.check == Check.COLLISION]
+    assert len(collisions) == 1
+    assert collisions[0].path == name
+    assert collisions[0].message == (
+        f"Skill name {collisions[0].path!r} is already published by team acme"
+    )
+
+
+def test_returns_all_violations_sorted_by_check_and_path(repository):
+    repo = repository(
+        {"acme-z/resources/z": "x", "acme-a/resources/a": "x"},
+        symlinks={"Wrong/Scripts/skill.md": "missing"},
+    )
+
+    violations = _check(
+        repo,
+        other_names={"wrong": "acme"},
+        limits=Limits(max_skills=0, max_entries=0),
+    )
+
+    assert [(v.check, v.path) for v in violations] == [
+        (Check.LAYOUT, "Wrong"),
+        (Check.LAYOUT, "Wrong/Scripts/skill.md"),
+        (Check.LAYOUT, "Wrong/Scripts/skill.md"),
+        (Check.LAYOUT, "acme-a"),
+        (Check.LAYOUT, "acme-z"),
+        (Check.NAME, "Wrong"),
+        (Check.COLLISION, "Wrong"),
+        (Check.MODE, "Wrong/Scripts/skill.md"),
+        (Check.SCRIPTS, "Wrong/Scripts/skill.md"),
+        (Check.LIMITS, ""),
+        (Check.LIMITS, ""),
+    ]
+
+
+@pytest.mark.parametrize("first, second", [("a", "A"), ("é", "e\u0301")])
+@pytest.mark.parametrize("file_first", [True, False])
+def test_file_directory_aliases(repository, first, second, file_first):
+    file_path = f"acme-a/resources/{first}"
+    nested_path = f"acme-a/resources/{second}/x"
+    paths = (
+        [file_path, nested_path] if file_first else [nested_path, file_path]
+    )
+    repo = repository({"acme-a/SKILL.md": "x"})
+    blob = _git(repo, "rev-parse", "HEAD:acme-a/SKILL.md").strip()
+    nested = _tree(repo, [b"100644 blob " + blob + b"\tx"])
+    resources = _tree(
+        repo,
+        [
+            b"100644 blob " + blob + b"\t" + first.encode(),
+            b"040000 tree " + nested + b"\t" + second.encode(),
+        ],
+    )
+    skill = _tree(
+        repo,
+        [
+            b"100644 blob " + blob + b"\tSKILL.md",
+            b"040000 tree " + resources + b"\tresources",
+        ],
+    )
+    tree = _tree(repo, [b"040000 tree " + skill + b"\tacme-a"])
+    entries, _ = read_tree(repo, _commit_tree(repo, tree))
+    entries.sort(
+        key=lambda entry: (
+            paths.index(entry.path) if entry.path in paths else -1
+        )
+    )
+
+    violations = check_structure(
+        "acme", entries, other_names={}, limits=Limits()
+    )
+
+    assert len(violations) == 1
+    assert violations[0].check == Check.COLLISION
+    assert violations[0].path == file_path
+    assert f"directory 'acme-a/resources/{second}'" in violations[0].message
+
+
+def test_other_names_use_canonical_caseless_matching(repository):
+    repo = repository({"acme-α\u0308ι/SKILL.md": "x"})
+
+    violations = _check(repo, other_names={"ACME-Α\u0345\u0308": "acme"})
+
+    collisions = [v for v in violations if v.check == Check.COLLISION]
+    assert len(collisions) == 1
+    assert collisions[0].path == "acme-α\u0308ι"
+    assert collisions[0].message == (
+        f"Skill name {collisions[0].path!r} is already published by team acme"
+    )
+
+
+@pytest.mark.parametrize(
+    "path, check",
+    [
+        ("extra", Check.LAYOUT),
+        ("skill.md", Check.LAYOUT),
+        ("resources/.hidden", Check.LAYOUT),
+        ("resources/scripts", Check.SCRIPTS),
+        ("resources/SKILL.md", Check.LAYOUT),
+        ("resources/FOO", Check.COLLISION),
+        ("resources/allowed", None),
+    ],
+)
+def test_empty_nested_trees_are_validated(repository, path, check):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    blob = _git(repo, "rev-parse", "HEAD:acme-a/SKILL.md").strip()
+    empty = _tree(repo, [])
+    components = path.split("/")
+    record = b"040000 tree " + empty + b"\t" + components[-1].encode()
+    if len(components) == 2:
+        resources = _tree(repo, [record, b"100644 blob " + blob + b"\tfoo"])
+        record = b"040000 tree " + resources + b"\tresources"
+    skill = _tree(repo, [record, b"100644 blob " + blob + b"\tSKILL.md"])
+    tree = _tree(repo, [b"040000 tree " + skill + b"\tacme-a"])
+    entries, violations = read_tree(repo, _commit_tree(repo, tree))
+    assert violations == []
+    assert any(
+        entry.path == f"acme-a/{path}" and entry.mode == "040000"
+        for entry in entries
+    )
+    violations = check_structure(
+        "acme", entries, other_names={}, limits=Limits()
+    )
+    if check is None:
+        assert violations == []
+    else:
+        messages = {
+            "extra": (
+                "Place files at <skill>/SKILL.md or <skill>/resources/<path>"
+            ),
+            "skill.md": (
+                "Place files at <skill>/SKILL.md or <skill>/resources/<path>"
+            ),
+            "resources/.hidden": "Remove path components starting with '.'",
+            "resources/scripts": "Remove scripts components",
+            "resources/SKILL.md": (
+                "Use SKILL.md only at <skill>/SKILL.md with that exact casing"
+            ),
+            "resources/FOO": (
+                "File collides with directory 'acme-a/resources/FOO' "
+                "after canonical caseless matching"
+            ),
+        }
+        expected = [Violation(check, "acme-a/" + path, messages[path])]
+        if path == "resources/FOO":
+            expected[0] = dataclasses.replace(
+                expected[0], path="acme-a/resources/foo"
+            )
+        if path == "skill.md":
+            expected.append(
+                Violation(
+                    Check.LAYOUT,
+                    "acme-a/skill.md",
+                    (
+                        "Use SKILL.md only at <skill>/SKILL.md "
+                        "with that exact casing"
+                    ),
+                )
+            )
+        if path == "skill.md":
+            expected.append(
+                Violation(
+                    Check.COLLISION,
+                    "acme-a/SKILL.md",
+                    "File collides with directory 'acme-a/skill.md' "
+                    "after canonical caseless matching",
+                )
+            )
+        assert violations == sorted(expected, key=lambda v: (v.check, v.path))
+
+
+@pytest.mark.parametrize("first, second", [("foo", "FOO"), ("é", "e\u0301")])
+@pytest.mark.parametrize("empty", [True, False])
+@pytest.mark.parametrize("reverse", [True, False])
+def test_directory_directory_aliases(
+    repository, first, second, empty, reverse
+):
+    repo = repository({"acme-a/SKILL.md": "x"})
+    blob = _git(repo, "rev-parse", "HEAD:acme-a/SKILL.md").strip()
+    populated = _tree(repo, [b"100644 blob " + blob + b"\tx"])
+    sibling = _tree(
+        repo,
+        []
+        if empty
+        else [
+            b"100644 blob " + blob + b"\ty",
+            b"100644 blob " + blob + b"\tz",
+        ],
+    )
+    resources = _tree(
+        repo,
+        [
+            b"040000 tree " + populated + b"\t" + first.encode(),
+            b"040000 tree " + sibling + b"\t" + second.encode(),
+        ],
+    )
+    skill = _tree(
+        repo,
+        [
+            b"100644 blob " + blob + b"\tSKILL.md",
+            b"040000 tree " + resources + b"\tresources",
+        ],
+    )
+    tree = _tree(repo, [b"040000 tree " + skill + b"\tacme-a"])
+    entries, errors = read_tree(repo, _commit_tree(repo, tree))
+    assert errors == []
+    entries.sort(key=lambda entry: entry.path, reverse=reverse)
+    violations = check_structure(
+        "acme", entries, other_names={}, limits=Limits()
+    )
+    assert len(violations) == 1
+    assert violations[0].check == Check.COLLISION
+    paths = {f"acme-a/resources/{first}", f"acme-a/resources/{second}"}
+    assert violations[0].path in paths
+    other = (paths - {violations[0].path}).pop()
+    assert repr(other) in violations[0].message
+
+
+@pytest.mark.parametrize("top_level", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_directory_alias_does_not_repeat_for_descendants(top_level, reverse):
+    first = "acme-a" if top_level else "acme-a/resources/foo"
+    second = "ACME-A" if top_level else "acme-a/resources/FOO"
+    entries = [
+        Entry("100644", "a" * 40, 1, f"{prefix}/sub/{filename}")
+        for prefix, filename in [
+            (first, "1.txt"),
+            (second, "2.txt"),
+            (second, "3.txt"),
+        ]
+    ]
+    if reverse:
+        entries.reverse()
+    violations = check_structure(
+        "acme", entries, other_names={}, limits=Limits()
+    )
+    collisions = [v for v in violations if v.check == Check.COLLISION]
+    reported, original = (first, second) if reverse else (second, first)
+    label = "Skill name" if top_level else "Directory"
+    assert collisions == [
+        Violation(
+            Check.COLLISION,
+            reported,
+            f"{label} collides with {original!r} "
+            "after canonical caseless matching",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "first, second",
+    [
+        ("foo", "FOO"),
+        ("é", "e\u0301"),
+        ("Straße", "STRASSE"),
+        ("α\u0345\u0301", "άι"),
+    ],
+)
+@pytest.mark.parametrize(
+    "occupancy", [(False, False), (False, True), (True, False), (True, True)]
+)
+@pytest.mark.parametrize("top", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_directory_occupancy_matrix(first, second, occupancy, top, reverse):
+    base = "" if top else "acme-a/resources/"
+    prefixes = [base + name for name in (first, second)]
+    entries = []
+    for prefix, populated in zip(prefixes, occupancy, strict=True):
+        if populated:
+            entries.extend(
+                Entry("100644", "a" * 40, 1, prefix + "/" + name)
+                for name in ["x", "y"]
+            )
+        else:
+            entries.append(Entry("040000", "a" * 40, 0, prefix))
+    if reverse:
+        entries.reverse()
+    violations = check_structure(
+        "acme", entries, other_names={}, limits=Limits()
+    )
+    collisions = [v for v in violations if v.check == Check.COLLISION]
+    # Populated aliases also share file names: these are full-path collisions.
+    path_collisions = 2 if all(occupancy) else 0
+    assert len(collisions) == 1 + path_collisions
+    directory_collisions = [
+        v for v in collisions if not v.message.startswith("Path")
+    ]
+    assert len(directory_collisions) == 1
+    reported, original = prefixes if reverse else prefixes[::-1]
+    label = "Skill name" if top else "Directory"
+    assert directory_collisions == [
+        Violation(
+            Check.COLLISION,
+            reported,
+            f"{label} collides with {original!r} "
+            "after canonical caseless matching",
+        )
+    ]
+
+
+@pytest.mark.parametrize("ancestor", ["ACME-A", "acme-a/resources/DIR"])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize(
+    "alias, canonical", [("SUB", "sub"), ("e\u0301", "é")]
+)
+def test_independent_collisions_beneath_ancestor_aliases(
+    ancestor, reverse, alias, canonical
+):
+    original = "acme-a" if ancestor == "ACME-A" else "acme-a/resources/dir"
+    entries = [
+        Entry("100644", "a" * 40, 1, original + "/first/x"),
+        Entry("100644", "a" * 40, 1, ancestor + f"/{canonical}/x"),
+        Entry("100644", "a" * 40, 1, ancestor + f"/{alias}/y"),
+        Entry("100644", "a" * 40, 1, ancestor + "/file"),
+        Entry("100644", "a" * 40, 1, ancestor + "/FILE/z"),
+    ]
+    if reverse:
+        entries.reverse()
+    collisions = [
+        v
+        for v in check_structure(
+            "acme", entries, other_names={}, limits=Limits()
+        )
+        if v.check == Check.COLLISION
+    ]
+    assert len(collisions) == 3
+    assert sum(v.message.startswith("File collides") for v in collisions) == 1
+    assert (
+        next(
+            v for v in collisions if v.message.startswith("File collides")
+        ).path
+        == ancestor + "/file"
+    )
+    child = ancestor + "/" + (canonical if reverse else alias)
+    assert any(
+        v.path == child and v.message.startswith("Directory collides")
+        for v in collisions
+    )
+
+
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("first, second", [("foo", "FOO"), ("é", "e\u0301")])
+def test_file_directory_collision_exactly_once(empty, reverse, first, second):
+    file = "acme-a/resources/" + first
+    directory = "acme-a/resources/" + second
+    entries = [
+        Entry("100644", "a" * 40, 1, file),
+        Entry(
+            "040000" if empty else "100644",
+            "a" * 40,
+            0,
+            directory if empty else directory + "/x",
+        ),
+    ]
+    if reverse:
+        entries.reverse()
+    collisions = [
+        v
+        for v in check_structure(
+            "acme", entries, other_names={}, limits=Limits()
+        )
+        if v.check == Check.COLLISION
+    ]
+    assert collisions == [
+        Violation(
+            Check.COLLISION,
+            file,
+            f"File collides with directory {directory!r} "
+            "after canonical caseless matching",
+        )
+    ]
+
+
 @pytest.mark.parametrize("output", [b"partial", b"complete\0partial"])
 def test_unterminated_subprocess_records(output):
     command = [sys.executable, "-c", f"import os; os.write(1, {output!r})"]
@@ -1458,3 +1914,49 @@ def test_published_skill_names_identify_owner(repository, published):
             "Skill name 'triage' is already published by team acme",
         )
     ]
+
+
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_all_aliased_files_collide_with_directory(empty, reverse):
+    files = ["acme-a/resources/foo", "acme-a/resources/FOO"]
+    directory = "acme-a/resources/Foo"
+    entries = [Entry("100644", "a" * 40, 1, path) for path in files]
+    entries.append(
+        Entry(
+            "040000" if empty else "100644",
+            "a" * 40,
+            0,
+            directory if empty else directory + "/x",
+        )
+    )
+    if reverse:
+        entries.reverse()
+        files.reverse()
+    collisions = [
+        v
+        for v in check_structure(
+            "acme", entries, other_names={}, limits=Limits()
+        )
+        if v.check == Check.COLLISION
+    ]
+    expected = [
+        Violation(
+            Check.COLLISION,
+            path,
+            f"File collides with directory {directory!r} "
+            "after canonical caseless matching",
+        )
+        for path in files
+    ]
+    expected.append(
+        Violation(
+            Check.COLLISION,
+            files[1],
+            f"Path collides with {files[0]!r} "
+            "after canonical caseless matching",
+        )
+    )
+    assert sorted(collisions, key=lambda v: (v.path, v.message)) == sorted(
+        expected, key=lambda v: (v.path, v.message)
+    )
