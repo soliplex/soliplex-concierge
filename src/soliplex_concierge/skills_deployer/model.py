@@ -17,8 +17,8 @@ import types
 SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 #: The longest skill name Soliplex accepts.
 SKILL_NAME_MAX = 64
-#: Team slugs: assigned by the platform, no hyphens.
-TEAM_SLUG_RE = re.compile(r"^[a-z0-9]+$")
+#: Team slugs use the skill-name spelling rules.
+TEAM_SLUG_RE = SKILL_NAME_RE
 #: Name prefixes no team may use.
 RESERVED_PREFIXES = ("soliplex-",)
 
