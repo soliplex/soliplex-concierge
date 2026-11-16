@@ -59,3 +59,33 @@ resolve them from your coding agent with the
 (installed the same way as the installer). Its `gitea_issues.py` CLI lists and
 filters open requests, follows up on them, and closes each with a comment and a
 decision label. See [Admin](docs/tasks/admin/index.md) for the workflow.
+
+## Development
+
+The project uses [uv](https://docs.astral.sh/uv/) (not `pip`) and requires
+Python 3.13 or later.
+
+```sh
+# Install the package and the dev tooling
+uv sync --group dev
+
+# Unit tests (100% branch coverage is enforced)
+uv run pytest
+# A subset: '--no-cov', since a partial run cannot meet the coverage gate
+uv run pytest --no-cov tests/unit/test_installer.py
+# In parallel
+uv run pytest -n 4
+
+# Functional tests (need a working Docker daemon; skipped by default)
+uv run pytest --no-cov tests/functional
+
+# Lint and format
+uv run ruff check
+uv run ruff format --check
+
+# Build the docs site into site/
+uv run zensical build --strict
+```
+
+Optionally, `uv run --with pre-commit pre-commit install` runs the CI checks
+(ruff, pymarkdown, gitleaks, skill validation, …) before each commit.
