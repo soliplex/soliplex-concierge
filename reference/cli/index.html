@@ -1134,7 +1134,9 @@ summary.</p>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span>--owner<span class="w"> </span>&lt;gitea-owner&gt;<span class="w"> </span>--repo<span class="w"> </span>&lt;gitea-repo&gt;<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
 </span></code></pre></div>
 <p>The same logic is also installed as the <strong><code>install-concierge</code></strong> console script
-(<code>pip install soliplex-concierge</code>). It takes the options below, but — because
+(<code>uv tool install soliplex-concierge</code>, or run it once without installing via
+<code>uvx --from soliplex-concierge install-concierge …</code>). It takes the options
+below, but — because
 the installed package does not ship the room template — the skill bundle's
 <code>assets/</code> directory is a required leading positional argument:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>install-concierge<span class="w"> </span>/path/to/soliplex-concierge-installer/assets<span class="w"> </span><span class="se">\</span>

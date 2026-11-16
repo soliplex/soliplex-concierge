@@ -1043,10 +1043,13 @@ attach the same tarball pinned to that version.</p>
 skill enabled in the about-room's configuration — <em>not</em> into a coding agent.
 It runs as a sub-agent of the room agent.</p>
 <p><strong>How to install it.</strong> The <a href="../soliplex-concierge-installer/">installer skill</a>
-does this for you: it downloads the release into the stack's <code>skills/</code>
-directory and enables it in <code>installation.yaml</code>. To wire it by hand, download
-the release tarball into the installation's <code>skills/</code> directory and add it to
-<code>filesystem_skills_paths</code> / <code>skill_configs</code> — see the manual steps in
+does this for you: it downloads the release into the stack's
+<code>backend/environment/skills/</code> directory, where Soliplex discovers it, and
+enables it on the about-room. It adds a <code>skill_configs</code> entry to
+<code>installation.yaml</code> only when the stack keeps an explicit filesystem
+whitelist. To wire it by hand, unpack the release tarball into the
+installation's <code>skills/</code> directory (and add a <code>skill_configs</code> entry only if
+you keep such a whitelist) — see the manual steps in
 <a href="../../tasks/rooms/setup/">Setup</a>.</p>
 <p><strong>Keeping it current.</strong> After installing the published tarball in a coding
 agent, the skill contains <code>scripts/skill_versions.py</code>, which can <code>list</code>,
