@@ -51,10 +51,14 @@ It applies these idempotent edits to the stack:
   stack built on a soliplex release image, or the `backend/Dockerfile`
   `uv add` block in an older stack (whose Dockerfile ignores the
   `pyproject.toml` deps).
-- Merges six entries into `backend/environment/installation.yaml`:
+- Merges its entries into `backend/environment/installation.yaml`:
   `meta.tool_configs` (the three tool-config classes), `environment`,
-  `secrets`, two `skill_configs` — for `soliplex-concierge-room` and
-  `soliplex-docs` — and `room_paths`.
+  `secrets`, and `room_paths`. The two `skill_configs` entries — for
+  `soliplex-concierge-room` and `soliplex-docs` — are written **only** when
+  the stack has an explicit filesystem `skill_configs` whitelist, and then
+  only with `--confirm-skill-whitelist` (without it the install aborts). On a
+  typical, permissive stack the skills are auto-discovered under `skills/`,
+  so the summary reports those entries as `covered` and writes nothing.
 - Copies the about-room into `backend/environment/rooms/<room-id>/`
   (`about_<compose-project-name>` by default; override with `--room-id`).
 - Downloads and installs the `soliplex-concierge-room` and `soliplex-docs`
@@ -111,10 +115,16 @@ entirely (for an external Gitea).
 For a non-generated installation, do the same steps by hand.
 
 1. **Install the package** into the environment that runs Soliplex (it depends
-   on `soliplex`):
+   on `soliplex`). In a containerized stack, add `soliplex-concierge` to
+   whatever the backend image installs from — `backend/requirements.txt`, or
+   the `uv add` block in an older stack's `backend/Dockerfile` — and rebuild
+   the image. For an environment managed directly:
 
    ```sh
-   pip install -e .
+   # a uv-managed project
+   uv add soliplex-concierge
+   # an existing virtual environment
+   uv pip install soliplex-concierge
    ```
 
    For an enterprise / internal CA, install `soliplex-concierge[truststore]`

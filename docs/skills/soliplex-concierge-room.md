@@ -17,10 +17,13 @@ skill enabled in the about-room's configuration — *not* into a coding agent.
 It runs as a sub-agent of the room agent.
 
 **How to install it.** The [installer skill](soliplex-concierge-installer.md)
-does this for you: it downloads the release into the stack's `skills/`
-directory and enables it in `installation.yaml`. To wire it by hand, download
-the release tarball into the installation's `skills/` directory and add it to
-`filesystem_skills_paths` / `skill_configs` — see the manual steps in
+does this for you: it downloads the release into the stack's
+`backend/environment/skills/` directory, where Soliplex discovers it, and
+enables it on the about-room. It adds a `skill_configs` entry to
+`installation.yaml` only when the stack keeps an explicit filesystem
+whitelist. To wire it by hand, unpack the release tarball into the
+installation's `skills/` directory (and add a `skill_configs` entry only if
+you keep such a whitelist) — see the manual steps in
 [Setup](../tasks/rooms/setup.md).
 
 **Keeping it current.** After installing the published tarball in a coding

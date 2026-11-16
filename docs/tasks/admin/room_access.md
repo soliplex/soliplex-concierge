@@ -45,12 +45,15 @@ docker compose run --rm backend \
 # Allow the requesting user, matched by an OIDC claim from their profile.
 docker compose run --rm backend \
   /app/.venv/bin/soliplex-cli room-authz add-acl-entry \
-    --allow --email <user-email> /environment <room_id>
+    --allow --permission read --email <user-email> /environment <room_id>
 ```
 
 Notes:
 
 - `/environment` is the in-container installation path.
+- `--permission` is required. `read` is what using the room needs; a
+  `write`- or `admin`-scoped entry grants only that permission and does not
+  let the user into a private room.
 - Match the user with the discriminator that fits their profile: `--email`
   `<email>` or `--preferred-username <name>`. (`add-acl-entry` also supports
   `--everyone` and `--authenticated` catch-alls, and `--deny` entries.)

@@ -3,7 +3,7 @@ name: soliplex-concierge-installer
 description: |
     Wire the `soliplex-concierge` extension into a target Soliplex stack by
     running this skill's bundled `scripts/install_concierge.py` (via `uv run`, no install
-    needed). It creates the `about-<project>` room (hosting the
+    needed). It creates the `about_<project>` room (hosting the
     `create_gitea_issue` tool and the `soliplex-concierge-room` skill) and
     merges the required `installation.yaml` entries. Use when a user wants to
     add room-request / Gitea-issue filing to an existing
@@ -144,12 +144,16 @@ populate. Order: run the installer → `docker compose up -d` →
 
 ## Verify
 
-- The script prints a per-target summary (`added` / `unchanged`); confirm the
-  room, both skills, and `installation.yaml` entries are accounted for.
+- The script prints a per-target summary (`added` / `unchanged` /
+  `covered`); confirm the room, both skills, and `installation.yaml` entries
+  are accounted for. `covered` is expected for the two `skill_configs`
+  entries on a permissive stack: the skills are auto-discovered, so nothing
+  is written.
 - Confirm `backend/environment/skills/soliplex-concierge-room/SKILL.md` and
-  `backend/environment/skills/soliplex-docs/SKILL.md` exist, and
-  `installation.yaml` lists `skill_name: "soliplex-concierge-room"` and
-  `skill_name: "soliplex-docs"`.
+  `backend/environment/skills/soliplex-docs/SKILL.md` exist. Only if the stack
+  has an explicit filesystem `skill_configs` whitelist (installed with
+  `--confirm-skill-whitelist`), also confirm `installation.yaml` lists
+  `skill_name: "soliplex-concierge-room"` and `skill_name: "soliplex-docs"`.
 - Set real `GITEA_HOST` / `GITEA_ACCESS_TOKEN` in `.env`, then
   `docker compose build backend && docker compose up -d`.
 - Confirm `scripts/gitea_issues.py` exists and runs:

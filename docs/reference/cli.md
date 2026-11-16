@@ -20,7 +20,9 @@ uv run scripts/install_concierge.py --stack-dir /path/to/stack \
 ```
 
 The same logic is also installed as the **`install-concierge`** console script
-(`pip install soliplex-concierge`). It takes the options below, but — because
+(`uv tool install soliplex-concierge`, or run it once without installing via
+`uvx --from soliplex-concierge install-concierge …`). It takes the options
+below, but — because
 the installed package does not ship the room template — the skill bundle's
 `assets/` directory is a required leading positional argument:
 
