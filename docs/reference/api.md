@@ -241,7 +241,8 @@ Checks that an implementation keeps the API's contract (see
   `check_refuses_an_invalid_token`, `check_refuses_the_unadmitted`,
   `check_rejects_a_malformed_body`, `check_rejects_a_bad_slug`,
   `check_refuses_a_named_owner_from_a_non_admin`, `check_rejects_a_bad_owner`,
-  `check_admin_names_an_owner`, `check_accepts_and_reports`, `check_hides_requests_from_others`,
+  `check_admin_names_an_owner`, `check_rejects_an_unknown_predicate`,
+  `check_accepts_and_reports`, `check_hides_requests_from_others`,
   `check_reports_unknown_requests`, `check_refuses_an_existing_room` — each
   takes the harness.
 - `ContractViolation(AssertionError)` — a broken contract;
@@ -510,9 +511,20 @@ options: `room_id`, `pin`, `gitea_host`, `gitea_token`, `owner`, `repo`,
 `scripts/init_gitea.py` owns those).
 
 **`class InstallerError(Exception)`** — a problem applying the extension; `main`
-maps it to exit code `2`. Built via message-constructing classmethods
-(`not_a_stack`, `assets_missing`, `bad_skill_dir`, `bad_pyproject`,
-`bad_dockerfile`, `bad_installation`, …).
+maps it to exit code `2`. Raised as one of its subclasses, each building its
+own message:
+
+- `NotAStack(stack, missing)` — `stack` lacks the stack marker `missing`.
+- `AssetsMissing(assets)` — the skill bundle's room template is not there.
+- `SkillDownloadFailed(spec, reason)` — a published skill could not be
+  downloaded; the message names its `--…-skill-dir` flag.
+- `BadSkillDirectory(spec, path)` — a `--…-skill-dir` has no `SKILL.md`.
+- `BadPyProject()` — `backend/pyproject.toml` has no `dependencies = [`
+  block to extend.
+- `BadDockerfile()` — the `backend/Dockerfile` `uv add` block has no
+  `soliplex \` line to extend.
+- `SkillWhitelistActive(kind, entries)` — `installation.yaml` has an explicit
+  `skill_configs` whitelist and `--confirm-skill-whitelist` was not given.
 
 **Published skills**
 
@@ -554,8 +566,14 @@ just "compute, don't write"; `action` is `ADDED` or `UNCHANGED`:
 - `add_dockerfile_dep(text, pin=None, with_truststore=False)` — add it to the
   `backend/Dockerfile` `uv add` block, in an older stack without
   `backend/requirements.txt`.
-- `merge_installation(text, room_id) -> (new_text, {target: action})` —
-  surgically merge the six `installation.yaml` entries.
+- `merge_installation(text, *, confirm_skill_whitelist=False) ->
+  (new_text, {target: action})` — surgically merge the `installation.yaml`
+  entries: the three `meta.tool_configs` classes, `environment`, `secrets`,
+  and the two filesystem `skill_configs` (`room_paths` is wired by
+  `install_room`). The `skill_configs` targets come back `COVERED` on a
+  permissive stack; on one with an explicit whitelist they are added only
+  when `confirm_skill_whitelist` is true, and otherwise it raises
+  `SkillWhitelistActive`.
 - `update_env(text, host, token)` — add the `GITEA_HOST` / `GITEA_ACCESS_TOKEN`
   lines.
 - `stack_gitea_script(pin=None, with_truststore=False) -> str` — render the
