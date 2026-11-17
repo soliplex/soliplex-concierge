@@ -41,7 +41,7 @@ bundle automatically, so you never pass it there.
 | `--gitea-host` / `--gitea-token` | fill real `.env` values instead of placeholders |
 | `--no-local-gitea` | skip local-Gitea auto-detection; keep the external-Gitea defaults |
 | `--version <X.Y>` | pin the `soliplex-concierge` dependency added to the stack (`latest` for newest; omitted warns about skew) |
-| `--with-truststore` | install the `[truststore]` extra (verify TLS against the OS trust store; issue #46) |
+| `--with-truststore` | install the `[truststore]` extra (verify TLS against the OS trust store; [issue #46](https://github.com/soliplex/soliplex-concierge/issues/46)) |
 | `--room-skill-version` / `--docs-skill-version` | published tag to install for the room / docs skill |
 | `--room-skill-dir` / `--docs-skill-dir` | install the room / docs skill from a local directory |
 | `--room-id` | room id to create (default `about_<compose-project-name>`) |
@@ -75,4 +75,4 @@ uv run scripts/gitea_issues.py <command> --owner <owner> --repo <repo> [...]
 | `deny <number> [--body <text>]` | label `denied`, record the decision, and close |
 
 Behind an enterprise / internal CA, add `--with truststore` to the `uv run`
-invocation so TLS verifies against the OS trust store (issue #46).
+invocation so TLS verifies against the OS trust store ([issue #46](https://github.com/soliplex/soliplex-concierge/issues/46)).

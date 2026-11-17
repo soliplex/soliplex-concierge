@@ -39,7 +39,7 @@ This skill is meant to be used alongside two sibling skills:
 3. A Gitea repository to file room requests against, and an access token whose
    account has **Write** access to it (not just Read): Gitea lets a Read-only
    account open issues but silently drops their labels, so requests would be
-   filed untagged (see issue #59).
+   filed untagged (see [issue #59](https://github.com/soliplex/soliplex-concierge/issues/59)).
 4. Network access to GitHub: two filesystem skills are downloaded from their
    published releases by default — `soliplex-concierge-room` (from
    `soliplex/soliplex-concierge`, the `room-skill-latest` pointer) and
@@ -136,7 +136,8 @@ The installer detects this and, rather than emitting placeholders, wires the
 room's `create_gitea_issue` tool to `soliplex-admin/soliplex-requests` (the
 account + repo that shim creates) and leaves `.env` for `init_gitea.py` to
 populate. Order: run the installer → `docker compose up -d` →
-`uv run scripts/init_gitea.py` → `docker compose up -d backend`. Override with
+`uv run scripts/init_gitea.py` → `docker compose up -d backend` →
+`uv run scripts/gitea_issues.py init` (see Verify). Override with
 `--owner`/`--repo`, or opt out with `--no-local-gitea`.
 
 ## Verify
@@ -155,6 +156,17 @@ populate. Order: run the installer → `docker compose up -d` →
   `docker compose build backend && docker compose up -d`.
 - Confirm `scripts/gitea_issues.py` exists and runs:
   `uv run scripts/gitea_issues.py --help`.
+- Create the request labels on the tracking repository (once per repository;
+  idempotent). Nothing else creates the `approved` / `denied` labels, and the
+  admin's `approve` / `deny` fail without them:
+
+  ```sh
+  uv run scripts/gitea_issues.py init --owner <gitea-owner> --repo <gitea-repo>
+  ```
+
+  It needs `GITEA_HOST` / `GITEA_ACCESS_TOKEN` (or `--host` / `--token`);
+  confirm it reports each of `new-room`, `room-access`, `approved` and
+  `denied` as `created` or `exists`.
 
 ## Managing this skill's version
 

@@ -45,9 +45,10 @@ The body is a `RoomRequest`:
 room's id is `<owner><separator><slug>`, the separator being the
 deployment's (by default `--`, as in `alice--q3-plans`). The owner part
 derives from one of the requester's claims: lowercased by default, with any
-separator in it replaced and any trailing `.`, `_` or `-` stripped. The slug derives from the request's `name`, unless
-the request asks for a specific `slug`; one that does not fit (including one
-containing the separator) is a `400`, and the caller may retry with another.
+separator in it replaced and any trailing `.`, `_` or `-` stripped. The slug
+derives from the request's `name`, unless the request asks for a specific
+`slug`; one that does not fit (including one containing the separator) is a
+`400`, and the caller may retry with another.
 
 An admin may make someone other than themselves the room's owner with the
 optional `owner`, a `RoomOwner`. `owner.owner` is the room id's owner part,
@@ -82,7 +83,7 @@ requester is still the one who asked, and may see the request.
 | `401` | `Error` | No service token, or one that is not valid |
 | `403` | `Error` | The requester is not admitted, or names an owner without being an admin |
 | `409` | `Refusal`: `detail`, `room_id` | The room exists, or a request for it is in flight |
-| `422` | | The body is not a `RoomRequest` (including an `owner` in neither form, or both) |
+| `422` | FastAPI validation error: `detail`, a list of `{type, loc, msg, ...}` | The body is not a `RoomRequest` (including an `owner` in neither form, or both) |
 | `500` | `Error` | The service failed |
 
 A `409` names the room it refuses, because the caller cannot work the room id
@@ -99,6 +100,7 @@ The room id is quoted as one path segment (`api.room_path`); the default
 | `200` | `RequestState` | The request's state |
 | `401` | `Error` | As for `POST /rooms` |
 | `404` | `Error` | No request for that room, or one the caller may not see |
+| `500` | `Error` | The service failed (validating the token, or checking whether the caller is an admin) |
 
 Only a request's requester and admins may see it. Anyone else gets `404`, as
 if there were no such request.

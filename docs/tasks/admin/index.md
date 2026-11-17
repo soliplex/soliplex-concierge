@@ -27,7 +27,7 @@ Provide the Gitea connection via flags or the environment:
 
 For an enterprise / internal CA, add `--with truststore` to the `uv run`
 invocation so the script verifies against the OS trust store — e.g.
-`uv run --with truststore scripts/gitea_issues.py list …` (issue #46).
+`uv run --with truststore scripts/gitea_issues.py list …` ([issue #46](https://github.com/soliplex/soliplex-concierge/issues/46)).
 
 ## Labels
 
@@ -42,7 +42,10 @@ the outcome with a **decision** label:
 | `denied` | decision | Room request denied |
 
 Run `init` **once per tracking repository** to create them (idempotent —
-re-running reports each as `created` or `exists`):
+re-running reports each as `created` or `exists`). The concierge creates the
+two issue-type labels itself when it files a request, but nothing else
+creates `approved` and `denied`: until `init` has run, `approve` and `deny`
+fail with a "missing label" error.
 
 ```sh
 uv run scripts/gitea_issues.py init --owner <owner> --repo <repo>

@@ -40,17 +40,23 @@ than running the wiring script yourself:
    [what it changes](docs/tasks/rooms/setup.md#what-it-changes), idempotently.
 3. **Bring up the stack** — set real Gitea values in `.env`, then
    `docker compose build backend && docker compose up -d`.
+4. **Create the request labels** once on the tracking repo —
+   `uv run scripts/gitea_issues.py init --owner <owner> --repo <repo>` from the
+   stack directory. Nothing else creates the `approved` / `denied` labels, and
+   approving or denying a request fails without them (see
+   [Create the request labels](docs/tasks/rooms/setup.md#create-the-request-labels)).
 
 The Gitea token's account must have **Write** access to the tracking repo, not
 just Read — Gitea lets a Read-only account open issues but silently drops their
-labels, so requests would be filed untagged (see issue #59). A fine-grained
+labels, so requests would be filed untagged (see
+[issue #59](https://github.com/soliplex/soliplex-concierge/issues/59)). A fine-grained
 token additionally needs the `write:issue` and `read:repository` scopes.
 
 See [Setup](docs/tasks/rooms/setup.md) for the
 [full option list](docs/tasks/rooms/setup.md#useful-flags) (version pinning,
 `--with-truststore` for an enterprise / internal CA, …), running
 `install_concierge.py` directly, and the
-[manual-wiring steps](docs/tasks/rooms/setup.md#manual-wiring)
+[customized-installation pitfalls and manual-wiring steps](docs/tasks/rooms/setup.md#customized-installations)
 for a non-generated installation.
 
 Once the stack is up, users file requests through the about-room — and you

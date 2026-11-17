@@ -26,15 +26,18 @@ installation's `skills/` directory (and add a `skill_configs` entry only if
 you keep such an allow-list) — see the manual steps in
 [Setup](../tasks/rooms/setup.md).
 
-**Keeping it current.** After installing the published tarball in a coding
-agent, the skill contains `scripts/skill_versions.py`, which can `list`,
-`diff`, and `upgrade` the skill against the published builds — see the
-[`soliplex-skills` versions CLI docs](https://soliplex.github.io/soliplex-skills/mechanisms/versions-cli/).
+**Keeping it current.** To update the copy in a stack, re-run the
+installer's `install_concierge.py` with `--force` against the stack, from a
+coding agent (`--room-skill-version` pins a published tag). `--force` also
+replaces the about-room itself, so save any edits to it first (see
+[Setup](../tasks/rooms/setup.md#useful-flags)).
 
-When installed in a Soliplex room, however, this skill runs inside the room's
-agent rather than a coding agent. Room users should never reach machinery that
-rewrites files and calls out to GitHub/PyPI, and therefore the
-[installer](soliplex-concierge-installer.md) **strips that helper
-from the copy it drops into a stack**. To update an installed copy, re-run the
-installer's `install_concierge.py` (with `--force`) against the stack
-from a coding agent.
+The installed copy has no update helper of its own. This skill runs inside the
+room's agent, and room users must never reach machinery that rewrites files
+and calls out to GitHub/PyPI, so the
+[installer](soliplex-concierge-installer.md) **strips the published tarball's
+`scripts/skill_versions.py`** from the copy it drops into a stack. If you
+unpack the tarball into an installation by hand, delete that file yourself.
+(In a copy kept outside any stack, the helper can `list`, `diff`, and
+`upgrade` the skill against the published builds — see the
+[`soliplex-skills` versions CLI docs](https://soliplex.github.io/soliplex-skills/mechanisms/versions-cli/).)
