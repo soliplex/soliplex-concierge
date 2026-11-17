@@ -217,7 +217,9 @@ def _requests(request: fastapi.Request) -> Requests:
     return request.app.state.requests
 
 
-def _access(request: fastapi.Request) -> Access:
+async def _access(request: fastapi.Request) -> Access:
+    # 'async', as is 'health_check': FastAPI runs a sync dependency on the
+    # threadpool the request routes can use up (#147).
     return request.app.state.access
 
 
@@ -314,10 +316,15 @@ router = fastapi.APIRouter()
 @router.get(
     api.HEALTH_PATH, response_class=fastapi.responses.PlainTextResponse
 )
-def health_check(access: AccessDep) -> fastapi.responses.PlainTextResponse:
+async def health_check(
+    access: AccessDep,
+) -> fastapi.responses.PlainTextResponse:
     """Is the service up, and does the backend admit the provisioner?
 
-    Answers 503, saying why, until the backend does.
+    Answers 503, saying why, until the backend does. Runs on the event
+    loop, so it answers even while the request routes hold every
+    threadpool worker; ``access.state()`` holds its lock only to copy
+    two fields.
     """
     admitted, problem = access.state()
     if not admitted:
