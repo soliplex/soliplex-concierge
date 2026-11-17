@@ -45,14 +45,14 @@ The body is a `RoomRequest`:
 room's id is `<owner><separator><slug>`, the separator being the
 deployment's (by default `--`, as in `alice--q3-plans`). The owner part
 derives from one of the requester's claims: lowercased by default, with any
-separator in it replaced. The slug derives from the request's `name`, unless
+separator in it replaced and any trailing `.`, `_` or `-` stripped. The slug derives from the request's `name`, unless
 the request asks for a specific `slug`; one that does not fit (including one
 containing the separator) is a `400`, and the caller may retry with another.
 
 An admin may make someone other than themselves the room's owner with the
 optional `owner`, a `RoomOwner`. `owner.owner` is the room id's owner part,
 normalized as a claimed one is (lowercased by default, any separator
-replaced).
+replaced, any trailing `.`, `_` or `-` stripped).
 Whom the room is granted to is given in one of two forms:
 
 - a claim and its exact value, for one person:

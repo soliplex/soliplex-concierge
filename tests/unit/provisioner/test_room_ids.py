@@ -7,12 +7,18 @@ act exactly once (cases that would repeat it are parametrized or split).
 
 from __future__ import annotations
 
+import itertools
+
 import pytest
 
 from soliplex_concierge.provisioner import access_rules
 from soliplex_concierge.provisioner import room_ids
 
-# Values that are not one safe path segment, or that carry the separator.
+SCHEME = room_ids.DEFAULT_SCHEME
+COLON = room_ids.RoomIdScheme(separator=":")
+UNDERSCORES = room_ids.RoomIdScheme(separator="__")
+
+# Values that are not one safe path segment.
 _BAD_SEGMENTS = [
     "",
     ".",
@@ -26,46 +32,15 @@ _BAD_SEGMENTS = [
     "ünïcode",
     "a" * (room_ids.MAX_SEGMENT + 1),
 ]
+# Segments the old rule allowed, which now end only with a letter or digit.
+_BAD_ENDINGS = ["bob-", "bob_", "bob."]
+
+_RULE = '$[?$.preferred_username == "alice"]'
+_GROUP_RULE = "$[?'staff' in @.groups]"
 
 
 def _owner(owner="alice"):
-    return room_ids.RoomOwner(
-        owner=owner, json_path=f'$[?$.preferred_username == "{owner}"]'
-    )
-
-
-# ---- is_segment ----
-
-
-@pytest.mark.parametrize(
-    "value, expected",
-    [
-        ("alice", True),
-        ("a" * room_ids.MAX_SEGMENT, True),
-        *[(bad, False) for bad in _BAD_SEGMENTS],
-    ],
-)
-def test_is_segment(value, expected):
-    result = room_ids.is_segment(value)
-
-    assert result is expected
-
-
-# ---- flatten ----
-
-
-@pytest.mark.parametrize(
-    "value, expected",
-    [
-        ("bharney", "bharney"),
-        ("bharney@sitename.example", "bharney_sitename.example"),
-        ("a@b@c", "a_b_c"),
-    ],
-)
-def test_flatten(value, expected):
-    result = room_ids.flatten(value)
-
-    assert result == expected
+    return room_ids.RoomOwner(owner=owner, json_path=_RULE)
 
 
 # ---- validate_separator ----
@@ -73,7 +48,7 @@ def test_flatten(value, expected):
 
 @pytest.mark.parametrize(
     "separator",
-    [room_ids.DEFAULT_SEPARATOR, "--", ":", "__", "_", "~", "-_", "a--b", "X"],
+    [room_ids.DEFAULT_SEPARATOR, ":", "__", "_", "~", "-_", "---", "." * 8],
 )
 def test_validate_separator_accepts(separator):
     result = room_ids.validate_separator(separator)
@@ -93,11 +68,12 @@ def test_validate_separator_accepts(separator):
         (" ", "it contains ' '"),
         ("\t", "it contains '\\t'"),
         ("\x00", "it contains '\\x00'"),
-        ("\u2192", "it contains '\u2192'"),
+        ("→", "it contains '→'"),
+        ("x", "it contains a letter or digit"),
+        ("X", "it contains a letter or digit"),
+        ("a--b", "it contains a letter or digit"),
+        ("-1-", "it contains a letter or digit"),
         ("-", "slugs derived from room names can contain it"),
-        ("x", "slugs derived from room names can contain it"),
-        ("a-b", "slugs derived from room names can contain it"),
-        ("-a-", "slugs derived from room names can contain it"),
     ],
 )
 def test_validate_separator_rejects(separator, reason):
@@ -112,60 +88,158 @@ def test_validate_separator_rejects(separator, reason):
     )
 
 
-# ---- without_separator ----
+# ---- flatten ----
 
 
 @pytest.mark.parametrize(
-    "value, kw, expected",
+    "value, expected",
     [
-        ("alice", {}, "alice"),
-        ("a--b", {}, "a_b"),
-        ("a---b", {}, "a_-b"),
-        ("a----b", {}, "a__b"),
-        ("a:b", {"separator": ":"}, "a-b"),
-        ("a::b", {"separator": ":"}, "a--b"),
-        ("a__b", {"separator": "__"}, "a-b"),
-        ("a___b", {"separator": "__"}, "a-_b"),
-        ("a-_-_b", {"separator": "-_"}, "a__b"),
-        ("a--b", {"separator": ""}, "a--b"),
+        ("bharney", "bharney"),
+        ("bharney@sitename.example", "bharney_sitename.example"),
+        ("a@b@c", "a_b_c"),
     ],
 )
-def test_without_separator(value, kw, expected):
-    result = room_ids.without_separator(value, **kw)
+def test_flatten(value, expected):
+    result = room_ids.flatten(value)
 
     assert result == expected
 
 
-# ---- named_owner ----
+# ---- RoomIdScheme ----
 
 
-def test_named_owner():
-    result = room_ids.named_owner("staff", "$[?'staff' in @.groups]")
+def test_scheme_defaults():
+    result = room_ids.RoomIdScheme()
 
-    assert result == room_ids.RoomOwner(
-        owner="staff", json_path="$[?'staff' in @.groups]"
-    )
+    assert result.separator == room_ids.DEFAULT_SEPARATOR
+    assert result.max_segment == room_ids.MAX_SEGMENT
+    assert result.lowercase_owner is True
+    assert result.flatten_owner is False
+
+
+def test_scheme_rejects_a_bad_separator():
+    with pytest.raises(room_ids.BadSeparator) as caught:
+        room_ids.RoomIdScheme(separator="X")
+
+    assert caught.value.separator == "X"
+
+
+@pytest.mark.parametrize("max_segment", [0, room_ids.MAX_SEGMENT + 1])
+def test_scheme_rejects_a_bad_max_segment(max_segment):
+    with pytest.raises(room_ids.RoomIdError) as caught:
+        room_ids.RoomIdScheme(max_segment=max_segment)
+
+    assert type(caught.value) is room_ids.BadMaxSegment
+    assert caught.value.max_segment == max_segment
+
+
+# ---- RoomIdScheme.is_segment ----
 
 
 @pytest.mark.parametrize(
-    "owner, kw, expected",
+    "value, expected",
     [
-        ("night--shift", {}, "night_shift"),
-        ("night:shift", {"separator": ":"}, "night-shift"),
-        ("Night--Shift", {}, "night_shift"),
-        ("Night--Shift", {"lowercase": False}, "Night_Shift"),
+        ("alice", True),
+        ("a", True),
+        ("v1.2_draft", True),
+        ("a" * room_ids.MAX_SEGMENT, True),
+        *[(bad, False) for bad in _BAD_SEGMENTS + _BAD_ENDINGS],
     ],
 )
-def test_named_owner_normalizes(owner, kw, expected):
-    result = room_ids.named_owner(owner, "$[?'staff' in @.groups]", **kw)
+def test_is_segment(value, expected):
+    result = SCHEME.is_segment(value)
+
+    assert result is expected
+
+
+def test_is_segment_honors_max_segment():
+    scheme = room_ids.RoomIdScheme(max_segment=3)
+
+    result = scheme.is_segment("abcd")
+
+    assert result is False
+
+
+# ---- RoomIdScheme.without_separator ----
+
+
+@pytest.mark.parametrize(
+    "scheme, value, expected",
+    [
+        (SCHEME, "alice", "alice"),
+        (SCHEME, "a--b", "a_b"),
+        (SCHEME, "a---b", "a_-b"),
+        (SCHEME, "a----b", "a__b"),
+        (COLON, "a:b", "a-b"),
+        (COLON, "a::b", "a--b"),
+        (UNDERSCORES, "a__b", "a-b"),
+        (UNDERSCORES, "a___b", "a-_b"),
+        (room_ids.RoomIdScheme(separator="-_"), "a-_-_b", "a__b"),
+    ],
+)
+def test_without_separator(scheme, value, expected):
+    result = scheme.without_separator(value)
+
+    assert result == expected
+
+
+# ---- RoomIdScheme.named_owner ----
+
+
+def test_named_owner():
+    result = SCHEME.named_owner("staff", _GROUP_RULE)
+
+    assert result == room_ids.RoomOwner(owner="staff", json_path=_GROUP_RULE)
+
+
+@pytest.mark.parametrize(
+    "scheme, owner, expected",
+    [
+        (SCHEME, "night--shift", "night_shift"),
+        (COLON, "night:shift", "night-shift"),
+        (SCHEME, "Night--Shift", "night_shift"),
+        (
+            room_ids.RoomIdScheme(lowercase_owner=False),
+            "Night--Shift",
+            "Night_Shift",
+        ),
+        (SCHEME, "ops-", "ops"),
+        (SCHEME, "ops_.-", "ops"),
+        (SCHEME, "ops--", "ops"),
+        (UNDERSCORES, "ops_", "ops"),
+        (room_ids.RoomIdScheme(flatten_owner=True), "a_b", "a_b"),
+    ],
+    ids=[
+        "separator",
+        "colon",
+        "lowercased",
+        "not-lowercased",
+        "trailing-dash",
+        "trailing-run",
+        "trailing-separator",
+        "trailing-underscore",
+        "never-flattened",
+    ],
+)
+def test_named_owner_normalizes(scheme, owner, expected):
+    result = scheme.named_owner(owner, _GROUP_RULE)
 
     assert result.owner == expected
 
 
-@pytest.mark.parametrize("owner", _BAD_SEGMENTS)
+@pytest.mark.parametrize(
+    "owner",
+    [
+        *_BAD_SEGMENTS,
+        "a@b",
+        "--",
+        "_",
+        "bob\N{LATIN SMALL LETTER E WITH ACUTE}",
+    ],
+)
 def test_named_owner_rejects_a_bad_owner_part(owner):
     with pytest.raises(room_ids.BadOwnerPart) as caught:
-        room_ids.named_owner(owner, "$[?'staff' in @.groups]")
+        SCHEME.named_owner(owner, _GROUP_RULE)
 
     assert caught.value.owner == owner
 
@@ -173,67 +247,63 @@ def test_named_owner_rejects_a_bad_owner_part(owner):
 @pytest.mark.parametrize("json_path", ["", "   "])
 def test_named_owner_needs_an_access_rule(json_path):
     with pytest.raises(room_ids.NoAccessRule) as caught:
-        room_ids.named_owner("staff", json_path)
+        SCHEME.named_owner("staff", json_path)
 
     assert caught.value.owner == "staff"
     assert "needs an access rule" in str(caught.value)
 
 
-# ---- owner_from_claims ----
+# ---- RoomIdScheme.owner_from_claims ----
+
+_FLATTEN = room_ids.RoomIdScheme(flatten_owner=True)
 
 
 @pytest.mark.parametrize(
-    "claims, kwargs, expected_value, expected_owner",
+    "scheme, claims, claim, expected_owner",
     [
-        ({"preferred_username": "alice"}, {}, "alice", "alice"),
+        (SCHEME, {"preferred_username": "alice"}, None, "alice"),
+        (SCHEME, {"preferred_username": "12345678"}, None, "12345678"),
         (
-            {"preferred_username": "12345678901234567"},
-            {},
-            "12345678901234567",
-            "12345678901234567",
-        ),
-        (
+            _FLATTEN,
             {"email": "bharney@sitename.example"},
-            {"claim": "email", "flatten_value": True},
-            "bharney@sitename.example",
+            "email",
             "bharney_sitename.example",
         ),
-        ({"preferred_username": "jo--smith"}, {}, "jo--smith", "jo_smith"),
-        ({"preferred_username": "Alice"}, {}, "Alice", "alice"),
+        (SCHEME, {"preferred_username": "jo--smith"}, None, "jo_smith"),
+        (SCHEME, {"preferred_username": "Alice"}, None, "alice"),
         (
+            room_ids.RoomIdScheme(lowercase_owner=False),
             {"preferred_username": "Alice"},
-            {"lowercase_value": False},
-            "Alice",
+            None,
             "Alice",
         ),
         (
+            _FLATTEN,
             {"email": "Jo.Smith@Example.COM"},
-            {"claim": "email", "flatten_value": True},
-            "Jo.Smith@Example.COM",
+            "email",
             "jo.smith_example.com",
         ),
+        (COLON, {"preferred_username": "jo:smith"}, None, "jo-smith"),
         (
-            {"preferred_username": "jo:smith"},
-            {"separator": ":"},
-            "jo:smith",
-            "jo-smith",
-        ),
-        (
+            _FLATTEN,
             {"email": "jo--smith@sitename.example"},
-            {"claim": "email", "flatten_value": True},
-            "jo--smith@sitename.example",
+            "email",
             "jo_smith_sitename.example",
         ),
+        (SCHEME, {"preferred_username": "bob-"}, None, "bob"),
+        (UNDERSCORES, {"preferred_username": "bob_"}, None, "bob"),
+        (_FLATTEN, {"email": "bob@"}, "email", "bob"),
     ],
 )
-def test_owner_from_claims(claims, kwargs, expected_value, expected_owner):
-    claim = kwargs.get("claim", room_ids.DEFAULT_OWNER_CLAIM)
+def test_owner_from_claims(scheme, claims, claim, expected_owner):
+    kwargs = {} if claim is None else {"claim": claim}
+    claim = claim or room_ids.DEFAULT_OWNER_CLAIM
 
-    result = room_ids.owner_from_claims(claims, **kwargs)
+    result = scheme.owner_from_claims(claims, **kwargs)
 
     assert result == room_ids.RoomOwner(
         owner=expected_owner,
-        json_path=f'$[?$.{claim} == "{expected_value}"]',
+        json_path=f'$[?$.{claim} == "{claims[claim]}"]',
     )
 
 
@@ -241,7 +311,7 @@ def test_owner_from_claims_rejects_a_bad_claim():
     claims = {"a.b": "alice"}
 
     with pytest.raises(access_rules.BadOwnerClaim) as caught:
-        room_ids.owner_from_claims(claims, claim="a.b")
+        SCHEME.owner_from_claims(claims, claim="a.b")
 
     assert caught.value.claim == "a.b"
 
@@ -250,7 +320,7 @@ def test_owner_from_claims_requires_the_claim():
     claims = {"email": "alice@example.com"}
 
     with pytest.raises(room_ids.RoomIdError) as caught:
-        room_ids.owner_from_claims(claims)
+        SCHEME.owner_from_claims(claims)
 
     assert type(caught.value) is room_ids.OwnerClaimMissing
     assert caught.value.claim == "preferred_username"
@@ -258,19 +328,20 @@ def test_owner_from_claims_requires_the_claim():
 
 
 @pytest.mark.parametrize(
-    "claims, kwargs",
+    "claims, claim",
     [
-        ({"preferred_username": 12345}, {}),
-        ({"preferred_username": None}, {}),
-        ({"email": "alice@example.com"}, {"claim": "email"}),
-        *[({"preferred_username": bad}, {}) for bad in _BAD_SEGMENTS],
+        ({"preferred_username": 12345}, None),
+        ({"preferred_username": None}, None),
+        ({"email": "alice@example.com"}, "email"),
+        *[({"preferred_username": bad}, None) for bad in _BAD_SEGMENTS],
     ],
 )
-def test_owner_from_claims_rejects_unusable_values(claims, kwargs):
-    claim = kwargs.get("claim", room_ids.DEFAULT_OWNER_CLAIM)
+def test_owner_from_claims_rejects_unusable_values(claims, claim):
+    kwargs = {} if claim is None else {"claim": claim}
+    claim = claim or room_ids.DEFAULT_OWNER_CLAIM
 
     with pytest.raises(room_ids.RoomIdError) as caught:
-        room_ids.owner_from_claims(claims, **kwargs)
+        SCHEME.owner_from_claims(claims, **kwargs)
 
     assert type(caught.value) is room_ids.BadOwner
     assert caught.value.claim == claim
@@ -278,60 +349,50 @@ def test_owner_from_claims_rejects_unusable_values(claims, kwargs):
     assert "cannot own rooms" in str(caught.value)
 
 
-# ---- validate_slug ----
+# ---- RoomIdScheme.validate_slug ----
 
 
 @pytest.mark.parametrize(
-    "slug",
-    ["notes", "Q3-plans", "v1.2_draft", "7", "a" * room_ids.MAX_SEGMENT],
-)
-def test_validate_slug_accepts(slug):
-    result = room_ids.validate_slug(slug)
-
-    assert result is None
-
-
-@pytest.mark.parametrize(
-    "slug, kw",
+    "scheme, slug",
     [
-        ("q3--plans", {"separator": ":"}),
-        ("q3__plans", {"separator": "--"}),
-        ("q3plans", {"separator": ""}),
+        (SCHEME, "notes"),
+        (SCHEME, "Q3-plans"),
+        (SCHEME, "v1.2_draft"),
+        (SCHEME, "7"),
+        (SCHEME, "a" * room_ids.MAX_SEGMENT),
+        (COLON, "q3--plans"),
+        (SCHEME, "q3__plans"),
     ],
 )
-def test_validate_slug_accepts_with_a_separator(slug, kw):
-    result = room_ids.validate_slug(slug, **kw)
+def test_validate_slug_accepts(scheme, slug):
+    result = scheme.validate_slug(slug)
 
     assert result is None
 
 
-@pytest.mark.parametrize("slug", _BAD_SEGMENTS)
+@pytest.mark.parametrize("slug", _BAD_SEGMENTS + _BAD_ENDINGS)
 def test_validate_slug_rejects(slug):
     with pytest.raises(room_ids.RoomIdError) as caught:
-        room_ids.validate_slug(slug)
+        SCHEME.validate_slug(slug)
 
     assert type(caught.value) is room_ids.BadSlug
     assert caught.value.slug == slug
 
 
 @pytest.mark.parametrize(
-    "slug, kw, separator",
-    [
-        ("q3--plans", {}, room_ids.DEFAULT_SEPARATOR),
-        ("notes--extra", {"separator": "--"}, "--"),
-        ("q3__plans", {"separator": "__"}, "__"),
-    ],
+    "scheme, slug",
+    [(SCHEME, "q3--plans"), (UNDERSCORES, "q3__plans")],
 )
-def test_validate_slug_rejects_the_separator(slug, kw, separator):
+def test_validate_slug_rejects_the_separator(scheme, slug):
     with pytest.raises(room_ids.BadSlug) as caught:
-        room_ids.validate_slug(slug, **kw)
+        scheme.validate_slug(slug)
 
     assert caught.value.slug == slug
-    assert caught.value.separator == separator
-    assert f"must not contain {separator!r}" in str(caught.value)
+    assert caught.value.separator == scheme.separator
+    assert f"must not contain {scheme.separator!r}" in str(caught.value)
 
 
-# ---- slugify ----
+# ---- RoomIdScheme.slugify ----
 
 
 @pytest.mark.parametrize(
@@ -348,44 +409,52 @@ def test_validate_slug_rejects_the_separator(slug, kw, separator):
     ],
 )
 def test_slugify(name, expected):
-    result = room_ids.slugify(name)
+    result = SCHEME.slugify(name)
 
     assert result == expected
-    assert room_ids.is_segment(result)
+    assert SCHEME.is_segment(result)
+
+
+def test_slugify_honors_max_segment():
+    scheme = room_ids.RoomIdScheme(max_segment=5)
+
+    result = scheme.slugify("abc defgh")
+
+    assert result == "abc-d"
 
 
 @pytest.mark.parametrize("name", ["", "   ", "!!!", "会议记录", "🙂"])
 def test_slugify_rejects_names_yielding_nothing(name):
     with pytest.raises(room_ids.RoomIdError) as caught:
-        room_ids.slugify(name)
+        SCHEME.slugify(name)
 
     assert type(caught.value) is room_ids.SlugEmpty
     assert caught.value.name == name
     assert "choose one explicitly" in str(caught.value)
 
 
-# ---- make_room_id ----
+# ---- RoomIdScheme.make_room_id ----
 
 
 @pytest.mark.parametrize(
-    "kw, expected",
+    "scheme, expected",
     [
-        ({}, f"owner_site.example{room_ids.DEFAULT_SEPARATOR}marketing"),
-        ({"separator": ":"}, "owner_site.example:marketing"),
-        ({"separator": "--"}, "owner_site.example--marketing"),
+        (SCHEME, f"owner_site.example{room_ids.DEFAULT_SEPARATOR}marketing"),
+        (COLON, "owner_site.example:marketing"),
+        (UNDERSCORES, "owner_site.example__marketing"),
     ],
-    ids=["default", "colon", "double-dash"],
+    ids=["default", "colon", "underscores"],
 )
-def test_make_room_id(kw, expected):
+def test_make_room_id(scheme, expected):
     owner = room_ids.RoomOwner(
         owner="owner_site.example",
         json_path='$[?$.email == "owner@site.example"]',
     )
 
-    result = room_ids.make_room_id(owner, "marketing", **kw)
+    result = scheme.make_room_id(owner, "marketing")
 
     assert result == room_ids.RoomId(
-        owner="owner_site.example", slug="marketing", **kw
+        owner="owner_site.example", slug="marketing", scheme=scheme
     )
     assert str(result) == expected
 
@@ -394,7 +463,7 @@ def test_make_room_id_rejects_a_slug_carrying_the_separator():
     owner = _owner()
 
     with pytest.raises(room_ids.BadSlug) as caught:
-        room_ids.make_room_id(owner, "q3__plans", separator="__")
+        UNDERSCORES.make_room_id(owner, "q3__plans")
 
     assert caught.value.slug == "q3__plans"
     assert caught.value.separator == "__"
@@ -404,64 +473,214 @@ def test_make_room_id_rejects_a_bad_slug():
     owner = _owner()
 
     with pytest.raises(room_ids.BadSlug) as caught:
-        room_ids.make_room_id(owner, "../escape")
+        SCHEME.make_room_id(owner, "../escape")
 
     assert caught.value.slug == "../escape"
 
 
-# ---- parse_room_id ----
+@pytest.mark.parametrize(
+    "scheme, owner",
+    [(SCHEME, "bob-"), (SCHEME, "a--b"), (UNDERSCORES, "a__b"), (SCHEME, "")],
+    ids=["bad-ending", "separator", "custom-separator", "empty"],
+)
+def test_make_room_id_rejects_an_owner_part_the_scheme_cannot_make(
+    scheme, owner
+):
+    with pytest.raises(room_ids.BadOwnerPart) as caught:
+        scheme.make_room_id(_owner(owner), "notes")
+
+    assert caught.value.owner == owner
+    assert f"must not contain {scheme.separator!r}" in str(caught.value)
+
+
+# ---- RoomIdScheme.parse_room_id ----
 
 
 @pytest.mark.parametrize(
-    "room_id, kw, separator",
+    "scheme, room_id",
     [
-        (
-            f"alice{room_ids.DEFAULT_SEPARATOR}notes",
-            {},
-            room_ids.DEFAULT_SEPARATOR,
-        ),
-        ("alice:notes", {"separator": ":"}, ":"),
-        ("alice--notes", {"separator": "--"}, "--"),
+        (SCHEME, f"alice{room_ids.DEFAULT_SEPARATOR}notes"),
+        (COLON, "alice:notes"),
+        (UNDERSCORES, "alice__notes"),
     ],
-    ids=["default", "colon", "double-dash"],
+    ids=["default", "colon", "underscores"],
 )
-def test_parse_room_id(room_id, kw, separator):
-    result = room_ids.parse_room_id(room_id, **kw)
+def test_parse_room_id(scheme, room_id):
+    result = scheme.parse_room_id(room_id)
 
     assert result == room_ids.RoomId(
-        owner="alice", slug="notes", separator=separator
+        owner="alice", slug="notes", scheme=scheme
     )
 
 
-_COLON = {"separator": ":"}
-
-
 @pytest.mark.parametrize(
-    "room_id, kw",
+    "scheme, room_id",
     [
-        ("notes", {}),  # an operator-curated (flat) id
-        ("__provision__", {}),
-        ("--notes", {}),
-        ("alice--", {}),
-        ("al/ice--notes", {}),
-        ("alice--.notes", {}),
-        ("alice--" + "a" * (room_ids.MAX_SEGMENT + 1), {}),
-        ("alice:notes", {}),  # the legacy form, without its separator
-        ("notes", _COLON),
-        (":notes", _COLON),
-        ("alice:", _COLON),
-        ("alice:notes:extra", _COLON),
-        ("al/ice:notes", _COLON),
-        ("alice:.notes", _COLON),
-        ("alice:" + "a" * (room_ids.MAX_SEGMENT + 1), _COLON),
+        (SCHEME, "notes"),  # an operator-curated (flat) id
+        (SCHEME, "__provision__"),
+        (SCHEME, "--notes"),
+        (SCHEME, "alice--"),
+        (SCHEME, "al/ice--notes"),
+        (SCHEME, "alice--.notes"),
+        (SCHEME, "alice--notes--extra"),
+        (SCHEME, "bob---notes"),  # #143
+        (SCHEME, "alice--" + "a" * (room_ids.MAX_SEGMENT + 1)),
+        (SCHEME, "alice:notes"),  # the legacy form, without its separator
+        (COLON, "notes"),
+        (COLON, ":notes"),
+        (COLON, "alice:"),
+        (COLON, "alice:notes:extra"),
+        (COLON, "al/ice:notes"),
+        (COLON, "alice:.notes"),
+        (COLON, "bob-:notes"),  # the old rule allowed it: see release notes
+        (COLON, "alice:" + "a" * (room_ids.MAX_SEGMENT + 1)),
     ],
 )
-def test_parse_room_id_rejects(room_id, kw):
+def test_parse_room_id_rejects(scheme, room_id):
     with pytest.raises(room_ids.RoomIdError) as caught:
-        room_ids.parse_room_id(room_id, **kw)
+        scheme.parse_room_id(room_id)
 
     assert type(caught.value) is room_ids.NotAProvisionedRoomId
     assert caught.value.room_id == room_id
-    assert caught.value.separator == kw.get(
-        "separator", room_ids.DEFAULT_SEPARATOR
+    assert caught.value.separator == scheme.separator
+
+
+# ---- round trip (#143) ----
+
+_SEPARATORS = [
+    room_ids.DEFAULT_SEPARATOR,
+    ":",
+    "__",
+    "_",
+    "~",
+    "-_",
+    ".",
+    "_-",
+]
+_ALPHABET = ["a", "Z", "0", "-", "_", "."]
+_PARTS = [
+    "".join(chars)
+    for length in (1, 2, 3)
+    for chars in itertools.product(_ALPHABET, repeat=length)
+]
+
+
+@pytest.mark.parametrize("separator", _SEPARATORS)
+def test_room_ids_round_trip(separator):
+    """Every id a scheme makes, from owner and slug candidates drawn from
+    the segment alphabet, splits back into the same parts."""
+    scheme = room_ids.RoomIdScheme(separator=separator)
+    made = []
+    for owner_candidate, slug in itertools.product(_PARTS, _PARTS):
+        try:
+            owner = scheme.named_owner(owner_candidate, _RULE)
+            made.append(scheme.make_room_id(owner, slug))
+        except room_ids.RoomIdError:
+            continue
+
+    parsed = [scheme.parse_room_id(str(room_id)) for room_id in made]
+
+    assert made  # the alphabet yields usable ids under every separator
+    assert parsed == made
+
+
+# ---- RoomId ----
+
+
+def test_room_id():
+    result = room_ids.RoomId(owner="alice", slug="notes")
+
+    assert result.scheme is room_ids.DEFAULT_SCHEME
+    assert result.separator == room_ids.DEFAULT_SEPARATOR
+    assert str(result) == "alice--notes"
+    assert repr(result) == "RoomId(owner='alice', slug='notes')"
+
+
+def test_room_ids_under_different_schemes_differ():
+    lowercase = room_ids.RoomId(owner="alice", slug="notes")
+
+    result = room_ids.RoomId(
+        owner="alice",
+        slug="notes",
+        scheme=room_ids.RoomIdScheme(lowercase_owner=False),
     )
+
+    assert str(result) == str(lowercase)
+    assert result != lowercase
+
+
+@pytest.mark.parametrize(
+    "args, kwargs",
+    [((":",), {}), ((), {"separator": ":"})],
+    ids=["positional", "keyword"],
+)
+def test_room_id_with_a_separator_is_deprecated(args, kwargs):
+    with pytest.deprecated_call(match=r"RoomId\(separator=\.\.\.\)"):
+        result = room_ids.RoomId("alice", "notes", *args, **kwargs)
+
+    assert result == room_ids.RoomId("alice", "notes", COLON)
+
+
+def test_room_id_refuses_a_scheme_and_a_separator():
+    with pytest.raises(room_ids.SchemeConflict) as caught:
+        room_ids.RoomId("alice", "notes", COLON, separator=":")
+
+    assert caught.value.deprecated == "'separator'"
+    assert isinstance(caught.value, TypeError)
+
+
+# ---- deprecated module-level shims ----
+
+
+@pytest.mark.parametrize(
+    "shim, args, kwargs, expected",
+    [
+        (room_ids.is_segment, ("bob-",), {}, False),
+        (room_ids.without_separator, ("a::b",), {"separator": ":"}, "a--b"),
+        (
+            room_ids.named_owner,
+            ("Ops-", _GROUP_RULE),
+            {"separator": ":", "lowercase": False},
+            room_ids.RoomOwner(owner="Ops", json_path=_GROUP_RULE),
+        ),
+        (
+            room_ids.owner_from_claims,
+            ({"email": "Bob@Site"},),
+            {
+                "claim": "email",
+                "flatten_value": True,
+                "lowercase_value": False,
+                "separator": "__",
+            },
+            room_ids.RoomOwner(
+                owner="Bob_Site", json_path='$[?$.email == "Bob@Site"]'
+            ),
+        ),
+        (room_ids.validate_slug, ("q3--plans",), {"separator": ":"}, None),
+        (room_ids.slugify, ("Q3 Plans",), {}, "q3-plans"),
+        (
+            room_ids.make_room_id,
+            (_owner(), "notes"),
+            {"separator": ":"},
+            room_ids.RoomId("alice", "notes", COLON),
+        ),
+        (
+            room_ids.parse_room_id,
+            ("alice:notes",),
+            {"separator": ":"},
+            room_ids.RoomId("alice", "notes", COLON),
+        ),
+    ],
+    ids=lambda value: getattr(value, "__name__", None),
+)
+def test_shims_are_deprecated(shim, args, kwargs, expected):
+    match = (
+        rf"room_ids\.{shim.__name__} is deprecated: use "
+        rf"RoomIdScheme\.{shim.__name__} instead \(it will not be removed "
+        r"until after v0\.16\)"
+    )
+
+    with pytest.deprecated_call(match=match):
+        result = shim(*args, **kwargs)
+
+    assert result == expected

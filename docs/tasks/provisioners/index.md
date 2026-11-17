@@ -68,16 +68,23 @@ belongs to (`owner`, a `room_ids.RoomOwner`). The owner pairs the room id's
 owner part with its access rule, a soliplex ACL JSONPath over a user's claims:
 
 - by default, `plan_room` derives the requester's own owner from one of their
-  claims (`Provisioner.owner_claim`, flattened when `flatten_owner` is set,
-  lowercased unless `lowercase_owner` is false), with a rule matching that
-  claim's raw value
-- given `owner=room_ids.named_owner(...)`, it makes someone else the owner,
-  for instance everyone a predicate recognizes; whether the requester may do
-  that is for the caller to decide
+  claims (`Provisioner.owner_claim`), with a rule matching that claim's raw
+  value
+- given `owner=provisioner.scheme.named_owner(...)`, it makes someone else
+  the owner, for instance everyone a predicate recognizes; whether the
+  requester may do that is for the caller to decide
 
-Either way, any `Provisioner.room_id_separator` in the owner part is
-replaced, so a room id splits into owner and slug one way only; a requested
+Either way, the owner part follows the provisioner's `scheme`, a
+`room_ids.RoomIdScheme`: flattened when its `flatten_owner` is set (a
+claimed owner only), lowercased unless its `lowercase_owner` is false, with
+any separator replaced and any trailing `.`, `_` or `-` stripped. Both
+parts of an id start and end with a letter or digit, and a separator holds
+neither, so a room id splits into owner and slug one way only; a requested
 slug containing the separator is refused instead.
+
+To work out a room's id without planning a request, use
+`provisioner.scheme.make_room_id(owner, slug)`, and
+`provisioner.scheme.parse_room_id(room_id)` to split one.
 
 Build a named owner's rule with `access_rules`, never by hand:
 `claim_rule(claim, value)` for one person, or `predicate_rule(name)` for a
@@ -109,7 +116,7 @@ predicate the installation registers (here `is_foreman`); the owner part is
 normalized the same way, and the admin stays the requester:
 
 ```python
-foremen = room_ids.named_owner(
+foremen = provisioner.scheme.named_owner(
     "Foremen", access_rules.predicate_rule("is_foreman")
 )
 request = provision.plan_room(
@@ -188,6 +195,7 @@ provisioner = provision.Provisioner(
     authz=authz,
     backend=backend,
     tracker=tracker,  # or None
+    # scheme=room_ids.RoomIdScheme(separator=":"),  # to change id rules
 )
 provisioned = provision.provision_room(
     requester_claims, name="Q3 Plans", provisioner=provisioner

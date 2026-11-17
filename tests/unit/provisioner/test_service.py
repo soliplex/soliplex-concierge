@@ -22,6 +22,7 @@ from soliplex_concierge.provisioner import room_ids
 from soliplex_concierge.provisioner import service
 
 ROOM = "alice--q3-plans"
+_SCHEME = room_ids.DEFAULT_SCHEME
 ISSUE_URL = fake_parts.FakeIssue().url
 
 
@@ -77,7 +78,7 @@ class _Harness:
 
     def occupy(self, name):
         self.script.rooms.add(
-            str(room_ids.RoomId(owner="alice", slug=room_ids.slugify(name)))
+            str(room_ids.RoomId(owner="alice", slug=_SCHEME.slugify(name)))
         )
 
 
@@ -544,13 +545,16 @@ def test_requests_release():
         ({"preferred_username": "Alice"}, {}, "Alice"),
         (
             {"email": "a@b.example"},
-            {"owner_claim": "email", "flatten_owner": True},
+            {
+                "owner_claim": "email",
+                "scheme": room_ids.RoomIdScheme(flatten_owner=True),
+            },
             "a@b.example",
         ),
         ({"preferred_username": "jo--smith"}, {}, "jo--smith"),
         (
             {"preferred_username": "jo__smith"},
-            {"room_id_separator": "__"},
+            {"scheme": room_ids.RoomIdScheme(separator="__")},
             "jo__smith",
         ),
         ({"preferred_username": "Jo Smith"}, {}, "Jo Smith"),

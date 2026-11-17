@@ -63,23 +63,81 @@ def _admitted(script, provisioner):
 # ---- Provisioner ----
 
 
-@pytest.mark.parametrize("separator", ["--", ":", "__"])
-def test_provisioner_accepts_a_room_id_separator(separator):
-    result = fake_parts.make_provisioner(
-        fake_parts.Script(), room_id_separator=separator
-    )
+def test_provisioner_defaults():
+    result = fake_parts.make_provisioner(fake_parts.Script())
 
-    assert result.room_id_separator == separator
+    assert result.owner_claim == room_ids.DEFAULT_OWNER_CLAIM
+    assert result.scheme is room_ids.DEFAULT_SCHEME
 
 
-@pytest.mark.parametrize("separator", ["", "-", "/", "a b"])
-def test_provisioner_rejects_a_bad_room_id_separator(separator):
-    with pytest.raises(room_ids.BadSeparator) as caught:
+def test_provisioner_with_a_scheme():
+    scheme = room_ids.RoomIdScheme(separator=":", lowercase_owner=False)
+
+    result = fake_parts.make_provisioner(fake_parts.Script(), scheme=scheme)
+
+    assert result.scheme is scheme
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected",
+    [
+        ({"room_id_separator": ":"}, room_ids.RoomIdScheme(separator=":")),
+        (
+            {"flatten_owner": True, "lowercase_owner": False},
+            room_ids.RoomIdScheme(flatten_owner=True, lowercase_owner=False),
+        ),
+    ],
+    ids=["separator", "owner-settings"],
+)
+def test_provisioner_legacy_keywords_are_deprecated(kwargs, expected):
+    with pytest.deprecated_call(match=r"Provisioner\(room_id_separator="):
+        result = fake_parts.make_provisioner(fake_parts.Script(), **kwargs)
+
+    assert result.scheme == expected
+
+
+@pytest.mark.parametrize("separator", ["", "-", "/", "a b", "X"])
+def test_provisioner_legacy_keyword_rejects_a_bad_separator(separator):
+    with (
+        pytest.deprecated_call(),
+        pytest.raises(room_ids.BadSeparator) as caught,
+    ):
         fake_parts.make_provisioner(
             fake_parts.Script(), room_id_separator=separator
         )
 
     assert caught.value.separator == separator
+
+
+def test_provisioner_refuses_a_scheme_and_legacy_keywords():
+    with pytest.raises(room_ids.SchemeConflict):
+        fake_parts.make_provisioner(
+            fake_parts.Script(),
+            scheme=room_ids.DEFAULT_SCHEME,
+            room_id_separator=":",
+        )
+
+
+@pytest.mark.parametrize(
+    "attribute, expected",
+    [
+        ("room_id_separator", ":"),
+        ("flatten_owner", True),
+        ("lowercase_owner", False),
+    ],
+)
+def test_provisioner_legacy_attributes_are_deprecated(attribute, expected):
+    scheme = room_ids.RoomIdScheme(
+        separator=":", flatten_owner=True, lowercase_owner=False
+    )
+    provisioner = fake_parts.make_provisioner(
+        fake_parts.Script(), scheme=scheme
+    )
+
+    with pytest.deprecated_call(match=rf"Provisioner\.{attribute}"):
+        result = getattr(provisioner, attribute)
+
+    assert result == expected
 
 
 # ---- plan_room ----
@@ -123,7 +181,9 @@ def test_plan_room_with_a_slug_and_a_description():
 
 def test_plan_room_flattens_the_owner_claim():
     provisioner = fake_parts.make_provisioner(
-        fake_parts.Script(), owner_claim="email", flatten_owner=True
+        fake_parts.Script(),
+        owner_claim="email",
+        scheme=room_ids.RoomIdScheme(flatten_owner=True),
     )
 
     result = provision.plan_room(
@@ -135,8 +195,9 @@ def test_plan_room_flattens_the_owner_claim():
 
 
 def test_plan_room_with_a_room_id_separator():
+    scheme = room_ids.RoomIdScheme(separator=":")
     provisioner = fake_parts.make_provisioner(
-        fake_parts.Script(), room_id_separator=":"
+        fake_parts.Script(), scheme=scheme
     )
 
     result = provision.plan_room(
@@ -145,31 +206,48 @@ def test_plan_room_with_a_room_id_separator():
 
     assert result.room == "alice:q3-plans"
     assert result.room_id == room_ids.RoomId(
-        owner="alice", slug="q3-plans", separator=":"
+        owner="alice", slug="q3-plans", scheme=scheme
     )
 
 
-def test_plan_room_replaces_the_separator_in_the_owner():
+@pytest.mark.parametrize(
+    "separator, username, expected",
+    [
+        ("__", "jo__smith", "jo-smith__q3-plans"),
+        ("--", "bob-", "bob--q3-plans"),
+        ("__", "bob_", "bob__q3-plans"),
+    ],
+    ids=["separator-inside", "trailing-dash", "trailing-underscore"],
+)
+def test_plan_room_normalizes_the_owner(separator, username, expected):
     provisioner = fake_parts.make_provisioner(
-        fake_parts.Script(), room_id_separator="__"
+        fake_parts.Script(),
+        scheme=room_ids.RoomIdScheme(separator=separator),
     )
-    claims = {"preferred_username": "jo__smith"}
+    claims = {"preferred_username": username}
 
     result = provision.plan_room(
         claims, name="Q3 Plans", provisioner=provisioner, now=NOW
     )
 
-    assert result.room == "jo-smith__q3-plans"
-    assert result.owner.json_path == '$[?$.preferred_username == "jo__smith"]'
+    assert result.room == expected
+    assert result.owner.json_path == (
+        f'$[?$.preferred_username == "{username}"]'
+    )
 
 
 @pytest.mark.parametrize(
-    "kwargs, expected",
-    [({}, "alice--q3-plans"), ({"lowercase_owner": False}, "Alice--q3-plans")],
+    "scheme, expected",
+    [
+        (room_ids.DEFAULT_SCHEME, "alice--q3-plans"),
+        (room_ids.RoomIdScheme(lowercase_owner=False), "Alice--q3-plans"),
+    ],
     ids=["default", "keep-case"],
 )
-def test_plan_room_lowercases_the_owner(kwargs, expected):
-    provisioner = fake_parts.make_provisioner(fake_parts.Script(), **kwargs)
+def test_plan_room_lowercases_the_owner(scheme, expected):
+    provisioner = fake_parts.make_provisioner(
+        fake_parts.Script(), scheme=scheme
+    )
     claims = {"preferred_username": "Alice"}
 
     result = provision.plan_room(
@@ -182,7 +260,7 @@ def test_plan_room_lowercases_the_owner(kwargs, expected):
 
 def test_plan_room_refuses_a_slug_carrying_the_separator():
     provisioner = fake_parts.make_provisioner(
-        fake_parts.Script(), room_id_separator="__"
+        fake_parts.Script(), scheme=room_ids.RoomIdScheme(separator="__")
     )
 
     with pytest.raises(room_ids.BadSlug) as caught:
@@ -199,15 +277,50 @@ def test_plan_room_refuses_a_slug_carrying_the_separator():
 
 def test_plan_room_for_a_named_owner():
     provisioner = fake_parts.make_provisioner(fake_parts.Script())
-    staff = room_ids.named_owner("staff", "$[?'staff' in @.groups]")
+    staff = provisioner.scheme.named_owner("staff", "$[?'staff' in @.groups]")
 
     result = provision.plan_room(
         CLAIMS, name="Q3 Plans", provisioner=provisioner, owner=staff, now=NOW
     )
 
     assert result.room == "staff--q3-plans"
-    assert result.owner is staff
+    assert result.owner == staff
     assert result.requester_claims == CLAIMS
+
+
+@pytest.mark.parametrize(
+    "scheme, owner, expected",
+    [
+        (
+            room_ids.RoomIdScheme(separator="."),
+            "night.shift_crew",
+            "night-shift_crew.q3-plans",
+        ),
+        (
+            room_ids.RoomIdScheme(lowercase_owner=False),
+            "Night--Crew-",
+            "Night_Crew--q3-plans",
+        ),
+        (room_ids.DEFAULT_SCHEME, "Night--Crew-", "night_crew--q3-plans"),
+    ],
+    ids=["separator", "keep-case", "lowercase"],
+)
+def test_plan_room_normalizes_a_named_owner_under_its_scheme(
+    scheme, owner, expected
+):
+    """An owner named under other rules still gets the provisioner's (#156)."""
+    provisioner = fake_parts.make_provisioner(
+        fake_parts.Script(), scheme=scheme
+    )
+    named = room_ids.RoomOwner(owner=owner, json_path="$[?is_crew($)]")
+
+    result = provision.plan_room(
+        CLAIMS, name="Q3 Plans", provisioner=provisioner, owner=named, now=NOW
+    )
+
+    assert result.room == expected
+    assert scheme.parse_room_id(result.room) == result.room_id
+    assert result.owner.json_path == "$[?is_crew($)]"
 
 
 def test_plan_room_defaults_to_now():
@@ -561,8 +674,7 @@ def test_create_room_reports_failed_steps_after_the_commit():
 def test_provision_room():
     script = fake_parts.Script()
     provisioner = fake_parts.make_provisioner(script)
-
-    staff = room_ids.named_owner("staff", "$[?'staff' in @.groups]")
+    staff = provisioner.scheme.named_owner("staff", "$[?'staff' in @.groups]")
 
     result = provision.provision_room(
         CLAIMS,

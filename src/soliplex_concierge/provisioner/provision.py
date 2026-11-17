@@ -105,23 +105,25 @@ class ProvisioningFailed(ProvisionError):
         super().__init__(message)
 
 
-@dataclasses.dataclass(frozen=True)
+_UNSET = object()
+_LEGACY_SETTINGS = "'room_id_separator' / 'flatten_owner' / 'lowercase_owner'"
+
+
+@dataclasses.dataclass(frozen=True, init=False)
 class Provisioner:
     """A deployment's adapters, and how it derives a room's id.
 
-    - ``owner_claim`` names the requester's claim from which a room's owner
-      part derives.
+    - ``owner_claim`` names the requester's claim from which their own
+      room's owner part derives (and by which the service recognizes them).
 
-    - ``flatten_owner`` flattens it (see :func:`room_ids.flatten`).
+    - ``scheme`` holds the rules for room ids: the separator, and how an
+      owner part derives (see :class:`room_ids.RoomIdScheme`).
 
-    - ``lowercase_owner`` lowercases it (as well as any owner provided by
-      the admin).
-
-    - ``room_id_separator`` joins the owner part and the slug (default
-      :data:`room_ids.DEFAULT_SEPARATOR`; ``":"`` keeps the legacy form).
-
-    Raises :class:`room_ids.BadSeparator` for an unusable separator (see
-    :func:`room_ids.validate_separator`).
+    The keyword arguments ``room_id_separator``, ``flatten_owner`` and
+    ``lowercase_owner``, and the attributes of those names, are deprecated
+    spellings of ``scheme``'s settings, kept until after v0.16. Raises
+    :class:`room_ids.BadSeparator` for an unusable separator given that
+    way.
     """
 
     store: interfaces.RoomStore
@@ -129,14 +131,78 @@ class Provisioner:
     uploads: interfaces.UploadsArea
     authz: interfaces.Authz
     backend: interfaces.Backend
-    tracker: interfaces.IssueTracker | None = None
-    owner_claim: str = room_ids.DEFAULT_OWNER_CLAIM
-    room_id_separator: str = room_ids.DEFAULT_SEPARATOR
-    flatten_owner: bool = False
-    lowercase_owner: bool = True
+    tracker: interfaces.IssueTracker | None
+    owner_claim: str
+    scheme: room_ids.RoomIdScheme
 
-    def __post_init__(self) -> None:
-        room_ids.validate_separator(self.room_id_separator)
+    def __init__(
+        self,
+        store: interfaces.RoomStore,
+        registrar: interfaces.DatabaseRegistrar,
+        uploads: interfaces.UploadsArea,
+        authz: interfaces.Authz,
+        backend: interfaces.Backend,
+        tracker: interfaces.IssueTracker | None = None,
+        owner_claim: str = room_ids.DEFAULT_OWNER_CLAIM,
+        scheme: room_ids.RoomIdScheme | None = None,
+        *,
+        room_id_separator=_UNSET,
+        flatten_owner=_UNSET,
+        lowercase_owner=_UNSET,
+    ) -> None:
+        legacy = {
+            name: value
+            for name, value in (
+                ("separator", room_id_separator),
+                ("flatten_owner", flatten_owner),
+                ("lowercase_owner", lowercase_owner),
+            )
+            if value is not _UNSET
+        }
+        if legacy:
+            if scheme is not None:
+                raise room_ids.SchemeConflict(_LEGACY_SETTINGS)
+            room_ids._deprecated(
+                "Provisioner(room_id_separator= / flatten_owner= / "
+                "lowercase_owner=)",
+                "Provisioner(scheme=RoomIdScheme(...))",
+            )
+            scheme = room_ids.RoomIdScheme(**legacy)
+        for name, value in (
+            ("store", store),
+            ("registrar", registrar),
+            ("uploads", uploads),
+            ("authz", authz),
+            ("backend", backend),
+            ("tracker", tracker),
+            ("owner_claim", owner_claim),
+            ("scheme", scheme or room_ids.DEFAULT_SCHEME),
+        ):
+            object.__setattr__(self, name, value)
+
+    @property
+    def room_id_separator(self) -> str:
+        """Deprecated: use ``scheme.separator``."""
+        room_ids._deprecated(
+            "Provisioner.room_id_separator", "Provisioner.scheme.separator"
+        )
+        return self.scheme.separator
+
+    @property
+    def flatten_owner(self) -> bool:
+        """Deprecated: use ``scheme.flatten_owner``."""
+        room_ids._deprecated(
+            "Provisioner.flatten_owner", "Provisioner.scheme.flatten_owner"
+        )
+        return self.scheme.flatten_owner
+
+    @property
+    def lowercase_owner(self) -> bool:
+        """Deprecated: use ``scheme.lowercase_owner``."""
+        room_ids._deprecated(
+            "Provisioner.lowercase_owner", "Provisioner.scheme.lowercase_owner"
+        )
+        return self.scheme.lowercase_owner
 
 
 @dataclasses.dataclass(frozen=True)
@@ -160,30 +226,29 @@ def plan_room(
     """Work out the room a requester (``requester_claims``) asks for.
 
     ``name`` is the room's human-readable name; ``slug`` (derived from it
-    when omitted) completes the room id (owner part, the provisioner's
-    ``room_id_separator``, slug); ``description``
-    defaults to the name. ``owner`` (see :func:`room_ids.named_owner`)
-    makes someone other than the requester the room's owner; whether the
-    requester may do that is for the caller to decide. Without it, the
-    owner is the requester, derived from their claims. Changes nothing.
-    Raises :class:`room_ids.RoomIdError` for an unusable owner, name or
-    slug, and :class:`access_rules.AccessRuleError` for an unusable
-    ``owner_claim``.
+    when omitted) completes the room id (owner part, the separator, slug),
+    under the provisioner's ``scheme``; ``description`` defaults to the
+    name. ``owner`` (see :meth:`room_ids.RoomIdScheme.named_owner`) makes
+    someone other than the requester the room's owner; whether the
+    requester may do that is for the caller to decide. Its owner part is
+    normalized again under the provisioner's ``scheme``, so an owner named
+    under other rules still yields an id that splits one way only (#156).
+    Without it, the owner is the requester, derived from their claims.
+    Changes nothing. Raises :class:`room_ids.RoomIdError` for an unusable
+    owner, name or slug, and :class:`access_rules.AccessRuleError` for an
+    unusable ``owner_claim``.
     """
     if not name.strip():
         raise BadRoomName(name)
+    scheme = provisioner.scheme
     if owner is None:
-        owner = room_ids.owner_from_claims(
-            requester_claims,
-            claim=provisioner.owner_claim,
-            flatten_value=provisioner.flatten_owner,
-            lowercase_value=provisioner.lowercase_owner,
-            separator=provisioner.room_id_separator,
+        owner = scheme.owner_from_claims(
+            requester_claims, claim=provisioner.owner_claim
         )
-    room_id = room_ids.make_room_id(
-        owner,
-        slug if slug is not None else room_ids.slugify(name),
-        separator=provisioner.room_id_separator,
+    else:
+        owner = scheme.named_owner(owner.owner, owner.json_path)
+    room_id = scheme.make_room_id(
+        owner, slug if slug is not None else scheme.slugify(name)
     )
     return interfaces.RoomRequest(
         requester_claims=requester_claims,
