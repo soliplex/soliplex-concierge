@@ -139,19 +139,21 @@ below, which record the decision as both a label and a closing comment.
      /app/.venv/bin/soliplex-cli room-authz make-private  /environment <room_id>
    docker compose run --rm backend \
      /app/.venv/bin/soliplex-cli room-authz add-acl-entry \
-       --allow --email <user> /environment <room_id>
+       --allow --permission read --email <user> /environment <room_id>
    ```
 
    (`/environment` is the in-container installation path; use
    `--preferred-username <name>` when the request gives a username rather than
-   an email.) **Show the admin these grant commands and run them only after
-   they explicitly confirm.** Only once the grant has actually succeeded,
-   record the outcome and close the issue:
+   an email. `--permission read` is what entering the room needs: a `write`- or
+   `admin`-only entry does not admit the user.) **Show the admin these grant
+   commands and run them only after they explicitly confirm.** Only once the
+   grant has actually succeeded, record the outcome and close the issue:
 
    ```sh
    uv run scripts/gitea_issues.py approve <number> --owner <owner> \
        --repo <repo> \
-       --body "Granted <user> access to '<room>' via room-authz add-acl-entry."
+       --body \
+       "Granted <user> read access to '<room>' via room-authz add-acl-entry."
    ```
 
 3. **Deny.** No stack change is needed — just record the decision and close:
