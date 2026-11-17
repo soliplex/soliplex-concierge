@@ -9,6 +9,7 @@ import asyncio
 import logging
 import threading
 
+import anyio
 import fake_parts
 import httpx2
 import pytest
@@ -408,6 +409,32 @@ async def test_health_check(app, state, status, text):
     assert response.status_code == status
     assert response.text == text
     assert response.headers[api.API_VERSION_HEADER] == api.API_VERSION
+
+
+@pytest.fixture
+async def busy_threadpool():
+    """Hold every token of the threadpool the sync routes run on."""
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    borrowers = [object() for _ in range(int(limiter.total_tokens))]
+    for borrower in borrowers:
+        limiter.acquire_on_behalf_of_nowait(borrower)
+    yield limiter
+    for borrower in borrowers:
+        limiter.release_on_behalf_of(borrower)
+
+
+@pytest.mark.anyio
+async def test_health_check_answers_with_the_threadpool_busy(
+    app, busy_threadpool
+):
+    app.state.access.update(True)
+
+    with anyio.fail_after(5):
+        response = await _send(app, "GET", api.HEALTH_PATH)
+
+    assert busy_threadpool.available_tokens == 0
+    assert response.status_code == 200
+    assert response.text == "OK"
 
 
 # ---- watch_access ----
