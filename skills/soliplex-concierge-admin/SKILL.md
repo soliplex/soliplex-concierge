@@ -49,15 +49,38 @@ not in certifi's bundle), **ask the admin**, then add `--with truststore` to
 the `uv run` invocation so the script verifies against the host OS trust store
 instead — e.g. `uv run --with truststore scripts/gitea_issues.py list …`. No
 edit to the script is needed; the extra package activates the OS-trust-store
-path automatically (see issue #46).
+path automatically (see
+[issue #46](https://github.com/soliplex/soliplex-concierge/issues/46)).
 
 Run `init` once per tracking repository to create the request labels
 (`new-room`, `room-access`, `approved`, `denied`) the workflow below relies on
-(idempotent — re-running reports each label as `created` or `exists`):
+(idempotent — re-running reports each label as `created` or `exists`). The
+concierge creates the two type labels itself when it files, but nothing else
+creates `approved` / `denied`: until `init` has run, `approve` and `deny` fail
+with a "missing label" error. If they do, run `init` and retry:
 
 ```sh
 uv run scripts/gitea_issues.py init --owner <owner> --repo <repo>
 ```
+
+## Issues the room provisioner files
+
+On a stack running a room provisioner (a `soliplex-template` stack's
+`soliplex-provisioner` service), some `new-room` issues are filed by the
+provisioner itself, not by the room skill: it creates the room on the spot for
+a user it admits, files the issue as its record, then comments and closes it
+once the room is live. Recognize one by the ``- **Room id:** `<id>` `` line
+in its body (the room skill's template has none).
+
+**Do not create the room such an issue names** — the provisioner already
+did, or tried to. An open one needs a look instead:
+
+- **with a provisioner comment** — the comment says what failed, or which
+  steps remain for an administrator to finish; do those steps (with
+  `soliplex-template`), then close the issue with what you did;
+- **with no comment** — the provisioner stopped mid-run. Check whether the
+  room exists in the stack before doing anything, and report what you find
+  to the admin rather than guessing.
 
 ## Workflow
 
@@ -81,13 +104,16 @@ uv run scripts/gitea_issues.py init --owner <owner> --repo <repo>
 3. **Perform the operation.** This is delegated to `soliplex-template` /
    `soliplex-docs`; this skill does not provision directly. Decide by request
    type:
-   - **New room** — use `soliplex-template` to create the room and, if knowledge
-     sources were given, create/wire a RAG database for it; follow
-     `soliplex-docs` for room and skill configuration. Apply the requested
-     access and tools/skills.
-   - **Access to a private room** — grant the requesting user access via the
-     deployment's access mechanism (e.g. OIDC group membership or the room's
-     access configuration), per `soliplex-docs`.
+   - **New room** — first check it is not one the provisioner filed (see
+     [above](#issues-the-room-provisioner-files)). Otherwise, use
+     `soliplex-template` to create the room and, if knowledge sources were
+     given, create/wire a RAG database for it; follow `soliplex-docs` for room
+     and skill configuration. Apply the requested access and tools/skills.
+   - **Access to a private room** — follow
+     [Resolving room access requests](#resolving-room-access-requests) below:
+     identify the requester from the attached user profile, grant with
+     `soliplex-cli room-authz`, and record the decision with `approve` /
+     `deny`.
 
    If a request is unclear or under-specified (look for `*(not provided)*`
    fields), comment asking for the missing detail instead of guessing, and
@@ -124,8 +150,32 @@ below, which record the decision as both a label and a closing comment.
        --owner <owner> --repo <repo>
    ```
 
-   Read a request with `show <number>` and note the room id and the requesting
-   user from the body (`Requested by:` / `## Room`).
+   Read a request with `show <number>` and note the room from the body
+   (`## Room`) and the justification.
+
+   **Take the requester's identity from the attached user profile, never from
+   the body.** The body's `Requested by:` line is written by the room's agent
+   and may be wrong or `*(not provided)*`, and `show`'s `by:` is the Gitea
+   account that filed the issue, not the requester. When it filed the issue,
+   `create_gitea_issue` attached the signed-in user's OIDC claims as a YAML
+   file (`user-profile.yaml` by default) — typically their `email` and
+   `preferred_username`, the discriminators you grant against. `show` does
+   not print attachments or comments; fetch them from the Gitea API:
+
+   ```sh
+   # the attachment: download its 'browser_download_url'
+   curl -s -H "Authorization: token $GITEA_ACCESS_TOKEN" \
+     "$GITEA_HOST/api/v1/repos/<owner>/<repo>/issues/<number>/assets"
+   # if Gitea refused the attachment, the profile is a YAML block in a comment
+   curl -s -H "Authorization: token $GITEA_ACCESS_TOKEN" \
+     "$GITEA_HOST/api/v1/repos/<owner>/<repo>/issues/<number>/comments"
+   ```
+
+   An installation may set `exclude_claims` to keep some claims (e.g.
+   `email`) out of the profile; use the other discriminator then. If neither
+   a profile nor a usable claim is there, comment asking the requester to
+   confirm their identity and leave the issue open — do not grant access
+   based on the body alone.
 
 2. **Approve.** Granting access mutates the running stack's authorization
    database, so run the `soliplex-cli room-authz` commands against the stack
@@ -143,7 +193,7 @@ below, which record the decision as both a label and a closing comment.
    ```
 
    (`/environment` is the in-container installation path; use
-   `--preferred-username <name>` when the request gives a username rather than
+   `--preferred-username <name>` when the profile gives a username rather than
    an email. `--permission read` is what entering the room needs: a `write`- or
    `admin`-only entry does not admit the user.) **Show the admin these grant
    commands and run them only after they explicitly confirm.** Only once the

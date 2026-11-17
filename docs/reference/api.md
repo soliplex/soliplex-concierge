@@ -80,7 +80,7 @@ helpers. Each value is a `{"color": ..., "description": ...}` mapping.
 
 - `httpx_verify()` — return an httpx2 `verify` value honoring the OS trust store
   when the optional `truststore` package is installed (an
-  `ssl.SSLContext`), otherwise `True` (httpx2's certifi default). See issue #46.
+  `ssl.SSLContext`), otherwise `True` (httpx2's certifi default). See [issue #46](https://github.com/soliplex/soliplex-concierge/issues/46).
 
 ## `soliplex_concierge.tools.gitea`
 
@@ -124,7 +124,7 @@ same `UnknownRequestType` / `LabelNotApplied`.
 - `AnonymousUser(ValueError)` — no user profile is attached to the run, so the
   request cannot be attributed.
 - `LabelNotApplied(RuntimeError)` — the issue was created but its type label was
-  not applied (typically the Gitea account lacks Write access; see issue #59).
+  not applied (typically the Gitea account lacks Write access; see [issue #59](https://github.com/soliplex/soliplex-concierge/issues/59)).
 
 ## `soliplex_concierge.tools.provisioner`
 

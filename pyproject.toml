@@ -121,6 +121,7 @@ parametrize-names-type = "csv"
 [tool.pymarkdown]
 extensions.front-matter.enabled = true
 plugins.line-length.enabled = false             # md013
+plugins.ul-indent.indent = 4                    # md007: Zensical (Python-Markdown) nests only at 4 spaces
 plugins.no-duplicate-heading.enabled = false    # md024
 plugins.no-inline-html.enabled = false          # md033
 plugins.no-emphasis-as-heading.enabled = false  # md036

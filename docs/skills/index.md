@@ -31,4 +31,6 @@ Their own documentation covers installing and using them:
   strips the `skill_versions.py` helper from the copy of the `soliplex-docs`
   skill it installs.  To update an installed copy, re-run the
   installer's `install_concierge.py` (with `--force`) against the stack
-  from a coding agent.
+  from a coding agent. `--force` also replaces the about-room, so save any
+  edits to it first (see
+  [Setup](../tasks/rooms/setup.md#useful-flags)).

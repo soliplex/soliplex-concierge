@@ -207,6 +207,14 @@ it is empty when the room is fully live.
 
 ## Serving it
 
+The service needs the `provisioner` extra, which adds FastAPI and uvicorn:
+
+```sh
+uv add "soliplex-concierge[provisioner]"
+# or, in an existing virtual environment
+uv pip install "soliplex-concierge[provisioner]"
+```
+
 `soliplex_concierge.provisioner.service.create_app(provisioner, admission)`
 builds a FastAPI application serving the
 [Provisioner REST API](../../reference/provisioner-rest-api.md) over your
