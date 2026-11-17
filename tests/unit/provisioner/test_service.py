@@ -351,7 +351,9 @@ async def test_get_room(app, token):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("token", ["bob-token", "nameless-token"])
+@pytest.mark.parametrize(
+    "token", ["bob-token", "nameless-token", "Alice-token"]
+)
 async def test_get_room_by_someone_else(app, token):
     _pending(app)
 
@@ -539,20 +541,33 @@ def test_requests_release():
     "claims, kwargs, expected",
     [
         ({"preferred_username": "alice"}, {}, "alice"),
+        ({"preferred_username": "Alice"}, {}, "Alice"),
         (
             {"email": "a@b.example"},
             {"owner_claim": "email", "flatten_owner": True},
-            "a_b.example",
+            "a@b.example",
         ),
-        ({"preferred_username": "jo--smith"}, {}, "jo_smith"),
-        ({"preferred_username": "Alice"}, {}, "alice"),
-        ({"preferred_username": "Alice"}, {"lowercase_owner": False}, "Alice"),
+        ({"preferred_username": "jo--smith"}, {}, "jo--smith"),
         (
             {"preferred_username": "jo__smith"},
             {"room_id_separator": "__"},
-            "jo-smith",
+            "jo__smith",
         ),
+        ({"preferred_username": "Jo Smith"}, {}, "Jo Smith"),
         ({"sub": "x"}, {}, None),
+        ({"preferred_username": 42}, {}, None),
+        ({"x": "alice"}, {"owner_claim": "not a claim"}, None),
+    ],
+    ids=[
+        "plain",
+        "not-lowercased",
+        "not-flattened",
+        "separator-kept",
+        "custom-separator-kept",
+        "not-a-segment",
+        "claim-missing",
+        "claim-not-a-string",
+        "bad-owner-claim",
     ],
 )
 def test_requester_id(claims, kwargs, expected):

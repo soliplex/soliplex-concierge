@@ -195,6 +195,8 @@ def make_provisioner(
 TOKENS = {
     "alice-token": {"preferred_username": "alice", "sub": "alice-sub"},
     "bob-token": {"preferred_username": "bob", "sub": "bob-sub"},
+    # Alice's owner part, lowercased, but not Alice (see #150).
+    "Alice-token": {"preferred_username": "Alice", "sub": "other-alice-sub"},
     "carol-token": {"preferred_username": "carol", "sub": "carol-sub"},
     "root-token": {"preferred_username": "root", "sub": "root-sub"},
     "nameless-token": {"sub": "nameless-sub"},
