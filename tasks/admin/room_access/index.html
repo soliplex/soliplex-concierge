@@ -1229,14 +1229,11 @@ container, from the stack directory:</p>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># Allow the requesting user, matched by an OIDC claim from their profile.</span>
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>docker<span class="w"> </span>compose<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>backend<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span>/app/.venv/bin/soliplex-cli<span class="w"> </span>room-authz<span class="w"> </span>add-acl-entry<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span>--allow<span class="w"> </span>--permission<span class="w"> </span><span class="nb">read</span><span class="w"> </span>--email<span class="w"> </span>&lt;user-email&gt;<span class="w"> </span>/environment<span class="w"> </span>&lt;room_id&gt;
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span>--allow<span class="w"> </span>--email<span class="w"> </span>&lt;user-email&gt;<span class="w"> </span>/environment<span class="w"> </span>&lt;room_id&gt;
 </span></code></pre></div>
 <p>Notes:</p>
 <ul>
 <li><code>/environment</code> is the in-container installation path.</li>
-<li><code>--permission</code> is required. <code>read</code> is what using the room needs; a
-  <code>write</code>- or <code>admin</code>-scoped entry grants only that permission and does not
-  let the user into a private room.</li>
 <li>Match the user with the discriminator that fits their profile: <code>--email</code>
   <code>&lt;email&gt;</code> or <code>--preferred-username &lt;name&gt;</code>. (<code>add-acl-entry</code> also supports
   <code>--everyone</code> and <code>--authenticated</code> catch-alls, and <code>--deny</code> entries.)</li>

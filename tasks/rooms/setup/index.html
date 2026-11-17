@@ -1314,14 +1314,10 @@ every change idempotently.</p>
   stack built on a soliplex release image, or the <code>backend/Dockerfile</code>
   <code>uv add</code> block in an older stack (whose Dockerfile ignores the
   <code>pyproject.toml</code> deps).</li>
-<li>Merges its entries into <code>backend/environment/installation.yaml</code>:
+<li>Merges six entries into <code>backend/environment/installation.yaml</code>:
   <code>meta.tool_configs</code> (the three tool-config classes), <code>environment</code>,
-  <code>secrets</code>, and <code>room_paths</code>. The two <code>skill_configs</code> entries — for
-  <code>soliplex-concierge-room</code> and <code>soliplex-docs</code> — are written <strong>only</strong> when
-  the stack has an explicit filesystem <code>skill_configs</code> whitelist, and then
-  only with <code>--confirm-skill-whitelist</code> (without it the install aborts). On a
-  typical, permissive stack the skills are auto-discovered under <code>skills/</code>,
-  so the summary reports those entries as <code>covered</code> and writes nothing.</li>
+  <code>secrets</code>, two <code>skill_configs</code> — for <code>soliplex-concierge-room</code> and
+  <code>soliplex-docs</code> — and <code>room_paths</code>.</li>
 <li>Copies the about-room into <code>backend/environment/rooms/&lt;room-id&gt;/</code>
   (<code>about_&lt;compose-project-name&gt;</code> by default; override with <code>--room-id</code>).</li>
 <li>Downloads and installs the <code>soliplex-concierge-room</code> and <code>soliplex-docs</code>
@@ -1374,15 +1370,9 @@ entirely (for an external Gitea).</p>
 <p>For a non-generated installation, do the same steps by hand.</p>
 <ol>
 <li><strong>Install the package</strong> into the environment that runs Soliplex (it depends
-   on <code>soliplex</code>). In a containerized stack, add <code>soliplex-concierge</code> to
-   whatever the backend image installs from — <code>backend/requirements.txt</code>, or
-   the <code>uv add</code> block in an older stack's <code>backend/Dockerfile</code> — and rebuild
-   the image. For an environment managed directly:</li>
+   on <code>soliplex</code>):</li>
 </ol>
-<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># a uv-managed project</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>uv<span class="w"> </span>add<span class="w"> </span>soliplex-concierge
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="c1"># an existing virtual environment</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>soliplex-concierge
+<div class="language-sh highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>.
 </span></code></pre></div>
 <p>For an enterprise / internal CA, install <code>soliplex-concierge[truststore]</code>
    instead so the tool verifies TLS against the OS trust store (issue #46).</p>

@@ -1257,15 +1257,9 @@ owner part with its access rule, a soliplex ACL JSONPath over a user's claims:</
   for instance everyone a predicate recognizes; whether the requester may do
   that is for the caller to decide</li>
 </ul>
-<p>Either way, the separator is replaced in the owner part, so a room id splits
-into owner and slug one way only; a requested slug containing the separator
-is refused instead. For the requester's own owner, <code>plan_room</code> applies
-<code>Provisioner.room_id_separator</code> itself. A named owner is normalized when
-<code>named_owner</code> builds it, with that function's own <code>separator</code> and <code>lowercase</code>
-arguments (by default <code>room_ids.DEFAULT_SEPARATOR</code> and true), and <code>plan_room</code>
-does not re-check it: with a non-default <code>room_id_separator</code> or
-<code>lowercase_owner</code>, pass the same values to <code>named_owner</code>. A service built
-with <code>service.create_app</code> does this for you.</p>
+<p>Either way, any <code>Provisioner.room_id_separator</code> in the owner part is
+replaced, so a room id splits into owner and slug one way only; a requested
+slug containing the separator is refused instead.</p>
 <p>Build a named owner's rule with <code>access_rules</code>, never by hand:
 <code>claim_rule(claim, value)</code> for one person, or <code>predicate_rule(name)</code> for a
 predicate the installation registers under <code>meta.jsonpath_functions</code>. A
@@ -1287,9 +1281,8 @@ the slug derives from that, and the owner part from their
 <p>The access rule matches the raw claim value, <code>Alice.Smith</code>, so the
 lowercasing never costs Alice her room.</p>
 <p>An admin creating a room for a group names its owner, identified by a
-predicate the installation registers (here <code>is_foreman</code>); <code>named_owner</code>
-normalizes the owner part (lowercased, with the default separator), and the
-admin stays the requester:</p>
+predicate the installation registers (here <code>is_foreman</code>); the owner part is
+normalized the same way, and the admin stays the requester:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">foremen</span> <span class="o">=</span> <span class="n">room_ids</span><span class="o">.</span><span class="n">named_owner</span><span class="p">(</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="s2">&quot;Foremen&quot;</span><span class="p">,</span> <span class="n">access_rules</span><span class="o">.</span><span class="n">predicate_rule</span><span class="p">(</span><span class="s2">&quot;is_foreman&quot;</span><span class="p">)</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="p">)</span>
