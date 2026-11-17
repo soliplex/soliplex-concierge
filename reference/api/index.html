@@ -1689,7 +1689,8 @@ constants.</p>
   <code>check_refuses_an_invalid_token</code>, <code>check_refuses_the_unadmitted</code>,
   <code>check_rejects_a_malformed_body</code>, <code>check_rejects_a_bad_slug</code>,
   <code>check_refuses_a_named_owner_from_a_non_admin</code>, <code>check_rejects_a_bad_owner</code>,
-  <code>check_admin_names_an_owner</code>, <code>check_accepts_and_reports</code>, <code>check_hides_requests_from_others</code>,
+  <code>check_admin_names_an_owner</code>, <code>check_rejects_an_unknown_predicate</code>,
+  <code>check_accepts_and_reports</code>, <code>check_hides_requests_from_others</code>,
   <code>check_reports_unknown_requests</code>, <code>check_refuses_an_existing_room</code> — each
   takes the harness.</li>
 <li><code>ContractViolation(AssertionError)</code> — a broken contract;
@@ -1944,9 +1945,21 @@ options: <code>room_id</code>, <code>pin</code>, <code>gitea_host</code>, <code>
 <code>apply</code> skips the <code>.env</code> <code>GITEA_HOST</code> / <code>GITEA_ACCESS_TOKEN</code> write (the stack's
 <code>scripts/init_gitea.py</code> owns those).</p>
 <p><strong><code>class InstallerError(Exception)</code></strong> — a problem applying the extension; <code>main</code>
-maps it to exit code <code>2</code>. Built via message-constructing classmethods
-(<code>not_a_stack</code>, <code>assets_missing</code>, <code>bad_skill_dir</code>, <code>bad_pyproject</code>,
-<code>bad_dockerfile</code>, <code>bad_installation</code>, …).</p>
+maps it to exit code <code>2</code>. Raised as one of its subclasses, each building its
+own message:</p>
+<ul>
+<li><code>NotAStack(stack, missing)</code> — <code>stack</code> lacks the stack marker <code>missing</code>.</li>
+<li><code>AssetsMissing(assets)</code> — the skill bundle's room template is not there.</li>
+<li><code>SkillDownloadFailed(spec, reason)</code> — a published skill could not be
+  downloaded; the message names its <code>--…-skill-dir</code> flag.</li>
+<li><code>BadSkillDirectory(spec, path)</code> — a <code>--…-skill-dir</code> has no <code>SKILL.md</code>.</li>
+<li><code>BadPyProject()</code> — <code>backend/pyproject.toml</code> has no <code>dependencies = [</code>
+  block to extend.</li>
+<li><code>BadDockerfile()</code> — the <code>backend/Dockerfile</code> <code>uv add</code> block has no
+  <code>soliplex \</code> line to extend.</li>
+<li><code>SkillWhitelistActive(kind, entries)</code> — <code>installation.yaml</code> has an explicit
+  <code>skill_configs</code> whitelist and <code>--confirm-skill-whitelist</code> was not given.</li>
+</ul>
 <p><strong>Published skills</strong></p>
 <ul>
 <li><code>class PublishedSkill</code> <em>(frozen dataclass)</em> — a skill published as a
@@ -1987,8 +2000,14 @@ just "compute, don't write"; <code>action</code> is <code>ADDED</code> or <code>
 <li><code>add_dockerfile_dep(text, pin=None, with_truststore=False)</code> — add it to the
   <code>backend/Dockerfile</code> <code>uv add</code> block, in an older stack without
   <code>backend/requirements.txt</code>.</li>
-<li><code>merge_installation(text, room_id) -&gt; (new_text, {target: action})</code> —
-  surgically merge the six <code>installation.yaml</code> entries.</li>
+<li><code>merge_installation(text, *, confirm_skill_whitelist=False) -&gt;
+  (new_text, {target: action})</code> — surgically merge the <code>installation.yaml</code>
+  entries: the three <code>meta.tool_configs</code> classes, <code>environment</code>, <code>secrets</code>,
+  and the two filesystem <code>skill_configs</code> (<code>room_paths</code> is wired by
+  <code>install_room</code>). The <code>skill_configs</code> targets come back <code>COVERED</code> on a
+  permissive stack; on one with an explicit whitelist they are added only
+  when <code>confirm_skill_whitelist</code> is true, and otherwise it raises
+  <code>SkillWhitelistActive</code>.</li>
 <li><code>update_env(text, host, token)</code> — add the <code>GITEA_HOST</code> / <code>GITEA_ACCESS_TOKEN</code>
   lines.</li>
 <li><code>stack_gitea_script(pin=None, with_truststore=False) -&gt; str</code> — render the
