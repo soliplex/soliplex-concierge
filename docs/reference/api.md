@@ -427,7 +427,7 @@ deployment's adapters (see
   `update(admitted, problem=None)`.
 - `Requests` / `Request` — the in-memory request registry.
 - `requester_id(provisioner, claims)` — how the service recognizes a
-  request's requester (their own owner part).
+  request's requester (the raw value of their `owner_claim`).
 
 ## `soliplex_concierge.gitea_admin`
 

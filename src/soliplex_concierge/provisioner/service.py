@@ -158,19 +158,23 @@ def requester_id(
 ) -> str | None:
     """Who the requester is, for showing them their requests.
 
-    Their own owner part (as :func:`room_ids.owner_from_claims` derives
-    it), or None when their claims yield none.
+    The raw value of their ``owner_claim``: the value a room they own
+    themselves grants access by (see :func:`access_rules.claim_value_rule`).
+    Not their owner part, whose flattening, lowercasing and separator
+    replacement can give distinct users the same one (#150). None when
+    their claims carry no string value for it.
     """
     try:
-        return room_ids.owner_from_claims(
-            claims,
-            claim=provisioner.owner_claim,
-            flatten_value=provisioner.flatten_owner,
-            lowercase_value=provisioner.lowercase_owner,
-            separator=provisioner.room_id_separator,
-        ).owner
-    except (room_ids.RoomIdError, access_rules.AccessRuleError):
+        value, _ = access_rules.claim_value_rule(
+            claims, provisioner.owner_claim
+        )
+    except (
+        access_rules.AccessRuleError,
+        access_rules.ClaimMissing,
+        access_rules.ClaimNotAString,
+    ):
         return None
+    return value
 
 
 # --------------------------------------------------------------------------
