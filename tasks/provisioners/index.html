@@ -1250,16 +1250,22 @@ belongs to (<code>owner</code>, a <code>room_ids.RoomOwner</code>). The owner pa
 owner part with its access rule, a soliplex ACL JSONPath over a user's claims:</p>
 <ul>
 <li>by default, <code>plan_room</code> derives the requester's own owner from one of their
-  claims (<code>Provisioner.owner_claim</code>, flattened when <code>flatten_owner</code> is set,
-  lowercased unless <code>lowercase_owner</code> is false), with a rule matching that
-  claim's raw value</li>
-<li>given <code>owner=room_ids.named_owner(...)</code>, it makes someone else the owner,
-  for instance everyone a predicate recognizes; whether the requester may do
-  that is for the caller to decide</li>
+  claims (<code>Provisioner.owner_claim</code>), with a rule matching that claim's raw
+  value</li>
+<li>given <code>owner=provisioner.scheme.named_owner(...)</code>, it makes someone else
+  the owner, for instance everyone a predicate recognizes; whether the
+  requester may do that is for the caller to decide</li>
 </ul>
-<p>Either way, any <code>Provisioner.room_id_separator</code> in the owner part is
-replaced, so a room id splits into owner and slug one way only; a requested
+<p>Either way, the owner part follows the provisioner's <code>scheme</code>, a
+<code>room_ids.RoomIdScheme</code>: flattened when its <code>flatten_owner</code> is set (a
+claimed owner only), lowercased unless its <code>lowercase_owner</code> is false, with
+any separator replaced and any trailing <code>.</code>, <code>_</code> or <code>-</code> stripped. Both
+parts of an id start and end with a letter or digit, and a separator holds
+neither, so a room id splits into owner and slug one way only; a requested
 slug containing the separator is refused instead.</p>
+<p>To work out a room's id without planning a request, use
+<code>provisioner.scheme.make_room_id(owner, slug)</code>, and
+<code>provisioner.scheme.parse_room_id(room_id)</code> to split one.</p>
 <p>Build a named owner's rule with <code>access_rules</code>, never by hand:
 <code>claim_rule(claim, value)</code> for one person, or <code>predicate_rule(name)</code> for a
 predicate the installation registers under <code>meta.jsonpath_functions</code>. A
@@ -1283,7 +1289,7 @@ lowercasing never costs Alice her room.</p>
 <p>An admin creating a room for a group names its owner, identified by a
 predicate the installation registers (here <code>is_foreman</code>); the owner part is
 normalized the same way, and the admin stays the requester:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">foremen</span> <span class="o">=</span> <span class="n">room_ids</span><span class="o">.</span><span class="n">named_owner</span><span class="p">(</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">foremen</span> <span class="o">=</span> <span class="n">provisioner</span><span class="o">.</span><span class="n">scheme</span><span class="o">.</span><span class="n">named_owner</span><span class="p">(</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="s2">&quot;Foremen&quot;</span><span class="p">,</span> <span class="n">access_rules</span><span class="o">.</span><span class="n">predicate_rule</span><span class="p">(</span><span class="s2">&quot;is_foreman&quot;</span><span class="p">)</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="p">)</span>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">request</span> <span class="o">=</span> <span class="n">provision</span><span class="o">.</span><span class="n">plan_room</span><span class="p">(</span>
@@ -1354,10 +1360,11 @@ the wording to you:</p>
 </span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="n">authz</span><span class="o">=</span><span class="n">authz</span><span class="p">,</span>
 </span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>    <span class="n">backend</span><span class="o">=</span><span class="n">backend</span><span class="p">,</span>
 </span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>    <span class="n">tracker</span><span class="o">=</span><span class="n">tracker</span><span class="p">,</span>  <span class="c1"># or None</span>
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="p">)</span>
-</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="n">provisioned</span> <span class="o">=</span> <span class="n">provision</span><span class="o">.</span><span class="n">provision_room</span><span class="p">(</span>
-</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>    <span class="n">requester_claims</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Q3 Plans&quot;</span><span class="p">,</span> <span class="n">provisioner</span><span class="o">=</span><span class="n">provisioner</span>
-</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="p">)</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>    <span class="c1"># scheme=room_ids.RoomIdScheme(separator=&quot;:&quot;),  # to change id rules</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="p">)</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="n">provisioned</span> <span class="o">=</span> <span class="n">provision</span><span class="o">.</span><span class="n">provision_room</span><span class="p">(</span>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>    <span class="n">requester_claims</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;Q3 Plans&quot;</span><span class="p">,</span> <span class="n">provisioner</span><span class="o">=</span><span class="n">provisioner</span>
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="p">)</span>
 </span></code></pre></div>
 <p><code>provisioned.unfinished</code> lists what remains to do once the room is committed;
 it is empty when the room is fully live.</p>

@@ -1273,13 +1273,13 @@ missing or invalid token gets <code>401</code>, with a <code>WWW-Authenticate: B
 room's id is <code>&lt;owner&gt;&lt;separator&gt;&lt;slug&gt;</code>, the separator being the
 deployment's (by default <code>--</code>, as in <code>alice--q3-plans</code>). The owner part
 derives from one of the requester's claims: lowercased by default, with any
-separator in it replaced. The slug derives from the request's <code>name</code>, unless
+separator in it replaced and any trailing <code>.</code>, <code>_</code> or <code>-</code> stripped. The slug derives from the request's <code>name</code>, unless
 the request asks for a specific <code>slug</code>; one that does not fit (including one
 containing the separator) is a <code>400</code>, and the caller may retry with another.</p>
 <p>An admin may make someone other than themselves the room's owner with the
 optional <code>owner</code>, a <code>RoomOwner</code>. <code>owner.owner</code> is the room id's owner part,
 normalized as a claimed one is (lowercased by default, any separator
-replaced).
+replaced, any trailing <code>.</code>, <code>_</code> or <code>-</code> stripped).
 Whom the room is granted to is given in one of two forms:</p>
 <ul>
 <li>

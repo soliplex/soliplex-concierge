@@ -1700,35 +1700,38 @@ constants.</p>
 <p>Ids of provisioned rooms (<code>&lt;owner&gt;&lt;separator&gt;&lt;slug&gt;</code>, by default
 <code>&lt;owner&gt;--&lt;slug&gt;</code>), and their owners (see
 <a href="../../tasks/provisioners/#the-owner-and-the-requester">The owner and the requester</a>).
-Neither part ever contains the separator: owner parts have it replaced, and
-slugs carrying it are refused.</p>
+An id splits one way only: both parts start and end with a letter or digit,
+a separator holds neither, owner parts have it replaced (and any trailing
+<code>.</code>, <code>_</code> or <code>-</code> stripped), and slugs carrying it are refused.</p>
 <ul>
 <li><code>DEFAULT_SEPARATOR</code> (<code>"--"</code>), <code>DEFAULT_OWNER_CLAIM</code>
-  (<code>"preferred_username"</code>), <code>MAX_SEGMENT</code>, <code>MAX_SEPARATOR</code>.</li>
+  (<code>"preferred_username"</code>), <code>MAX_SEGMENT</code>, <code>MAX_SEPARATOR</code>, <code>SEGMENT_RE</code>.</li>
+<li><code>RoomIdScheme(separator=DEFAULT_SEPARATOR, max_segment=MAX_SEGMENT,
+  lowercase_owner=True, flatten_owner=False)</code> — a deployment's rules for its
+  ids; <code>DEFAULT_SCHEME</code> is the default one. Its methods:
+  <code>owner_from_claims(claims, *, claim=DEFAULT_OWNER_CLAIM)</code> (the requester's
+  own owner, its rule matching the claim's raw value),
+  <code>named_owner(owner, json_path)</code> (any other owner, such as a group, with a
+  rule from <code>access_rules</code>), <code>make_room_id(owner, slug)</code>,
+  <code>parse_room_id(room_id)</code>, <code>slugify(name)</code>, <code>validate_slug(slug)</code>,
+  <code>without_separator(value)</code>, <code>is_segment(value)</code>.</li>
 <li><code>RoomOwner(owner, json_path)</code> — the id's owner part, and the access rule (a
   soliplex ACL JSONPath) granting the owner the room.</li>
-<li><code>RoomId(owner, slug, separator=DEFAULT_SEPARATOR)</code> — an id, split; <code>str()</code>
-  joins it.</li>
-<li><code>owner_from_claims(claims, *, claim="preferred_username",
-  flatten_value=False, lowercase_value=True, separator=DEFAULT_SEPARATOR)</code> —
-  the requester's own owner, its rule matching the claim's raw value.</li>
-<li><code>named_owner(owner, json_path, separator=DEFAULT_SEPARATOR,
-  lowercase=True)</code> — any other owner, such as a group, with a rule from
-  <code>access_rules</code>.</li>
+<li><code>RoomId(owner, slug, scheme=DEFAULT_SCHEME)</code> — an id, split; <code>str()</code> joins
+  it; equal only under equal schemes.</li>
 <li><code>validate_separator(separator)</code> — refuses a separator that is empty, longer
-  than <code>MAX_SEPARATOR</code>, not printable ASCII, holds whitespace or any of
-  <code>/ \ &lt; &gt; " | ? * # %</code>, or could occur inside a <code>slugify</code> output (such as
-  <code>-</code>).</li>
-<li><code>without_separator(value, separator=DEFAULT_SEPARATOR)</code> — <code>value</code> with each
-  separator replaced by <code>-</code> (or <code>_</code>, when the separator holds <code>-</code>).</li>
-<li><code>slugify(name)</code>, <code>validate_slug(slug, separator=DEFAULT_SEPARATOR)</code>,
-  <code>make_room_id(owner, slug, separator=DEFAULT_SEPARATOR)</code>,
-  <code>parse_room_id(room_id, separator=DEFAULT_SEPARATOR)</code>, <code>is_segment(value)</code>,
-  <code>flatten(value)</code>.</li>
+  than <code>MAX_SEPARATOR</code>, not printable ASCII, holds whitespace, a letter or a
+  digit, or any of <code>/ \ &lt; &gt; " | ? * # %</code>, or is a lone <code>-</code>.</li>
+<li><code>flatten(value)</code>.</li>
+<li>Deprecated, kept until after v0.16: the module-level <code>owner_from_claims</code>,
+  <code>named_owner</code>, <code>make_room_id</code>, <code>parse_room_id</code>, <code>slugify</code>,
+  <code>validate_slug</code>, <code>without_separator</code> and <code>is_segment</code> (each taking a
+  <code>separator</code>), and <code>RoomId(..., separator=...)</code>.</li>
 <li><code>RoomIdError</code> and its subclasses (<code>OwnerClaimMissing</code>, <code>BadOwner</code>,
   <code>BadOwnerPart</code>, <code>NoAccessRule</code>, <code>BadSlug</code>, <code>SlugEmpty</code>,
-  <code>NotAProvisionedRoomId</code>, <code>BadSeparator</code>) — an unusable owner, name, slug,
-  id or separator.</li>
+  <code>NotAProvisionedRoomId</code>, <code>BadSeparator</code>, <code>BadMaxSegment</code>) — an unusable
+  owner, name, slug, id or scheme; <code>SchemeConflict(TypeError)</code> — both a
+  scheme and the deprecated settings it replaces.</li>
 </ul>
 <h2 id="soliplex_conciergeprovisioneraccess_rules"><code>soliplex_concierge.provisioner.access_rules</code></h2>
 <p>Access rules for a room's owner, built from the forms a room agent may use; no
@@ -1769,10 +1772,11 @@ agent writes JSONPath. Stdlib only.</p>
 <a href="../../tasks/provisioners/#what-the-core-does">What the core does</a>).</p>
 <ul>
 <li><code>Provisioner(store, registrar, uploads, authz, backend, tracker=None,
-  owner_claim="preferred_username", room_id_separator="--",
-  flatten_owner=False, lowercase_owner=True)</code> — a deployment's adapters, and
-  how it derives a room's id; raises <code>room_ids.BadSeparator</code> for an unusable
-  separator (<code>":"</code> keeps the legacy form).</li>
+  owner_claim="preferred_username", scheme=room_ids.DEFAULT_SCHEME)</code> — a
+  deployment's adapters, the claim a requester's own owner derives from, and
+  the rules for its room ids. The keywords and attributes
+  <code>room_id_separator</code>, <code>flatten_owner</code> and <code>lowercase_owner</code> are deprecated
+  spellings of <code>scheme</code>'s settings, kept until after v0.16.</li>
 <li><code>plan_room(requester_claims, *, name, provisioner, description=None,
   slug=None, owner=None, now=None) -&gt; RoomRequest</code> — changes nothing.</li>
 <li><code>admit_room(request, provisioner) -&gt; Admitted</code> — checks, then files the
