@@ -53,12 +53,10 @@ It applies these idempotent edits to the stack:
   `pyproject.toml` deps).
 - Merges its entries into `backend/environment/installation.yaml`:
   `meta.tool_configs` (the three tool-config classes), `environment`,
-  `secrets`, and `room_paths`. The two `skill_configs` entries — for
-  `soliplex-concierge-room` and `soliplex-docs` — are written **only** when
-  the stack has an explicit filesystem `skill_configs` whitelist, and then
-  only with `--confirm-skill-whitelist` (without it the install aborts). On a
-  typical, permissive stack the skills are auto-discovered under `skills/`,
-  so the summary reports those entries as `covered` and writes nothing.
+  `secrets`, and `room_paths`. On a stack with an explicit
+   filesystem skill_configs whitelist, it also adds the two
+   skills there, but only with --confirm-skill-whitelist; 
+   otherwise it stops with an error.
 - Copies the about-room into `backend/environment/rooms/<room-id>/`
   (`about_<compose-project-name>` by default; override with `--room-id`).
 - Downloads and installs the `soliplex-concierge-room` and `soliplex-docs`

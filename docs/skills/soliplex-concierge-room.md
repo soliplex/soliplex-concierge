@@ -21,9 +21,9 @@ does this for you: it downloads the release into the stack's
 `backend/environment/skills/` directory, where Soliplex discovers it, and
 enables it on the about-room. It adds a `skill_configs` entry to
 `installation.yaml` only when the stack keeps an explicit filesystem
-whitelist. To wire it by hand, unpack the release tarball into the
+allow-list. To wire it by hand, unpack the release tarball into the
 installation's `skills/` directory (and add a `skill_configs` entry only if
-you keep such a whitelist) — see the manual steps in
+you keep such an allow-list) — see the manual steps in
 [Setup](../tasks/rooms/setup.md).
 
 **Keeping it current.** After installing the published tarball in a coding
