@@ -75,15 +75,9 @@ owner part with its access rule, a soliplex ACL JSONPath over a user's claims:
   for instance everyone a predicate recognizes; whether the requester may do
   that is for the caller to decide
 
-Either way, the separator is replaced in the owner part, so a room id splits
-into owner and slug one way only; a requested slug containing the separator
-is refused instead. For the requester's own owner, `plan_room` applies
-`Provisioner.room_id_separator` itself. A named owner is normalized when
-`named_owner` builds it, with that function's own `separator` and `lowercase`
-arguments (by default `room_ids.DEFAULT_SEPARATOR` and true), and `plan_room`
-does not re-check it: with a non-default `room_id_separator` or
-`lowercase_owner`, pass the same values to `named_owner`. A service built
-with `service.create_app` does this for you.
+Either way, any `Provisioner.room_id_separator` in the owner part is
+replaced, so a room id splits into owner and slug one way only; a requested
+slug containing the separator is refused instead.
 
 Build a named owner's rule with `access_rules`, never by hand:
 `claim_rule(claim, value)` for one person, or `predicate_rule(name)` for a
@@ -111,9 +105,8 @@ The access rule matches the raw claim value, `Alice.Smith`, so the
 lowercasing never costs Alice her room.
 
 An admin creating a room for a group names its owner, identified by a
-predicate the installation registers (here `is_foreman`); `named_owner`
-normalizes the owner part (lowercased, with the default separator), and the
-admin stays the requester:
+predicate the installation registers (here `is_foreman`); the owner part is
+normalized the same way, and the admin stays the requester:
 
 ```python
 foremen = room_ids.named_owner(
