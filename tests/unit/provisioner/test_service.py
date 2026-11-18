@@ -16,6 +16,7 @@ import fake_parts
 import httpx2
 import pytest
 
+from soliplex_concierge import audit
 from soliplex_concierge.provisioner import api
 from soliplex_concierge.provisioner import contract
 from soliplex_concierge.provisioner import interfaces
@@ -734,6 +735,131 @@ async def test_get_room_with_an_invalid_token(app):
     response = await _get(app, token="forged-token")
 
     assert response.status_code == 401
+
+
+# ---- the audit trail (#152) ----
+
+
+@pytest.fixture
+def audited(caplog):
+    caplog.set_level(logging.INFO, logger="soliplex-audit")
+
+    def records():
+        return [
+            (r.getMessage(), r.outcome, r)
+            for r in caplog.records
+            if r.name == "soliplex-audit"
+        ]
+
+    return records
+
+
+@pytest.mark.anyio
+async def test_audit_refused_token(app, audited):
+    await _post(app, token="forged-token")
+
+    [(message, outcome, record)] = audited()
+    assert message == audit.AUDIT_SERVICE_TOKEN_REFUSED
+    assert outcome == "denied"
+    assert record.claims == {}
+    assert "forged-token" in record.reason
+
+
+@pytest.mark.anyio
+async def test_audit_admitted_and_provisioned(app, audited):
+    await _post(app)
+
+    [(admitted, a_outcome, a_record), (provisioned, p_outcome, p_record)] = (
+        audited()
+    )
+    assert (admitted, a_outcome) == (
+        audit.AUDIT_ROOM_REQUEST_ADMITTED,
+        "success",
+    )
+    assert a_record.claims == fake_parts.TOKENS["alice-token"]
+    assert (a_record.room_id, a_record.issue_url) == (ROOM, ISSUE_URL)
+    assert (provisioned, p_outcome) == (
+        audit.AUDIT_ROOM_PROVISIONED,
+        "success",
+    )
+    assert (p_record.room_id, p_record.state) == (ROOM, api.State.LIVE)
+    assert p_record.claims == fake_parts.TOKENS["alice-token"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "token, body, room, status, outcome",
+    [
+        ("carol-token", {}, "carol--q3-plans", 403, "denied"),
+        ("alice-token", {"slug": "../escape"}, None, 400, "denied"),
+    ],
+    ids=["not-admitted", "malformed"],
+)
+async def test_audit_refused_request(
+    app, audited, token, body, room, status, outcome
+):
+    await _post(app, token=token, **body)
+
+    [(message, recorded_outcome, record)] = audited()
+    assert message == audit.AUDIT_ROOM_REQUEST_ADMITTED
+    assert recorded_outcome == outcome
+    assert (record.room_id, record.status) == (room, status)
+
+
+@pytest.mark.anyio
+async def test_audit_failed_request_names_its_cause(app, script, audited):
+    script.failures["backend.check_access"] = RuntimeError("backend down")
+
+    await _post(app)
+
+    [(message, outcome, record)] = audited()
+    assert (message, outcome) == (audit.AUDIT_ROOM_REQUEST_ADMITTED, "error")
+    assert (record.room_id, record.status) == (ROOM, 500)
+    assert "backend down" in record.reason
+
+
+@pytest.mark.anyio
+async def test_audit_failed_creation(app, script, audited):
+    script.failures["authz.audit"] = RuntimeError("audit failed")
+
+    await _post(app)
+
+    *_, (message, outcome, record) = audited()
+    assert (message, outcome) == (audit.AUDIT_ROOM_PROVISIONED, "error")
+    assert "audit failed" in record.reason
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "pending, token, outcome, as_admin, reason",
+    [
+        (True, "alice-token", "success", False, None),
+        (True, "root-token", "success", True, None),
+        (
+            True,
+            "bob-token",
+            "denied",
+            None,
+            "neither its requester nor an admin",
+        ),
+        (False, "alice-token", "denied", None, "no such request"),
+    ],
+    ids=["requester", "admin", "someone-else", "unknown"],
+)
+async def test_audit_reads(
+    app, audited, pending, token, outcome, as_admin, reason
+):
+    if pending:
+        _pending(app)
+
+    await _get(app, token=token)
+
+    [(message, recorded_outcome, record)] = audited()
+    assert message == audit.AUDIT_ROOM_REQUEST_READ
+    assert recorded_outcome == outcome
+    assert record.room_id == ROOM
+    assert getattr(record, "as_admin", None) == as_admin
+    assert getattr(record, "reason", None) == reason
 
 
 # ---- GET /ok ----

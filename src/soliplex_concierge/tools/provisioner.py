@@ -22,6 +22,7 @@ from soliplex import agents
 from soliplex import models
 from soliplex import token_mint
 
+from soliplex_concierge import audit
 from soliplex_concierge import config
 from soliplex_concierge import tls
 from soliplex_concierge.provisioner import api
@@ -248,6 +249,17 @@ def service_claims(user: models.UserProfile | None) -> dict:
     }
 
 
+def _audit_log(deps: agents.AgentDependencies) -> audit.RoomRequestsAuditLog:
+    """The run's audit log: its user's claims, and where it runs."""
+    user = deps.user
+    return audit.RoomRequestsAuditLog(
+        claims=user.model_dump() if user is not None else {},
+        room_id=deps.room_id,
+        thread_id=deps.thread_id,
+        run_id=deps.run_id,
+    )
+
+
 def _service_token(deps: agents.AgentDependencies) -> str:
     claims = service_claims(deps.user)
     try:
@@ -317,6 +329,9 @@ async def _call(
     'IncompatibleService' when it implements another version of the API.
     """
     token = _service_token(deps)
+    _audit_log(deps).service_token_minted(
+        purpose=f"{method} {path}", expires_in=SERVICE_TOKEN_LIFETIME
+    )
     url = deps.tool_configs[kind].service_url.rstrip("/") + path
     try:
         async with httpx2.AsyncClient(verify=tls.httpx_verify()) as client:
@@ -413,6 +428,35 @@ async def request_room(
         RoomRequestAccepted: the 'status', and for an accepted request its
             'room_id' and 'issue_url'.
     """
+    log = _audit_log(ctx.deps)
+    try:
+        result = await _request_room(
+            ctx,
+            name,
+            description,
+            slug,
+            owner,
+            owner_claim,
+            owner_value,
+            owner_predicate,
+        )
+    except Exception as error:
+        log.room_request_failed(reason=audit.reason(error))
+        raise
+    log.room_requested(status=result.status, room_id=result.room_id)
+    return result
+
+
+async def _request_room(
+    ctx,
+    name,
+    description,
+    slug,
+    owner,
+    owner_claim,
+    owner_value,
+    owner_predicate,
+) -> RoomRequestAccepted:
     fields = {"name": name, "description": description, "slug": slug}
     named = _named_owner(owner, owner_claim, owner_value, owner_predicate)
     if named is not None:
@@ -497,6 +541,19 @@ async def check_room_request(
         RoomRequestState: the request's 'state', with its 'issue_url', any
             'incomplete' steps, and any 'error'.
     """
+    log = _audit_log(ctx.deps)
+    try:
+        result = await _check_room_request(ctx, room_id)
+    except Exception as error:
+        log.room_request_check_failed(
+            room_id=room_id, reason=audit.reason(error)
+        )
+        raise
+    log.room_request_checked(room_id=room_id, state=result.state)
+    return result
+
+
+async def _check_room_request(ctx, room_id: str) -> RoomRequestState:
     path = api.room_path(room_id)
     response = await _call(ctx.deps, config.CRR_TOOL_KIND, "GET", path)
 

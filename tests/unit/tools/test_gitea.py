@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import logging
 import traceback
 from unittest import mock
 
@@ -9,6 +10,7 @@ from soliplex import agents
 from soliplex import installation
 from soliplex import models
 
+from soliplex_concierge import audit
 from soliplex_concierge import config
 from soliplex_concierge import labels as sc_labels
 from soliplex_concierge.provisioner import timeouts as sc_timeouts
@@ -844,3 +846,99 @@ def test_create_gitea_issue_sync_traces_request_error_to_its_step():
         "_ensure_label",
         "_find_label",
     ]
+
+
+# ---- the audit trail (#152) ----
+
+
+@pytest.fixture
+def audited(caplog):
+    caplog.set_level(logging.INFO, logger="soliplex-audit")
+    return lambda: [r for r in caplog.records if r.name == "soliplex-audit"]
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_audits_the_filing(ctx, audited):
+    ctx.deps.tool_configs[config.CGI_TOOL_KIND].exclude_claims = ["email"]
+    labels = _resp([{"name": "new-room", "id": 5}])
+    asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
+    patched_client, _client = _patch_async_client(
+        [labels], [_issue_resp(), asset]
+    )
+
+    with patched_client:
+        await gitea.create_gitea_issue(
+            ctx=ctx, title="t", body="b", request_type="new-room"
+        )
+
+    [record] = audited()
+    assert record.getMessage() == audit.AUDIT_ISSUE_FILED
+    assert record.outcome == "success"
+    assert (record.number, record.request_type, record.profile) == (
+        7,
+        "new-room",
+        "attached",
+    )
+    assert record.excluded_claims == ["email"]
+    assert "email" not in record.claims
+    assert record.claims["preferred_username"] == "phreddy"
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_audits_a_failed_filing(ctx, audited):
+    labels = _resp([{"name": "new-room", "id": 5}])
+    patched_client, _client = _patch_async_client(
+        [labels], [_resp(error=_status_error(502))]
+    )
+
+    with patched_client, pytest.raises(httpx2.HTTPStatusError):
+        await gitea.create_gitea_issue(
+            ctx=ctx, title="t", body="b", request_type="new-room"
+        )
+
+    [record] = audited()
+    assert (record.getMessage(), record.outcome) == (
+        audit.AUDIT_ISSUE_FILED,
+        "error",
+    )
+    assert record.request_type == "new-room"
+    assert "502" in record.reason
+
+
+def test_create_gitea_issue_sync_audits_the_filing(audited):
+    labels = _resp([{"name": "new-room", "id": 5}])
+    asset = _resp({"name": config.DEFAULT_PROFILE_ATTACHMENT_NAME})
+    patched_client, _client = _patch_sync_client(
+        [labels], [_issue_resp(), asset]
+    )
+
+    with patched_client:
+        gitea.create_gitea_issue_sync(
+            **SYNC_KWARGS,
+            title="t",
+            body="b",
+            request_type="new-room",
+            exclude_claims=["email"],
+        )
+
+    [record] = audited()
+    assert (record.getMessage(), record.outcome) == (
+        audit.AUDIT_ISSUE_FILED,
+        "success",
+    )
+    assert "email" not in record.claims
+
+
+def test_create_gitea_issue_sync_audits_a_failed_filing(audited):
+    labels = _resp([{"name": "new-room", "id": 5}])
+    patched_client, _client = _patch_sync_client(
+        [labels], [_resp(error=_status_error(502))]
+    )
+
+    with patched_client, pytest.raises(httpx2.HTTPStatusError):
+        gitea.create_gitea_issue_sync(
+            **SYNC_KWARGS, title="t", body="b", request_type="new-room"
+        )
+
+    [record] = audited()
+    assert record.outcome == "error"
