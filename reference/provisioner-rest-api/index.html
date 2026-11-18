@@ -1332,7 +1332,7 @@ requester is still the one who asked, and may see the request.</p>
 <tr>
 <td><code>409</code></td>
 <td><code>Refusal</code>: <code>detail</code>, <code>room_id</code></td>
-<td>The room exists, or a request for it is in flight</td>
+<td>The room exists, a request for it is in flight, or resources named for it exist already</td>
 </tr>
 <tr>
 <td><code>422</code></td>
@@ -1346,6 +1346,10 @@ requester is still the one who asked, and may see the request.</p>
 </tr>
 </tbody>
 </table>
+<p>Answers say what a caller can act on, and nothing about the stack itself. A
+<code>500</code>'s <code>detail</code> gives only a reference, under which the service logs the
+failure; a <code>409</code> for resources that exist already says an administrator must
+clear them, without naming them.</p>
 <p>A <code>409</code> names the room it refuses, because the caller cannot work the room id
 out for itself. The concierge relies on this when it retries a request that
 timed out: a <code>409</code> naming the room means the first attempt got through.</p>
@@ -1376,6 +1380,11 @@ timed out: a <code>409</code> naming the room means the first attempt got throug
 <td><code>Error</code></td>
 <td>No request for that room, or one the caller may not see</td>
 </tr>
+<tr>
+<td><code>500</code></td>
+<td><code>Error</code></td>
+<td>As for <code>POST /rooms</code></td>
+</tr>
 </tbody>
 </table>
 <p>Only a request's requester and admins may see it. Anyone else gets <code>404</code>, as
@@ -1388,6 +1397,10 @@ if there were no such request.</p>
 <li><code>incomplete</code>: the steps an admin must finish</li>
 <li><code>error</code>: why the room was not created</li>
 </ul>
+<p>An admin sees <code>incomplete</code> and <code>error</code> in full. A requester who is not one
+gets a fixed sentence for each instead (an administrator must finish
+setting the room up; creating it failed, and an administrator has the
+details), since both can name the stack's hosts, paths and storage.</p>
 <p>The states:</p>
 <ul>
 <li><code>pending</code>: the room is being created</li>
