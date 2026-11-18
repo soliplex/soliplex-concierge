@@ -1480,7 +1480,10 @@ claims, request)</code> too, so that every route applies the same checks.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uvicorn<span class="w"> </span>--factory<span class="w"> </span>my_deployment.provisioner:create_app<span class="w"> </span>--port<span class="w"> </span><span class="m">8090</span>
 </span></code></pre></div>
 <p>Run one worker: the service keeps its requests' state in memory. A restart
-loses it, and the tracking issue remains the record.</p>
+loses it, and the tracking issue remains the record. It forgets a finished
+request a day after it finished (<code>service.REQUEST_TTL</code>); pass
+<code>create_app(..., request_ttl=...)</code> for another span (seconds), or <code>None</code> to
+keep every request until the next restart.</p>
 <p>The service writes an audit trail to soliplex's <code>soliplex-audit</code> logger,
 under the scope <code>room-provisioning</code>: each service token it refuses, each
 request it admits, refuses (<code>denied</code>) or fails on (<code>error</code>, with the
