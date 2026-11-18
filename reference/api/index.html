@@ -1774,9 +1774,10 @@ agent writes JSONPath. Stdlib only.</p>
 <ul>
 <li><code>Provisioner(store, registrar, uploads, authz, backend, tracker=None,
   owner_claim="preferred_username", scheme=room_ids.DEFAULT_SCHEME,
-  check_request=None)</code> — a deployment's adapters, the claim a requester's
-  own owner derives from, the rules for its room ids, and its own check of
-  a planned request. The keywords and attributes
+  check_request=None, busy_retry_delays=BUSY_RETRY_DELAYS)</code> — a deployment's
+  adapters, the claim a requester's own owner derives from, the rules for
+  its room ids, its own check of a planned request, and how long creating a
+  room waits before each further try at a busy store. The keywords and attributes
   <code>room_id_separator</code>, <code>flatten_owner</code> and <code>lowercase_owner</code> are deprecated
   spellings of <code>scheme</code>'s settings, kept until after v0.16.</li>
 <li><code>plan_room(requester_claims, *, name, provisioner, description=None,

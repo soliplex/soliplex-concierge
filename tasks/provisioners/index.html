@@ -1251,7 +1251,7 @@ interfaces are in <code>soliplex_concierge.provisioner.interfaces</code>:</p>
 <li><code>Backend</code>: the Soliplex backend that serves the room</li>
 <li><code>IssueTracker</code> (optional): the request's tracking issue</li>
 </ul>
-<p>They share three conventions:</p>
+<p>They share these conventions:</p>
 <ul>
 <li><code>clashes(request)</code> describes, in the adapter's words, each thing named for
   the room that exists already. It changes nothing, and may raise to refuse
@@ -1260,6 +1260,15 @@ interfaces are in <code>soliplex_concierge.provisioner.interfaces</code>:</p>
   <code>None</code> when it created nothing.</li>
 <li>A step after the commit (<code>publish</code>, <code>reload_rooms</code>, <code>resolve</code>) returns what
   remains to do, each a sentence saying how to finish it.</li>
+<li><code>RoomStore.locked()</code> raises <code>interfaces.StoreBusy</code> on entering, rather than
+  wait without limit, when another run keeps the store too long
+  (<code>landing_clone.locked</code> raises <code>CloneBusy</code>, which is one). During
+  admission the service answers it with a <code>503</code> and a <code>Retry-After</code>; while
+  creating an admitted room, the core tries again after each of the
+  <code>Provisioner</code>'s <code>busy_retry_delays</code> (by default 30 and 60 seconds), then
+  gives up, reporting on the tracking issue. Admission waits for the store
+  within the requester's <code>POST /rooms</code>, so keep the wait shorter than the
+  concierge's <code>request_timeout</code> (120 seconds by default).</li>
 </ul>
 <h3 id="the-owner-and-the-requester">The owner and the requester</h3>
 <p>A <code>RoomRequest</code> keeps who asked (<code>requester_claims</code>) apart from whom the room

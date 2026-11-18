@@ -1349,6 +1349,11 @@ requester is still the one who asked, and may see the request.</p>
 <td><code>Error</code></td>
 <td>The deployment's own check refuses the request as one too many (a rate limit, or a quota of rooms); a <code>Retry-After</code> header, when present, says when to ask again</td>
 </tr>
+<tr>
+<td><code>503</code></td>
+<td><code>Error</code></td>
+<td>The provisioner is busy with other rooms; a <code>Retry-After</code> header says when to ask again</td>
+</tr>
 </tbody>
 </table>
 <p>The deployment's own check may answer with any status; those above are
