@@ -1773,9 +1773,10 @@ agent writes JSONPath. Stdlib only.</p>
 <a href="../../tasks/provisioners/#what-the-core-does">What the core does</a>).</p>
 <ul>
 <li><code>Provisioner(store, registrar, uploads, authz, backend, tracker=None,
-  owner_claim="preferred_username", scheme=room_ids.DEFAULT_SCHEME)</code> — a
-  deployment's adapters, the claim a requester's own owner derives from, and
-  the rules for its room ids. The keywords and attributes
+  owner_claim="preferred_username", scheme=room_ids.DEFAULT_SCHEME,
+  check_request=None)</code> — a deployment's adapters, the claim a requester's
+  own owner derives from, the rules for its room ids, and its own check of
+  a planned request. The keywords and attributes
   <code>room_id_separator</code>, <code>flatten_owner</code> and <code>lowercase_owner</code> are deprecated
   spellings of <code>scheme</code>'s settings, kept until after v0.16.</li>
 <li><code>plan_room(requester_claims, *, name, provisioner, description=None,
@@ -1784,6 +1785,9 @@ agent writes JSONPath. Stdlib only.</p>
   tracking issue; <code>Admitted(request, issue)</code>.</li>
 <li><code>create_room(admitted, provisioner) -&gt; Provisioned</code> — creates the room.</li>
 <li><code>provision_room(requester_claims, *, name, provisioner, ...)</code> — all three.</li>
+<li><code>check_request(provisioner, requester_claims, request)</code> — applies the
+  deployment's <code>check_request</code>, if any, which raises
+  <code>RequestRefused(status, detail, *, retry_after=None)</code> to refuse it.</li>
 <li><code>check_free(provisioner, request)</code> — raises when the id, or anything named
   for it, is in use.</li>
 <li><code>ProvisionError</code> and its subclasses: <code>RoomExists</code>, <code>ResourcesExist</code> (with

@@ -1317,7 +1317,7 @@ requester is still the one who asked, and may see the request.</p>
 <tr>
 <td><code>400</code></td>
 <td><code>Error</code>: <code>detail</code></td>
-<td>The name, slug or named owner yields no usable room id, or the owner's predicate is not registered</td>
+<td>The name, slug or named owner yields no usable room id, the owner's predicate is not registered, or the deployment's own check finds the request unacceptable</td>
 </tr>
 <tr>
 <td><code>401</code></td>
@@ -1335,22 +1335,37 @@ requester is still the one who asked, and may see the request.</p>
 <td>The room exists, a request for it is in flight, or resources named for it exist already</td>
 </tr>
 <tr>
+<td><code>409</code></td>
+<td><code>Error</code></td>
+<td>The deployment's own check finds the room's name conflicts with something it knows of</td>
+</tr>
+<tr>
 <td><code>422</code></td>
 <td></td>
 <td>The body is not a <code>RoomRequest</code> (including an <code>owner</code> in neither form, or both)</td>
 </tr>
 <tr>
-<td><code>500</code></td>
+<td><code>429</code></td>
 <td><code>Error</code></td>
-<td>The service failed</td>
+<td>The deployment's own check refuses the request as one too many (a rate limit, or a quota of rooms); a <code>Retry-After</code> header, when present, says when to ask again</td>
 </tr>
 </tbody>
 </table>
-<p>Answers say what a caller can act on, and nothing about the stack itself. A
-<code>500</code>'s <code>detail</code> gives only a reference, under which the service logs the
-failure; a <code>409</code> for resources that exist already says an administrator must
-clear them, without naming them.</p>
-<p>A <code>409</code> names the room it refuses, because the caller cannot work the room id
+<p>The deployment's own check may answer with any status; those above are
+the ones the concierge's room tool understands.
+| <code>500</code> | <code>Error</code> | The service failed |</p>
+<p>The service refuses in this order, cheapest first: <code>401</code> for the token,
+<code>400</code> for the request's own form, <code>409</code> for a request already in flight,
+then the deployment's own check, if it has one, then <code>403</code> for a caller it
+does not admit (a check that may cost the backend a call). The in-flight
+check comes before the deployment's, so a retry of a request that got
+through is answered as in flight, never refused by a rate limit counting it
+again. So a caller it would not admit still gets <code>400</code> for a
+malformed request. Whether an admin's named predicate is registered (a
+<code>400</code> listing the registered ones) is checked only after the <code>403</code>s, and a
+room that exists already (a <code>409</code>) only once the caller is admitted.</p>
+<p>The service's own <code>409</code>s name the room they refuse (a <code>Refusal</code>); a
+deployment's never does (a plain <code>Error</code>). A <code>409</code> names the room it refuses, because the caller cannot work the room id
 out for itself. The concierge relies on this when it retries a request that
 timed out: a <code>409</code> naming the room means the first attempt got through.</p>
 <h3 id="get-roomsroom_id"><code>GET /rooms/{room_id}</code></h3>

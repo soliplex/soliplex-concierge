@@ -1020,6 +1020,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Serving it">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#refusing-requests-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Refusing requests yourself
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1393,16 +1410,53 @@ a subclass, such as <code>soliplex_api.AccessDenied</code>) when the backend ref
 provisioner: the watcher logs it as an error and checks again every
 <code>service.ACCESS_RETRY</code> seconds. Any other error counts as the backend being
 unreachable: a warning, checked again every <code>service.BACKEND_RETRY</code> seconds.</p>
-<p>Your wiring module builds the adapters, and a factory returns the application:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">provision</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">service</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_app</span><span class="p">():</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">provisioner</span> <span class="o">=</span> <span class="n">provision</span><span class="o">.</span><span class="n">Provisioner</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>  <span class="c1"># your adapters</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="k">return</span> <span class="n">service</span><span class="o">.</span><span class="n">create_app</span><span class="p">(</span><span class="n">provisioner</span><span class="p">,</span> <span class="n">MyAdmission</span><span class="p">(</span><span class="o">...</span><span class="p">))</span>
+<h3 id="refusing-requests-yourself">Refusing requests yourself</h3>
+<p>To refuse some requests before the provisioner does any work (a rate limit
+per requester, a quota of rooms per owner, limits on a name's or a
+description's length), give the <code>Provisioner</code> a <code>check_request</code>. The service
+calls it with the requester's claims and the planned <code>RoomRequest</code>, once a
+request proves well-formed and not already in flight, and before admitting
+its requester:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">check_request</span><span class="p">(</span><span class="n">requester_claims</span><span class="p">,</span> <span class="n">request</span><span class="p">):</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">description</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">500</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>        <span class="k">raise</span> <span class="n">provision</span><span class="o">.</span><span class="n">RequestRefused</span><span class="p">(</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>            <span class="mi">400</span><span class="p">,</span> <span class="s2">&quot;the description must be at most 500 characters&quot;</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>        <span class="p">)</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="k">if</span> <span class="n">limiter</span><span class="o">.</span><span class="n">exhausted</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">owner</span><span class="o">.</span><span class="n">owner</span><span class="p">):</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>        <span class="k">raise</span> <span class="n">provision</span><span class="o">.</span><span class="n">RequestRefused</span><span class="p">(</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>            <span class="mi">429</span><span class="p">,</span> <span class="s2">&quot;too many room requests&quot;</span><span class="p">,</span> <span class="n">retry_after</span><span class="o">=</span><span class="n">limiter</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>        <span class="p">)</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="n">provisioner</span> <span class="o">=</span> <span class="n">provision</span><span class="o">.</span><span class="n">Provisioner</span><span class="p">(</span><span class="o">...</span><span class="p">,</span> <span class="n">check_request</span><span class="o">=</span><span class="n">check_request</span><span class="p">)</span>
 </span></code></pre></div>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uvicorn<span class="w"> </span>--factory<span class="w"> </span>my_deployment.provisioner:create_app<span class="w"> </span>--port<span class="w"> </span><span class="m">8090</span>
+<p>The service answers a <code>RequestRefused</code> with its status and detail, as a
+plain error, and with a <code>Retry-After</code> header when it gives <code>retry_after</code>
+(seconds). The status is yours to choose; the concierge's room tool
+understands these:</p>
+<ul>
+<li><code>400</code>: the request itself is unacceptable; the user is asked to correct
+  what the detail says</li>
+<li><code>409</code>: the room's name conflicts with something you know of (a reserved
+  name, say); the user is asked for another</li>
+<li><code>429</code>: one too many (a rate limit, or a quota of rooms); the user is told
+  the detail, and when they may ask again</li>
+</ul>
+<p>Any other status reads to it as the service failing, and the agent offers
+to file the request as an issue instead. The check runs for each
+well-formed request, admitted or not, so keep it cheap. Your own routes to
+<code>admit_room</code> (a retry, say) should call <code>provision.check_request(provisioner,
+claims, request)</code> too, so that every route applies the same checks.</p>
+<p>Your wiring module builds the adapters, and a factory returns the application:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">provision</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">service</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_app</span><span class="p">():</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">provisioner</span> <span class="o">=</span> <span class="n">provision</span><span class="o">.</span><span class="n">Provisioner</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>  <span class="c1"># your adapters</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="k">return</span> <span class="n">service</span><span class="o">.</span><span class="n">create_app</span><span class="p">(</span><span class="n">provisioner</span><span class="p">,</span> <span class="n">MyAdmission</span><span class="p">(</span><span class="o">...</span><span class="p">))</span>
+</span></code></pre></div>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uvicorn<span class="w"> </span>--factory<span class="w"> </span>my_deployment.provisioner:create_app<span class="w"> </span>--port<span class="w"> </span><span class="m">8090</span>
 </span></code></pre></div>
 <p>Run one worker: the service keeps its requests' state in memory. A restart
 loses it, and the tracking issue remains the record.</p>
@@ -1430,14 +1484,14 @@ application breaks the contract.</p>
 </ul>
 <h3 id="run-the-checks">Run the checks</h3>
 <p>Await the checks from your implementation's own tests:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">contract</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">anyio</span>
-</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_keeps_the_provisioner_contract</span><span class="p">(</span><span class="n">harness</span><span class="p">):</span>
-</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    <span class="k">await</span> <span class="n">contract</span><span class="o">.</span><span class="n">check_all</span><span class="p">(</span><span class="n">harness</span><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pytest</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">soliplex_concierge.provisioner</span><span class="w"> </span><span class="kn">import</span> <span class="n">contract</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="nd">@pytest</span><span class="o">.</span><span class="n">mark</span><span class="o">.</span><span class="n">anyio</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">test_keeps_the_provisioner_contract</span><span class="p">(</span><span class="n">harness</span><span class="p">):</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>    <span class="k">await</span> <span class="n">contract</span><span class="o">.</span><span class="n">check_all</span><span class="p">(</span><span class="n">harness</span><span class="p">)</span>
 </span></code></pre></div>
 <p><code>check_all</code> runs every check in <code>contract.ALL_CHECKS</code> and stops at the first
 failure. Each <code>check_*</code> function also runs on its own, which helps when you
