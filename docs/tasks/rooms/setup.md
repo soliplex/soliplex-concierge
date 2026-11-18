@@ -55,7 +55,7 @@ It applies these idempotent edits to the stack:
   `meta.tool_configs` (the three tool-config classes), `environment`,
   `secrets`, and `room_paths`. On a stack with an explicit filesystem
   `skill_configs` allow-list, it also adds the two skills there, but only
-  with `--confirm-skill-whitelist`; otherwise it stops with an error.
+  with `--confirm-skill-allow-list`; otherwise it stops with an error.
 - Copies the about-room into `backend/environment/rooms/<room-id>/`
   (`about_<compose-project-name>` by default; override with `--room-id`).
 - Downloads and installs the `soliplex-concierge-room` and `soliplex-docs`

@@ -3336,7 +3336,7 @@ requires-dist = [
     { name = "pyyaml" },
     { name = "ruamel-yaml" },
     { name = "soliplex", specifier = ">=0.89" },
-    { name = "soliplex-plumber", specifier = ">=0.2.1" },
+    { name = "soliplex-plumber", specifier = ">=0.6" },
     { name = "soliplex-skills", specifier = ">=0.5" },
     { name = "truststore", marker = "extra == 'truststore'" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'provisioner'" },
@@ -3357,11 +3357,14 @@ dev = [
 
 [[package]]
 name = "soliplex-plumber"
-version = "0.2.1"
+version = "0.6"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e7/3a/c6ec53c6ed71403dee5b047a1f8f7dbcd1fd9fe72c7437b1e95035d82ebb/soliplex_plumber-0.2.1.tar.gz", hash = "sha256:6f23c3be0ef891fb66d9db88000c7d2055604d4bfeee6fc724a85ad668bfed6e", size = 61477, upload-time = "2026-06-17T03:14:48.903Z" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/54/65/9e4047010cd82e486d4838a38ec0c5481bf589673dc7b9694931cb78d45b/soliplex_plumber-0.6.tar.gz", hash = "sha256:7e940b543b0d0dd0a53e66b4ea007934f6159fe4a16879904d32235a9ad4ef08", size = 93360, upload-time = "2026-11-18T21:45:05.612Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/e2/a47170df6821a059aca4b9c60eed86cdb0396bea5d905afb9be168b50d79/soliplex_plumber-0.2.1-py3-none-any.whl", hash = "sha256:2b505ac7d91b67162775d4a98434e541eb6d178b9376bcdf74d646fc4f312631", size = 12184, upload-time = "2026-06-17T03:14:48.087Z" },
+    { url = "https://files.pythonhosted.org/packages/3a/86/c88fea605a6c59fb5445b56b5a94e8b84d0f2835f0498868c6471f2a5638/soliplex_plumber-0.6-py3-none-any.whl", hash = "sha256:84c688b4774fe5a23ca5d536b5a936232c1456b68750ec24db7feed3b9cc436d", size = 21829, upload-time = "2026-11-18T21:45:04.53Z" },
 ]
 
 [[package]]
