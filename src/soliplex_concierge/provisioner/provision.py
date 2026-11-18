@@ -46,6 +46,7 @@ import collections.abc
 import contextlib
 import dataclasses
 import datetime
+import time
 
 from soliplex_concierge.provisioner import interfaces
 from soliplex_concierge.provisioner import room_ids
@@ -108,6 +109,10 @@ class RequestRefused(Exception):
         super().__init__(detail)
 
 
+# Seconds to wait before each further try at a busy store, when creating
+# a room it admitted (an initial try, then one per delay).
+BUSY_RETRY_DELAYS = (30.0, 60.0)
+
 RequestCheck = collections.abc.Callable[
     [collections.abc.Mapping, interfaces.RoomRequest], None
 ]
@@ -130,6 +135,11 @@ class Provisioner:
       :class:`interfaces.RoomRequest`, it raises :class:`RequestRefused` to
       refuse it (see :func:`check_request`).
 
+    - ``busy_retry_delays`` are the seconds :func:`create_room` waits
+      before each further try at a busy store (see
+      :class:`interfaces.StoreBusy`); the service also tells a requester
+      refused for a busy store to retry after the first.
+
     The keyword arguments ``room_id_separator``, ``flatten_owner`` and
     ``lowercase_owner``, and the attributes of those names, are deprecated
     spellings of ``scheme``'s settings, kept until after v0.16. Raises
@@ -146,6 +156,7 @@ class Provisioner:
     owner_claim: str
     scheme: room_ids.RoomIdScheme
     check_request: RequestCheck | None
+    busy_retry_delays: tuple[float, ...]
 
     def __init__(
         self,
@@ -158,6 +169,7 @@ class Provisioner:
         owner_claim: str = room_ids.DEFAULT_OWNER_CLAIM,
         scheme: room_ids.RoomIdScheme | None = None,
         check_request: RequestCheck | None = None,
+        busy_retry_delays: tuple[float, ...] = BUSY_RETRY_DELAYS,
         *,
         room_id_separator=_UNSET,
         flatten_owner=_UNSET,
@@ -191,6 +203,7 @@ class Provisioner:
             ("owner_claim", owner_claim),
             ("scheme", scheme or room_ids.DEFAULT_SCHEME),
             ("check_request", check_request),
+            ("busy_retry_delays", tuple(busy_retry_delays)),
         ):
             object.__setattr__(self, name, value)
 
@@ -367,20 +380,52 @@ def _after_commit(
         return [str(error)]
 
 
+def _hold_store(
+    provisioner: Provisioner, admitted: Admitted
+) -> contextlib.ExitStack:
+    """The store, held: tried again, while busy, after each retry delay.
+
+    Retries only taking the store, never work done holding it. Raises
+    :class:`interfaces.StoreBusy` (after reporting on the tracking issue)
+    once the last try finds it busy too.
+    """
+    held = contextlib.ExitStack()
+    delays = list(provisioner.busy_retry_delays)
+    while True:
+        try:
+            held.enter_context(provisioner.store.locked())
+        except interfaces.StoreBusy as error:
+            if not delays:
+                _report_failure(provisioner, admitted, error)
+                raise
+            time.sleep(delays.pop(0))
+        else:
+            return held
+
+
 def create_room(
     admitted: Admitted, provisioner: Provisioner
 ) -> interfaces.Provisioned:
     """Create the room ``admitted`` admitted.
 
-    Raises what :func:`check_free` does (after reporting on the tracking
-    issue), and :class:`ProvisioningFailed` (after rolling back, and
-    reporting) when a step before the commit fails. Steps after it that
-    leave something to do are named in the result's ``unfinished``.
+    When the store is busy (:class:`interfaces.StoreBusy`), retries
+    after each of ``provisioner.busy_retry_delays``
+
+    Raises the :class:`interfaces.StoreBusy` when all retries are
+    exhausted, after reporting on the tracking issue.
+
+    Raises what :func:`check_free` does, after reporting on the issue.
+
+    Raises :class:`ProvisioningFailed`, after rolling back, and reporting
+    on the issue when a step before the commit fails.
+
+    Steps after the commit that leave something to do are named in the result's
+    ``unfinished``.
     """
     request, issue = admitted.request, admitted.issue
     store = provisioner.store
 
-    with store.locked():
+    with _hold_store(provisioner, admitted):
         try:
             check_free(provisioner, request)
         except ProvisionError as error:

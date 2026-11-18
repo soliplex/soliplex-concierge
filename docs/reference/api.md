@@ -330,9 +330,10 @@ The steps of provisioning a room, and their guarantees (see
 
 - `Provisioner(store, registrar, uploads, authz, backend, tracker=None,
   owner_claim="preferred_username", scheme=room_ids.DEFAULT_SCHEME,
-  check_request=None)` — a deployment's adapters, the claim a requester's
-  own owner derives from, the rules for its room ids, and its own check of
-  a planned request. The keywords and attributes
+  check_request=None, busy_retry_delays=BUSY_RETRY_DELAYS)` — a deployment's
+  adapters, the claim a requester's own owner derives from, the rules for
+  its room ids, its own check of a planned request, and how long creating a
+  room waits before each further try at a busy store. The keywords and attributes
   `room_id_separator`, `flatten_owner` and `lowercase_owner` are deprecated
   spellings of `scheme`'s settings, kept until after v0.16.
 - `plan_room(requester_claims, *, name, provisioner, description=None,

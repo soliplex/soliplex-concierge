@@ -243,6 +243,26 @@ async def test_request_room_too_many(ctx, headers, when):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    "headers, when",
+    [({"Retry-After": "30"}, "after 30 seconds"), (None, "in a few minutes")],
+    ids=["retry-after", "none"],
+)
+async def test_request_room_service_busy(ctx, headers, when):
+    service = _FakeService(503, {"detail": "busy"}, headers=headers)
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ToolFailed) as caught,
+    ):
+        await provisioner.request_room(ctx, name="Q3 Plans")
+
+    assert type(caught.value) is provisioner.ServiceBusy
+    assert f"ask again {when}" in caught.value.message
+    assert "Do not file the request as an issue" in caught.value.message
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     "status, payload, detail",
     [
         (500, {"detail": "audit failed"}, "HTTP 500: audit failed"),

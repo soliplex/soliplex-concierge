@@ -85,6 +85,7 @@ requester is still the one who asked, and may see the request.
 | `409` | `Error` | The deployment's own check finds the room's name conflicts with something it knows of |
 | `422` | | The body is not a `RoomRequest` (including an `owner` in neither form, or both) |
 | `429` | `Error` | The deployment's own check refuses the request as one too many (a rate limit, or a quota of rooms); a `Retry-After` header, when present, says when to ask again |
+| `503` | `Error` | The provisioner is busy with other rooms; a `Retry-After` header says when to ask again |
 
 The deployment's own check may answer with any status; those above are
 the ones the concierge's room tool understands.

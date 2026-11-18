@@ -21,6 +21,7 @@ from unittest import mock
 
 import pytest
 
+from soliplex_concierge.provisioner import interfaces
 from soliplex_concierge.provisioner import landing_clone
 from soliplex_concierge.provisioner import timeouts as sc_timeouts
 
@@ -177,6 +178,13 @@ def test_locked_names_no_holder_it_cannot_read(tmp_path, monkeypatch):
 
     assert caught.value.holder == ""
     assert "held by" not in str(caught.value)
+
+
+def test_clone_busy_is_a_busy_store():
+    result = landing_clone.CloneBusy("/clone", 10, "")
+
+    assert isinstance(result, interfaces.StoreBusy)
+    assert isinstance(result, landing_clone.LandingCloneError)
 
 
 def test_locked_records_its_holder(tmp_path):

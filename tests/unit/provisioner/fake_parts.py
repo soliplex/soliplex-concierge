@@ -42,6 +42,11 @@ class Script:
     reported: list[Exception] = dataclasses.field(default_factory=list)
     # Raised by successive 'backend.check_access' calls, then none.
     access_refusals: list[Exception] = dataclasses.field(default_factory=list)
+    # Raised by successive 'store.lock' calls (None: that one succeeds),
+    # then none.
+    lock_refusals: list[Exception | None] = dataclasses.field(
+        default_factory=list
+    )
     resolved: list[interfaces.Provisioned] = dataclasses.field(
         default_factory=list
     )
@@ -75,6 +80,13 @@ class FakeStore:
     @contextlib.contextmanager
     def locked(self):
         self.script.step("store.lock")
+        refusal = (
+            self.script.lock_refusals.pop(0)
+            if self.script.lock_refusals
+            else None
+        )
+        if refusal is not None:
+            raise refusal
         try:
             yield
         finally:

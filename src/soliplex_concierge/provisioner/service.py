@@ -25,6 +25,7 @@ import collections.abc
 import contextlib
 import dataclasses
 import logging
+import math
 import threading
 import time
 import typing
@@ -63,6 +64,10 @@ SETUP_UNFINISHED = "an administrator must finish setting the room up"
 RESOURCES_EXIST = (
     "resources for room {room!r} already exist; an administrator must clear "
     "them"
+)
+STORE_BUSY = (
+    "the provisioner is busy with other rooms; ask again after "
+    "{retry_after} seconds"
 )
 
 logger = logging.getLogger(__name__)
@@ -361,6 +366,21 @@ def _check_request(
         raise internal from error
 
 
+def _store_busy(provisioner: provision.Provisioner) -> fastapi.HTTPException:
+    """Construct a ``503`` for a request refused while the store is busy
+
+    Tell the requester to retry after the provisioner's first busy-retry
+    delay.
+    """
+    delays = provisioner.busy_retry_delays or provision.BUSY_RETRY_DELAYS
+    retry_after = math.ceil(delays[0])
+    return fastapi.HTTPException(
+        status_code=503,
+        detail=STORE_BUSY.format(retry_after=retry_after),
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
 def _admit_caller(
     provisioner: provision.Provisioner,
     admission: interfaces.Admission,
@@ -439,16 +459,27 @@ def post_room(
 ) -> api.Accepted:
     """Admit a room request, then create the room in the background.
 
-    The cheap checks come first: the token, then the request's own form
-    (``400``), then whether a request for the room is in flight (``409``),
-    then the deployment's own check, if any (see
-    :attr:`provision.Provisioner.check_request`). The in-flight check
-    precedes the deployment's, so that a retry of a request that got
-    through meets the former, never a rate limit counting it again.
-    Only then is the caller admitted (``403``), which may cost the backend
-    a call or two; a refusal there releases the reservation (#145).
+    Check:
+
+    - the token
+
+    - the request's own form (``400``)
+
+    - whether a request for the room is in flight (``409``)
+
+    - the deployment's own check, if any (see
+      :attr:`provision.Provisioner.check_request`).
+
+    The in-flight check precedes the deployment's, so that a retry of a
+    request that got through meets the former.
+
+    A store busy with other runs gets ``503``, with ``Retry-After``.
+
+    Only then is the caller admitted (``403``); a refusal there releases
+    the reservation.
     """
     claims = _claims(admission, token)
+
     try:
         owner = (
             None
@@ -471,24 +502,29 @@ def post_room(
         raise RoomRefused(
             409, f"room {room!r} is already being provisioned", room
         )
+
     try:
         _check_request(provisioner, claims, request)
         _admit_caller(provisioner, admission, token, body.owner)
     except BaseException:
         requests.release(room)
         raise
+
     try:
         admitted = provision.admit_room(request, provisioner)
     except provision.RoomExists as error:
         requests.release(room)
         raise RoomRefused(409, str(error), room) from error
     except provision.ResourcesExist as error:
-        # Their names are the stack's own paths and stores: logged, not told.
         requests.release(room)
         logger.warning("refused room %r: %s", room, error)
         raise RoomRefused(
             409, RESOURCES_EXIST.format(room=room), room
         ) from error
+    except interfaces.StoreBusy as error:
+        requests.release(room)
+        logger.warning("refused room %r: %s", room, error)
+        raise _store_busy(provisioner) from error
     except Exception as error:
         requests.release(room)
         internal = _internal_error("admitting room %r failed", room)
