@@ -521,6 +521,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#the-audit-trail" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The audit trail
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1141,6 +1152,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#the-audit-trail" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The audit trail
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1436,6 +1458,14 @@ ingested content, uncomment the <code>skill_configs</code> block in the room's
 The <a href="https://github.com/soliplex/soliplex-template"><code>soliplex-template</code></a> skill
 can generate and ingest one (see the
 <a href="https://soliplex.github.io/soliplex/config/rag/">RAG DB docs</a>).</p>
+<h2 id="the-audit-trail">The audit trail</h2>
+<p>The room tools record what they do on a user's behalf to soliplex's
+<code>soliplex-audit</code> logger, under the scope <code>room-requests</code>, alongside
+soliplex's own audit records: each service token minted for the user (and
+for which call), each room requested or checked on, and each Gitea issue
+filed, with how its profile was recorded. Each record names the user by
+their claims, less any <code>exclude_claims</code> the <code>create_gitea_issue</code> tool sets,
+and the room, thread and run it came from.</p>
 
 
 

@@ -1481,6 +1481,13 @@ claims, request)</code> too, so that every route applies the same checks.</p>
 </span></code></pre></div>
 <p>Run one worker: the service keeps its requests' state in memory. A restart
 loses it, and the tracking issue remains the record.</p>
+<p>The service writes an audit trail to soliplex's <code>soliplex-audit</code> logger,
+under the scope <code>room-provisioning</code>: each service token it refuses, each
+request it admits, refuses (<code>denied</code>) or fails on (<code>error</code>, with the
+cause a requester is not told), each read of a request (by its requester,
+or by an admin) and each it hides, and how creating each room ended. Each
+record names the user by their token's claims. Configure that logger as
+for soliplex itself, and your own adapters' records join the same trail.</p>
 <h2 id="checking-an-implementation-against-the-contract">Checking an implementation against the contract</h2>
 <p><code>soliplex_concierge.provisioner.contract</code> checks that an implementation keeps
 the contract. It drives the implementation's ASGI application in-process and
