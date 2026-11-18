@@ -329,9 +329,10 @@ The steps of provisioning a room, and their guarantees (see
 [What the core does](../tasks/provisioners/index.md#what-the-core-does)).
 
 - `Provisioner(store, registrar, uploads, authz, backend, tracker=None,
-  owner_claim="preferred_username", scheme=room_ids.DEFAULT_SCHEME)` — a
-  deployment's adapters, the claim a requester's own owner derives from, and
-  the rules for its room ids. The keywords and attributes
+  owner_claim="preferred_username", scheme=room_ids.DEFAULT_SCHEME,
+  check_request=None)` — a deployment's adapters, the claim a requester's
+  own owner derives from, the rules for its room ids, and its own check of
+  a planned request. The keywords and attributes
   `room_id_separator`, `flatten_owner` and `lowercase_owner` are deprecated
   spellings of `scheme`'s settings, kept until after v0.16.
 - `plan_room(requester_claims, *, name, provisioner, description=None,
@@ -340,6 +341,9 @@ The steps of provisioning a room, and their guarantees (see
   tracking issue; `Admitted(request, issue)`.
 - `create_room(admitted, provisioner) -> Provisioned` — creates the room.
 - `provision_room(requester_claims, *, name, provisioner, ...)` — all three.
+- `check_request(provisioner, requester_claims, request)` — applies the
+  deployment's `check_request`, if any, which raises
+  `RequestRefused(status, detail, *, retry_after=None)` to refuse it.
 - `check_free(provisioner, request)` — raises when the id, or anything named
   for it, is in use.
 - `ProvisionError` and its subclasses: `RoomExists`, `ResourcesExist` (with

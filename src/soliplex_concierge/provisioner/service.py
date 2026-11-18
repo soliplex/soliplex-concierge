@@ -301,24 +301,89 @@ def _named_owner(
 ) -> room_ids.RoomOwner:
     """The owner an admin names, with the access rule its form gives.
 
-    Raises :class:`room_ids.RoomIdError` for an unusable owner part, and
-    :class:`access_rules.AccessRuleError` for an unusable claim, or a
-    predicate the deployment does not register.
+    Checks only the forms themselves, which anyone may be told are
+    malformed. Whether the deployment registers a named predicate is
+    :func:`_check_predicate`'s question, asked only once the caller is
+    authorized to name an owner at all. Raises :class:`room_ids.RoomIdError`
+    for an unusable owner part, and :class:`access_rules.AccessRuleError`
+    for an unusable claim or predicate name.
     """
     if named.predicate is not None:
-        try:
-            known = provisioner.authz.predicates()
-        except Exception as error:
-            internal = _internal_error(
-                "listing the registered predicates failed"
-            )
-            raise internal from error
-        if named.predicate not in known:
-            raise access_rules.UnknownPredicate(named.predicate, known)
         rule = access_rules.predicate_rule(named.predicate)
     else:
         rule = access_rules.claim_rule(named.claim, named.value)
     return provisioner.scheme.named_owner(named.owner, rule)
+
+
+def _check_predicate(provisioner: provision.Provisioner, name: str) -> None:
+    """Refuse (``400``) a predicate the deployment does not register.
+
+    The refusal lists the registered ones: that list is for callers
+    authorized to name an owner, who need it to choose one. So this is
+    asked only after that authorization; anyone else is refused for naming
+    an owner at all (``403``), whatever the predicate.
+    """
+    try:
+        known = provisioner.authz.predicates()
+    except Exception as error:
+        internal = _internal_error("listing the registered predicates failed")
+        raise internal from error
+    if name not in known:
+        error = access_rules.UnknownPredicate(name, known)
+        raise _http_error(400, error)
+
+
+def _check_request(
+    provisioner: provision.Provisioner,
+    claims: collections.abc.Mapping,
+    request: interfaces.RoomRequest,
+) -> None:
+    """Apply the deployment's own check to a planned request (#149).
+
+    Its :class:`provision.RequestRefused` answers with its status, its
+    detail and any ``Retry-After``, as a plain error: never a ``Refusal``
+    naming the room, which a ``409`` after a retry would let the concierge
+    read as a request that got through.
+    """
+    try:
+        provision.check_request(provisioner, claims, request)
+    except provision.RequestRefused as refused:
+        headers = (
+            None
+            if refused.retry_after is None
+            else {"Retry-After": str(refused.retry_after)}
+        )
+        raise fastapi.HTTPException(
+            status_code=refused.status, detail=refused.detail, headers=headers
+        ) from refused
+    except Exception as error:
+        internal = _internal_error("the deployment's request check failed")
+        raise internal from error
+
+
+def _admit_caller(
+    provisioner: provision.Provisioner,
+    admission: interfaces.Admission,
+    token: str,
+    named: api.RoomOwner | None,
+) -> None:
+    """Refuse a caller who may not make this request.
+
+    Authorizes before validating: first whether the caller may request
+    rooms at all (``403``), then, for a named owner, whether they may name
+    one (``403``), and only then whether what they named is valid
+    (:func:`_check_predicate`). A field the caller may not use is refused,
+    not validated. These checks may each cost the backend a call (a
+    ``soliplex-cli`` process, say), so ``post_room`` asks them only of a
+    well-formed request for a room not already in flight (#145).
+    """
+    if not _check(admission.is_admitted, token, "admission"):
+        raise fastapi.HTTPException(status_code=403, detail=NOT_ADMITTED)
+    if named is not None:
+        if not _check(admission.is_admin, token, "admin access"):
+            raise fastapi.HTTPException(status_code=403, detail=NOT_AN_ADMIN)
+        if named.predicate is not None:
+            _check_predicate(provisioner, named.predicate)
 
 
 def _create(
@@ -372,14 +437,18 @@ def post_room(
     requests: RequestsDep,
     token: TokenDep,
 ) -> api.Accepted:
-    """Admit a room request, then create the room in the background."""
-    claims = _claims(admission, token)
-    if not _check(admission.is_admitted, token, "admission"):
-        raise fastapi.HTTPException(status_code=403, detail=NOT_ADMITTED)
-    if body.owner is not None:
-        if not _check(admission.is_admin, token, "admin access"):
-            raise fastapi.HTTPException(status_code=403, detail=NOT_AN_ADMIN)
+    """Admit a room request, then create the room in the background.
 
+    The cheap checks come first: the token, then the request's own form
+    (``400``), then whether a request for the room is in flight (``409``),
+    then the deployment's own check, if any (see
+    :attr:`provision.Provisioner.check_request`). The in-flight check
+    precedes the deployment's, so that a retry of a request that got
+    through meets the former, never a rate limit counting it again.
+    Only then is the caller admitted (``403``), which may cost the backend
+    a call or two; a refusal there releases the reservation (#145).
+    """
+    claims = _claims(admission, token)
     try:
         owner = (
             None
@@ -402,6 +471,12 @@ def post_room(
         raise RoomRefused(
             409, f"room {room!r} is already being provisioned", room
         )
+    try:
+        _check_request(provisioner, claims, request)
+        _admit_caller(provisioner, admission, token, body.owner)
+    except BaseException:
+        requests.release(room)
+        raise
     try:
         admitted = provision.admit_room(request, provisioner)
     except provision.RoomExists as error:

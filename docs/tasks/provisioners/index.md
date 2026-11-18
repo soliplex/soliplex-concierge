@@ -233,6 +233,48 @@ provisioner: the watcher logs it as an error and checks again every
 `service.ACCESS_RETRY` seconds. Any other error counts as the backend being
 unreachable: a warning, checked again every `service.BACKEND_RETRY` seconds.
 
+### Refusing requests yourself
+
+To refuse some requests before the provisioner does any work (a rate limit
+per requester, a quota of rooms per owner, limits on a name's or a
+description's length), give the `Provisioner` a `check_request`. The service
+calls it with the requester's claims and the planned `RoomRequest`, once a
+request proves well-formed and not already in flight, and before admitting
+its requester:
+
+```python
+def check_request(requester_claims, request):
+    if len(request.description) > 500:
+        raise provision.RequestRefused(
+            400, "the description must be at most 500 characters"
+        )
+    if limiter.exhausted(request.owner.owner):
+        raise provision.RequestRefused(
+            429, "too many room requests", retry_after=limiter.wait()
+        )
+
+
+provisioner = provision.Provisioner(..., check_request=check_request)
+```
+
+The service answers a `RequestRefused` with its status and detail, as a
+plain error, and with a `Retry-After` header when it gives `retry_after`
+(seconds). The status is yours to choose; the concierge's room tool
+understands these:
+
+- `400`: the request itself is unacceptable; the user is asked to correct
+  what the detail says
+- `409`: the room's name conflicts with something you know of (a reserved
+  name, say); the user is asked for another
+- `429`: one too many (a rate limit, or a quota of rooms); the user is told
+  the detail, and when they may ask again
+
+Any other status reads to it as the service failing, and the agent offers
+to file the request as an issue instead. The check runs for each
+well-formed request, admitted or not, so keep it cheap. Your own routes to
+`admit_room` (a retry, say) should call `provision.check_request(provisioner,
+claims, request)` too, so that every route applies the same checks.
+
 Your wiring module builds the adapters, and a factory returns the application:
 
 ```python
