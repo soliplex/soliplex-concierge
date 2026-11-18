@@ -76,7 +76,8 @@ owner part with its access rule, a soliplex ACL JSONPath over a user's claims:
 
 Either way, the owner part follows the provisioner's `scheme`, a
 `room_ids.RoomIdScheme`: flattened when its `flatten_owner` is set (a
-claimed owner only), lowercased unless its `lowercase_owner` is false, with
+named owner always is, so an email address can name one, and gets the part
+a flattening scheme would derive from it as a claim), lowercased unless its `lowercase_owner` is false, with
 any separator replaced and any trailing `.`, `_` or `-` stripped. Both
 parts of an id start and end with a letter or digit, and a separator holds
 neither, so a room id splits into owner and slug one way only; a requested

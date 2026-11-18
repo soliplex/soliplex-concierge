@@ -36,7 +36,9 @@ email-shaped values fit the segment rule, and lowercased by default, so
 ids differing only by case never land in one directory on a
 case-insensitive file system. None of these steps is invertible nor
 injective, so the access rule matches the raw claim value, never the
-owner part.
+owner part. A named owner is always flattened, whatever the scheme says: an
+``@`` never fits the segment rule, so flattening only turns a refusal into
+the owner part the same email-shaped value would give as a claim.
 
 The requester gives the room a human-readable name (its title), from which
 :meth:`RoomIdScheme.slugify` derives the slug; its output never contains a
@@ -305,13 +307,15 @@ class RoomIdScheme:
     def named_owner(self, owner: str, json_path: str) -> RoomOwner:
         """Name a room's owner explicitly: its id part, and its access rule.
 
-        ``owner`` is lowercased when ``lowercase_owner`` is set, each
-        separator in it replaced (see :meth:`without_separator`), and any
-        trailing ``.``, ``_`` or ``-`` stripped. Raises :class:`BadOwnerPart`
-        when the result does not fit the segment rule, and
-        :class:`NoAccessRule` when ``json_path`` is blank.
+        ``owner`` is flattened (see :func:`flatten`; always, so an
+        email-shaped owner gets the part a flattening scheme derives from
+        the same value as a claim), lowercased when ``lowercase_owner`` is
+        set, each separator in it replaced (see :meth:`without_separator`),
+        and any trailing ``.``, ``_`` or ``-`` stripped. Raises
+        :class:`BadOwnerPart` when the result does not fit the segment
+        rule, and :class:`NoAccessRule` when ``json_path`` is blank.
         """
-        part = self._owner_part(owner, flatten_value=False)
+        part = self._owner_part(owner, flatten_value=True)
         if not self.is_segment(part):
             raise BadOwnerPart(owner, self.max_segment)
         if not json_path.strip():

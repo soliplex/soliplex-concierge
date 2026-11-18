@@ -142,9 +142,10 @@ and an answer naming another version of it fails with `IncompatibleService`.
 Sends `POST /rooms`. Returns `RoomRequestAccepted(status="accepted",
 room_id, issue_url)` when the service is creating the room, and
 `RoomRequestAccepted(status="not_admitted")` when it does not admit the user.
-`owner`, with either `owner_claim` and `owner_value` or `owner_predicate`,
-names a room owner other than the user; a service refusing that (the user is
-not an admin) returns `status="owner_not_permitted"`. The body carries only
+`owner_claim` and `owner_value` (with an optional `owner`, which the
+service otherwise derives from the value), or `owner_predicate` with
+`owner`, name a room owner other than the user; a service refusing that
+(the user is not an admin) returns `status="owner_not_permitted"`. The body carries only
 the fields given, so services that predate them never see them.
 When the service does not answer within `request_timeout`, it asks once
 more; a `409` naming the room (`"room_id"`) then returns
@@ -160,7 +161,7 @@ steps and `error`. `RoomRequestState` is the API's `RequestState`.
 
 - `BadSlug(pydantic_ai.ModelRetry)` — the slug the model passed is unusable.
 - `OwnerIncomplete(pydantic_ai.ModelRetry)` — the owner arguments are in
-  neither form, or both.
+  neither form, or both, or name a predicate without an `owner`.
 - `UnknownPredicateName(pydantic_ai.ModelRetry)` — `owner_predicate` is not
   one the installation registers; the message lists those it does.
 - `BadOwner(pydantic_ai.ModelRetry)` — the service refused the named owner
@@ -218,7 +219,9 @@ constants.
   and `owner` (no other fields).
 - `RoomOwner` — an owner an admin names: `owner` (the id's owner part), with
   either `claim` and `value` or `predicate`; any other combination raises
-  `OwnerFormInvalid(ValueError)`, which keeps them as attributes.
+  `OwnerFormInvalid(ValueError)`, which keeps them as attributes. `owner`
+  may be left out with `claim` and `value` (the service derives it from the
+  value), but not with `predicate`: `OwnerPartMissing(ValueError)`.
 - `Accepted` — the `202` answer: `room_id`, `issue_url`.
 - `RequestState` — the `GET /rooms/{room_id}` answer: `room_id`, `state` (a
   `State`), `issue_url`, `incomplete`, `error`.
@@ -241,7 +244,8 @@ Checks that an implementation keeps the API's contract (see
   `check_refuses_an_invalid_token`, `check_refuses_the_unadmitted`,
   `check_rejects_a_malformed_body`, `check_rejects_a_bad_slug`,
   `check_refuses_a_named_owner_from_a_non_admin`, `check_rejects_a_bad_owner`,
-  `check_admin_names_an_owner`, `check_rejects_an_unknown_predicate`,
+  `check_admin_names_an_owner`, `check_admin_names_an_owner_by_email`,
+  `check_rejects_an_unknown_predicate`,
   `check_accepts_and_reports`, `check_hides_requests_from_others`,
   `check_reports_unknown_requests`, `check_refuses_an_existing_room` — each
   takes the harness.
@@ -266,7 +270,8 @@ a separator holds neither, owner parts have it replaced (and any trailing
   `owner_from_claims(claims, *, claim=DEFAULT_OWNER_CLAIM)` (the requester's
   own owner, its rule matching the claim's raw value),
   `named_owner(owner, json_path)` (any other owner, such as a group, with a
-  rule from `access_rules`), `make_room_id(owner, slug)`,
+  rule from `access_rules`; always flattened, so an email address may name
+  it), `make_room_id(owner, slug)`,
   `parse_room_id(room_id)`, `slugify(name)`, `validate_slug(slug)`,
   `without_separator(value)`, `is_segment(value)`.
 - `RoomOwner(owner, json_path)` — the id's owner part, and the access rule (a

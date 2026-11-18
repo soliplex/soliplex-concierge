@@ -179,6 +179,8 @@ async def test_post_room_not_admitted(app, script):
 STAFF = {"owner": "staff", "predicate": "is_staff"}
 BHARNEY = {"owner": "bharney", "claim": "email", "value": "b@example.com"}
 NIGHTS = {"owner": "Night--Shift", "predicate": "is_staff"}
+RUBBLE = "Barney.Rubble@Example.com"
+RUBBLE_RULE = f'$[?$.email == "{RUBBLE}"]'
 
 
 @pytest.mark.anyio
@@ -188,8 +190,24 @@ NIGHTS = {"owner": "Night--Shift", "predicate": "is_staff"}
         (STAFF, "staff--q3-plans", "$[?is_staff($)]"),
         (BHARNEY, "bharney--q3-plans", '$[?$.email == "b@example.com"]'),
         (NIGHTS, "night_shift--q3-plans", "$[?is_staff($)]"),
+        (
+            {"owner": RUBBLE, "claim": "email", "value": RUBBLE},
+            "barney.rubble_example.com--q3-plans",
+            RUBBLE_RULE,
+        ),
+        (
+            {"claim": "email", "value": RUBBLE},
+            "barney.rubble_example.com--q3-plans",
+            RUBBLE_RULE,
+        ),
     ],
-    ids=["predicate", "claim", "separator-in-owner"],
+    ids=[
+        "predicate",
+        "claim",
+        "separator-in-owner",
+        "email-owner-part",
+        "email-without-owner-part",
+    ],
 )
 async def test_post_room_admin_names_the_owner(
     app, script, owner, room, json_path
@@ -233,12 +251,18 @@ async def test_post_room_admin_check_fails_for_a_named_owner(app, admission):
     [
         ({**BHARNEY, "owner": "../escape"}, "'../escape'"),
         ({**BHARNEY, "claim": "e-mail"}, "must be an identifier"),
+        ({"claim": "email", "value": "../escape"}, "'../escape'"),
         (
             {"owner": "x", "predicate": "is_foreman"},
             "it registers: is_staff",
         ),
     ],
-    ids=["bad-owner-part", "bad-claim", "unknown-predicate"],
+    ids=[
+        "bad-owner-part",
+        "bad-claim",
+        "bad-value-without-owner-part",
+        "unknown-predicate",
+    ],
 )
 async def test_post_room_admin_names_an_unusable_owner(app, owner, detail):
     response = await _post(app, token="root-token", owner=owner)
@@ -259,6 +283,15 @@ async def test_post_room_listing_predicates_fails(app, script, caplog):
 @pytest.mark.anyio
 async def test_post_room_admin_names_an_owner_with_a_raw_rule(app):
     owner = {"owner": "staff", "json_path": "$[?'staff' in @.groups]"}
+
+    response = await _post(app, token="root-token", owner=owner)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_post_room_admin_names_a_predicate_without_an_owner_part(app):
+    owner = {"predicate": "is_staff"}
 
     response = await _post(app, token="root-token", owner=owner)
 

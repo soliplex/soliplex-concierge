@@ -44,6 +44,8 @@ FAULTS = frozenset(
         "accept-any-owner",  # accepts unusable owner parts
         "ignore-named-owner",  # gives an admin's room to the admin
         "accept-any-predicate",  # accepts unregistered predicates
+        "unflattened-owner",  # keeps '@' in a named owner part
+        "owner-part-required",  # refuses an owner named by email alone
     }
 )
 
@@ -139,6 +141,14 @@ def create_app(faults: frozenset[str] = frozenset()) -> fastapi.FastAPI:
                         detail=f"unknown predicate {predicate!r}",
                     )
             named = body.owner.owner
+            if named is None:
+                if "owner-part-required" in faults:
+                    raise fastapi.HTTPException(
+                        status_code=400, detail="an owner part is required"
+                    )
+                named = body.owner.value
+            if "unflattened-owner" not in faults:
+                named = named.replace("@", "_")
             if not _SLUG_RE.fullmatch(named):
                 if "accept-any-owner" not in faults:
                     raise fastapi.HTTPException(
