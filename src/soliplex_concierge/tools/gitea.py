@@ -17,6 +17,7 @@ import yaml
 from soliplex import agents
 from soliplex import models
 
+from soliplex_concierge import audit
 from soliplex_concierge import config
 from soliplex_concierge import labels as sc_labels
 from soliplex_concierge import tls
@@ -261,6 +262,20 @@ def _file_issue(
     )
 
 
+def _record_filed(
+    log: audit.RoomRequestsAuditLog,
+    created: CreatedGiteaIssue,
+    request_type: str,
+    exclude_claims: Iterable[str],
+) -> None:
+    log.issue_filed(
+        number=created.number,
+        request_type=request_type,
+        profile=created.profile,
+        excluded_claims=sorted(exclude_claims),
+    )
+
+
 def _drive_sync(client: httpx2.Client, steps: _Steps) -> typing.Any:
     """Run 'steps' to completion, issuing its requests via 'client'.
 
@@ -372,11 +387,22 @@ def create_gitea_issue_sync(
         body=body,
         request_type=request_type,
     )
-    with httpx2.Client(
-        verify=tls.httpx_verify(),
-        timeout=sc_timeouts.HTTP_TIMEOUT,
-    ) as client:
-        return _drive_sync(client, steps)
+    log = audit.RoomRequestsAuditLog(
+        claims=audit.audited_claims(claims, exclude_claims)
+    )
+    try:
+        with httpx2.Client(
+            verify=tls.httpx_verify(),
+            timeout=sc_timeouts.HTTP_TIMEOUT,
+        ) as client:
+            created = _drive_sync(client, steps)
+    except Exception as error:
+        log.issue_filing_failed(
+            request_type=request_type, reason=audit.reason(error)
+        )
+        raise
+    _record_filed(log, created, request_type, exclude_claims)
+    return created
 
 
 async def create_gitea_issue(
@@ -444,8 +470,25 @@ async def create_gitea_issue(
         body=body,
         request_type=request_type,
     )
-    async with httpx2.AsyncClient(
-        verify=tls.httpx_verify(),
-        timeout=sc_timeouts.HTTP_TIMEOUT,
-    ) as client:
-        return await _drive_async(client, steps)
+    deps = ctx.deps
+    log = audit.RoomRequestsAuditLog(
+        claims=audit.audited_claims(
+            deps.user.model_dump(), tool_config.exclude_claims
+        ),
+        room_id=deps.room_id,
+        thread_id=deps.thread_id,
+        run_id=deps.run_id,
+    )
+    try:
+        async with httpx2.AsyncClient(
+            verify=tls.httpx_verify(),
+            timeout=sc_timeouts.HTTP_TIMEOUT,
+        ) as client:
+            created = await _drive_async(client, steps)
+    except Exception as error:
+        log.issue_filing_failed(
+            request_type=request_type, reason=audit.reason(error)
+        )
+        raise
+    _record_filed(log, created, request_type, tool_config.exclude_claims)
+    return created

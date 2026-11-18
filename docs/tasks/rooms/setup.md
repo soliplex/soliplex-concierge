@@ -178,3 +178,13 @@ ingested content, uncomment the `skill_configs` block in the room's
 The [`soliplex-template`](https://github.com/soliplex/soliplex-template) skill
 can generate and ingest one (see the
 [RAG DB docs](https://soliplex.github.io/soliplex/config/rag/)).
+
+## The audit trail
+
+The room tools record what they do on a user's behalf to soliplex's
+`soliplex-audit` logger, under the scope `room-requests`, alongside
+soliplex's own audit records: each service token minted for the user (and
+for which call), each room requested or checked on, and each Gitea issue
+filed, with how its profile was recorded. Each record names the user by
+their claims, less any `exclude_claims` the `create_gitea_issue` tool sets,
+and the room, thread and run it came from.

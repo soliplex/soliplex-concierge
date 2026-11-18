@@ -316,6 +316,14 @@ uvicorn --factory my_deployment.provisioner:create_app --port 8090
 Run one worker: the service keeps its requests' state in memory. A restart
 loses it, and the tracking issue remains the record.
 
+The service writes an audit trail to soliplex's `soliplex-audit` logger,
+under the scope `room-provisioning`: each service token it refuses, each
+request it admits, refuses (`denied`) or fails on (`error`, with the
+cause a requester is not told), each read of a request (by its requester,
+or by an admin) and each it hides, and how creating each room ended. Each
+record names the user by their token's claims. Configure that logger as
+for soliplex itself, and your own adapters' records join the same trail.
+
 ## Checking an implementation against the contract
 
 `soliplex_concierge.provisioner.contract` checks that an implementation keeps
