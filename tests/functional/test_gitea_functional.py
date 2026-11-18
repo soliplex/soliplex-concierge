@@ -7,6 +7,7 @@ from soliplex import models
 
 from soliplex_concierge import config
 from soliplex_concierge import gitea_admin
+from soliplex_concierge import labels as sc_labels
 from soliplex_concierge.tools import gitea
 
 USER = models.UserProfile(
@@ -100,7 +101,7 @@ async def test_create_gitea_issue_reuses_a_label_past_the_first_page(
     headers = {"Authorization": f"token {gitea_server['token']}"}
     # Seed the filler labels first and the canonical one last, so it lands
     # past the first page whether Gitea orders labels by name or by creation.
-    for filler in range(gitea.LABEL_PAGE_SIZE + 10):
+    for filler in range(sc_labels.LABEL_PAGE_SIZE + 10):
         response = httpx2.post(
             f"{repo_api}/labels",
             headers=headers,
@@ -108,7 +109,7 @@ async def test_create_gitea_issue_reuses_a_label_past_the_first_page(
             timeout=10,
         )
         response.raise_for_status()
-    spec = gitea.ISSUE_TYPE_LABELS["new-room"]
+    spec = sc_labels.ISSUE_TYPE_LABELS["new-room"]
     seeded = httpx2.post(
         f"{repo_api}/labels",
         headers=headers,
