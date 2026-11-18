@@ -970,9 +970,9 @@ def test_install_skill_force(stack):
 @pytest.mark.parametrize(
     "pin,with_truststore,expected",
     [
-        (None, False, '"soliplex-concierge>=0.6"'),
+        (None, False, '"soliplex-concierge>=0.16"'),
         ("== 0.2", False, '"soliplex-concierge == 0.2"'),
-        (None, True, '"soliplex-concierge[truststore]>=0.6"'),
+        (None, True, '"soliplex-concierge[truststore]>=0.16"'),
         ("== 0.2", True, '"soliplex-concierge[truststore] == 0.2"'),
     ],
 )
