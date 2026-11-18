@@ -18,9 +18,9 @@ from soliplex import authz
 from soliplex import token_mint
 
 from soliplex_concierge.provisioner import interfaces
+from soliplex_concierge.provisioner import timeouts as sc_timeouts
 
 SERVICE_TOKEN_LIFETIME = 300
-HTTP_TIMEOUT = 30
 
 
 class BackendError(Exception):
@@ -108,12 +108,16 @@ def call(
     path: str,
     *,
     token: str | None = None,
-    timeout: float = HTTP_TIMEOUT,
+    timeout: float = sc_timeouts.HTTP_TIMEOUT,
 ) -> dict:
     """Call the backend's API at ``path`` (under ``/api``); return its JSON.
 
-    Raises :class:`AccessDenied` when the backend refuses the credentials,
-    and :class:`RequestFailed` for any other failure.
+    ``timeout`` bounds each socket operation (connecting, and each read),
+    not the whole call.
+
+    Raises :class:`AccessDenied` when the backend refuses the credentials.
+
+    Raises :class:`RequestFailed` for any other failure.
     """
     url = f"{base_url.rstrip('/')}/api{path}"
     headers = {"Accept": "application/json"}

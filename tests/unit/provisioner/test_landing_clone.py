@@ -12,12 +12,17 @@ act exactly once (cases that would repeat it are parametrized or split).
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
+import os
+import socket
 import subprocess
+from unittest import mock
 
 import pytest
 
 from soliplex_concierge.provisioner import landing_clone
+from soliplex_concierge.provisioner import timeouts as sc_timeouts
 
 ROOM_ID = "alice:notes"
 
@@ -97,6 +102,90 @@ def test_locked_holds_an_exclusive_lock(tmp_path):
     assert not path.exists()  # the lock does not create the clone
     with lock.open("a") as other:
         fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)  # released
+
+
+def _flock_busy(monkeypatch, busy):
+    """Patch flock: the first ``busy`` non-blocking tries find it taken."""
+    real = fcntl.flock
+    tries = []
+
+    def flock(handle, operation):
+        if operation & fcntl.LOCK_NB:
+            tries.append(operation)
+            if len(tries) <= busy:
+                raise BlockingIOError
+        return real(handle, operation & ~fcntl.LOCK_NB)
+
+    monkeypatch.setattr(landing_clone.fcntl, "flock", mock.Mock(wraps=flock))
+    return tries
+
+
+def _clock(monkeypatch, *times):
+    monkeypatch.setattr(
+        landing_clone.time, "monotonic", mock.Mock(side_effect=times)
+    )
+    sleep = mock.Mock()
+    monkeypatch.setattr(landing_clone.time, "sleep", sleep)
+    return sleep
+
+
+def _take(path, timeout):
+    """Take, then release, the clone's lock: entering is what may raise."""
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(landing_clone.locked(path, timeout=timeout))
+
+
+def test_locked_retries_with_backoff(tmp_path, monkeypatch):
+    path = tmp_path / "src" / "rooms-provisioned"
+    tries = _flock_busy(monkeypatch, busy=3)
+    sleep = _clock(monkeypatch, 0, 0, 0, 0)
+
+    with landing_clone.locked(path, timeout=10):
+        pass
+
+    assert len(tries) == 4
+    assert [call.args[0] for call in sleep.call_args_list] == [0.05, 0.1, 0.2]
+
+
+def test_locked_gives_up_when_the_clone_stays_busy(tmp_path, monkeypatch):
+    path = tmp_path / "src" / "rooms-provisioned"
+    landing_clone.lock_path(path).parent.mkdir(parents=True)
+    landing_clone.lock_path(path).write_text("other-host pid 7 2026-11-18")
+    _flock_busy(monkeypatch, busy=99)
+    sleep = _clock(monkeypatch, 0, 0, 9.98, 10)
+
+    with pytest.raises(landing_clone.LandingCloneError) as caught:
+        _take(path, timeout=10)
+
+    assert type(caught.value) is landing_clone.CloneBusy
+    assert caught.value.timeout == 10
+    assert caught.value.holder == "other-host pid 7 2026-11-18"
+    assert "(held by other-host pid 7 2026-11-18)" in str(caught.value)
+    # the second wait is cut to the 0.02 s left, short of the 0.1 s backoff
+    assert [call.args[0] for call in sleep.call_args_list] == pytest.approx(
+        [0.05, 0.02]
+    )
+
+
+def test_locked_names_no_holder_it_cannot_read(tmp_path, monkeypatch):
+    path = tmp_path / "src" / "rooms-provisioned"
+    _flock_busy(monkeypatch, busy=99)
+    _clock(monkeypatch, 0, 10)
+
+    with pytest.raises(landing_clone.CloneBusy) as caught:
+        _take(path, timeout=10)
+
+    assert caught.value.holder == ""
+    assert "held by" not in str(caught.value)
+
+
+def test_locked_records_its_holder(tmp_path):
+    path = tmp_path / "src" / "rooms-provisioned"
+
+    with landing_clone.locked(path):
+        holder = landing_clone.lock_path(path).read_text()
+
+    assert holder.startswith(f"{socket.gethostname()} pid {os.getpid()} ")
 
 
 # ---- ensure_clone ----
@@ -244,6 +333,48 @@ def test_commit_room_outside_a_clone(tmp_path, git_config):
 # ---- push ----
 
 
+def test_git_call_times_out(clone, monkeypatch):
+    hang = mock.Mock(side_effect=subprocess.TimeoutExpired(["git"], 1))
+    monkeypatch.setattr(landing_clone.sc_timeouts, "run_bounded", hang)
+
+    with pytest.raises(landing_clone.LandingCloneError) as caught:
+        landing_clone.ensure_clone(clone, origin_url="x", timeout=1)
+
+    assert type(caught.value) is landing_clone.GitTimedOut
+    assert caught.value.command == ("remote",)
+    assert caught.value.timeout == 1
+    assert "'git remote' timed out after 1 seconds" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda path: landing_clone.ensure_clone(
+            path, origin_url="https://g.example/r.git", timeout=7
+        ),
+        lambda path: (
+            _write_room(path),
+            landing_clone.commit_room(
+                path,
+                ROOM_ID,
+                author_name="A",
+                author_email="a@example.com",
+                message="x",
+                timeout=7,
+            ),
+        ),
+    ],
+    ids=["ensure_clone", "commit_room"],
+)
+def test_git_calls_pass_their_timeout(clone, monkeypatch, call):
+    spy = mock.Mock(wraps=sc_timeouts.run_bounded)
+    monkeypatch.setattr(landing_clone.sc_timeouts, "run_bounded", spy)
+
+    call(clone)
+
+    assert {c.kwargs["timeout"] for c in spy.call_args_list} == {7}
+
+
 def test_push(clone, origin):
     landing_clone.ensure_clone(clone, origin_url=str(origin))
     _write_room(clone)
@@ -260,18 +391,13 @@ def test_push_passes_the_token_through_the_environment(
     landing_clone.ensure_clone(clone, origin_url=str(origin))
     _write_room(clone)
     _commit(clone)
-    calls = []
-    run = subprocess.run
-
-    def spy(argv, **kwargs):
-        calls.append((argv, kwargs["env"]))
-        return run(argv, **kwargs)
-
-    monkeypatch.setattr(landing_clone.subprocess, "run", spy)
+    spy = mock.Mock(wraps=sc_timeouts.run_bounded)
+    monkeypatch.setattr(landing_clone.sc_timeouts, "run_bounded", spy)
 
     landing_clone.push(clone, token="s3cret")
 
-    [(argv, env)] = calls
+    [((argv,), kwargs)] = spy.call_args_list
+    env = kwargs["env"]
     assert "s3cret" not in " ".join(argv)
     assert env["GIT_CONFIG_COUNT"] == "1"
     assert env["GIT_CONFIG_KEY_0"] == "http.extraHeader"
@@ -288,18 +414,12 @@ def test_push_keeps_config_already_in_the_environment(
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "push.followTags")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", "false")
-    calls = []
-    run = subprocess.run
-
-    def spy(argv, **kwargs):
-        calls.append(kwargs["env"])
-        return run(argv, **kwargs)
-
-    monkeypatch.setattr(landing_clone.subprocess, "run", spy)
+    spy = mock.Mock(wraps=sc_timeouts.run_bounded)
+    monkeypatch.setattr(landing_clone.sc_timeouts, "run_bounded", spy)
 
     landing_clone.push(clone, token="s3cret")
 
-    [env] = calls
+    [env] = [call.kwargs["env"] for call in spy.call_args_list]
     assert env["GIT_CONFIG_COUNT"] == "2"
     assert env["GIT_CONFIG_KEY_0"] == "push.followTags"
     assert env["GIT_CONFIG_KEY_1"] == "http.extraHeader"
@@ -310,25 +430,19 @@ def test_push_bounds_the_push_with_a_timeout(clone, origin, monkeypatch):
     landing_clone.ensure_clone(clone, origin_url=str(origin))
     _write_room(clone)
     _commit(clone)
-    calls = []
-    run = subprocess.run
-
-    def spy(argv, **kwargs):
-        calls.append(kwargs["timeout"])
-        return run(argv, **kwargs)
-
-    monkeypatch.setattr(landing_clone.subprocess, "run", spy)
+    spy = mock.Mock(wraps=sc_timeouts.run_bounded)
+    monkeypatch.setattr(landing_clone.sc_timeouts, "run_bounded", spy)
 
     landing_clone.push(clone)
 
-    assert calls == [landing_clone.PUSH_TIMEOUT]
+    assert [call.kwargs["timeout"] for call in spy.call_args_list] == [
+        sc_timeouts.PUSH_TIMEOUT
+    ]
 
 
 def test_push_timed_out(clone, monkeypatch):
-    def hang(argv, **kwargs):
-        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
-
-    monkeypatch.setattr(landing_clone.subprocess, "run", hang)
+    hang = mock.Mock(side_effect=subprocess.TimeoutExpired(["git"], 5))
+    monkeypatch.setattr(landing_clone.sc_timeouts, "run_bounded", hang)
 
     with pytest.raises(landing_clone.LandingCloneError) as caught:
         landing_clone.push(clone, timeout=5)

@@ -7,10 +7,12 @@
 import json
 import subprocess
 import sys
+from unittest import mock
 
 import pytest
 
 from soliplex_concierge.provisioner import soliplex_cli
+from soliplex_concierge.provisioner import timeouts as sc_timeouts
 
 ENVIRONMENT = "/environment"
 ROOM = "alice:q3-plans"
@@ -38,28 +40,23 @@ def fake_cli(tmp_path):
 
 @pytest.fixture
 def recorded(monkeypatch):
-    """Replace ``_run``; record each call, answering ``recorded.output``.
-
-    ``recorded.stderr`` fills the fake process's stderr.
-    """
-
-    class Recorded:
-        output = ""
-        stderr = ""
-        calls = []
-
-    def _run(cli, command, stdin, ok_codes):
-        Recorded.calls.append((cli, command, stdin, ok_codes))
-        return subprocess.CompletedProcess(
+    """Replace ``_run`` with a mock answering ``recorded.output`` (and
+    ``recorded.stderr``); ``recorded.call_args_list`` holds each call."""
+    recorded = mock.Mock(output="", stderr="")
+    recorded.side_effect = lambda cli, command, *_: (
+        subprocess.CompletedProcess(
             [cli, *command],
             returncode=0,
-            stdout=Recorded.output,
-            stderr=Recorded.stderr,
+            stdout=recorded.output,
+            stderr=recorded.stderr,
         )
+    )
+    monkeypatch.setattr(soliplex_cli, "_run", recorded)
+    return recorded
 
-    monkeypatch.setattr(soliplex_cli, "_run", _run)
-    Recorded.calls = []
-    return Recorded
+
+def _calls(recorded):
+    return [call.args for call in recorded.call_args_list]
 
 
 # ---- run ----
@@ -129,12 +126,13 @@ def test_stale_policy_ids(recorded, output, expected):
     result = soliplex_cli.stale_policy_ids("soliplex-cli", ENVIRONMENT)
 
     assert result == expected
-    assert recorded.calls == [
+    assert _calls(recorded) == [
         (
             "soliplex-cli",
             ("audit", "--quiet", "room-authz", ENVIRONMENT),
             None,
             (0, 1),
+            sc_timeouts.CLI_TIMEOUT,
         )
     ]
 
@@ -157,6 +155,60 @@ def test_stale_policy_ids_fails(recorded, output, detail):
         soliplex_cli.stale_policy_ids("soliplex-cli", ENVIRONMENT)
 
     assert caught.value.output == detail
+
+
+# ---- timeouts (#144) ----
+
+
+def test_run_times_out(monkeypatch):
+    hang = mock.Mock(side_effect=subprocess.TimeoutExpired(["cli"], 1))
+    monkeypatch.setattr(soliplex_cli.sc_timeouts, "run_bounded", hang)
+
+    with pytest.raises(soliplex_cli.CliTimedOut) as caught:
+        soliplex_cli.run("cli", "audit", "rooms", timeout=1)
+
+    assert isinstance(caught.value, soliplex_cli.CliFailed)
+    assert caught.value.timeout == 1
+    assert "timed out after 1 seconds" in str(caught.value)
+    hang.assert_called_once_with(
+        ["cli", "audit", "rooms"], input_=None, timeout=1
+    )
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: soliplex_cli.run("cli", "x", timeout=7),
+        lambda: soliplex_cli.is_admin("cli", ENVIRONMENT, "t", timeout=7),
+        lambda: soliplex_cli.may(
+            "cli", ENVIRONMENT, "t", ROOM, "read", timeout=7
+        ),
+        lambda: soliplex_cli.stale_policy_ids("cli", ENVIRONMENT, timeout=7),
+        lambda: soliplex_cli.set_policy(
+            "cli", ENVIRONMENT, ROOM, "{}", timeout=7
+        ),
+        lambda: soliplex_cli.remove_policy(
+            "cli", ENVIRONMENT, ROOM, timeout=7
+        ),
+        lambda: soliplex_cli.audit_rooms("cli", ENVIRONMENT, timeout=7),
+    ],
+    ids=[
+        "run",
+        "is_admin",
+        "may",
+        "stale_policy_ids",
+        "set_policy",
+        "remove_policy",
+        "audit_rooms",
+    ],
+)
+def test_commands_pass_their_timeout(recorded, call):
+    recorded.output = '{"is_admin": true, "allowed": true}'
+
+    call()
+
+    [args] = _calls(recorded)
+    assert args[-1] == 7
 
 
 # ---- policies ----
@@ -191,12 +243,13 @@ def test_set_policy(recorded):
     result = soliplex_cli.set_policy("soliplex-cli", ENVIRONMENT, ROOM, policy)
 
     assert result is None
-    assert recorded.calls == [
+    assert _calls(recorded) == [
         (
             "soliplex-cli",
             ("room-authz", "from-yaml", ENVIRONMENT, ROOM),
             policy,
             (0,),
+            sc_timeouts.CLI_TIMEOUT,
         )
     ]
 
@@ -205,7 +258,7 @@ def test_remove_policy(recorded):
     result = soliplex_cli.remove_policy("soliplex-cli", ENVIRONMENT, ROOM)
 
     assert result is None
-    [(_cli, command, stdin, _ok)] = recorded.calls
+    [(_cli, command, stdin, _ok, _timeout)] = _calls(recorded)
     assert command == ("room-authz", "from-yaml", ENVIRONMENT, ROOM)
     assert stdin == "null"
 
@@ -214,12 +267,13 @@ def test_audit_rooms(recorded):
     result = soliplex_cli.audit_rooms("ragserver-cli", ENVIRONMENT)
 
     assert result is None
-    assert recorded.calls == [
+    assert _calls(recorded) == [
         (
             "ragserver-cli",
             ("audit", "--quiet", "rooms", ENVIRONMENT),
             None,
             (0,),
+            sc_timeouts.CLI_TIMEOUT,
         )
     ]
 
@@ -241,12 +295,13 @@ def test_is_admin(recorded, output, expected):
     result = soliplex_cli.is_admin("soliplex-cli", ENVIRONMENT, "t0ken")
 
     assert result is expected
-    assert recorded.calls == [
+    assert _calls(recorded) == [
         (
             "soliplex-cli",
             ("admin-users", "--quiet", "check", ENVIRONMENT),
             "t0ken",
             (0, 1),
+            sc_timeouts.CLI_TIMEOUT,
         )
     ]
 
@@ -263,7 +318,7 @@ def test_may(recorded, output, expected):
     )
 
     assert result is expected
-    assert recorded.calls == [
+    assert _calls(recorded) == [
         (
             "soliplex-cli",
             (
@@ -277,6 +332,7 @@ def test_may(recorded, output, expected):
             ),
             "t0ken",
             (0, 1),
+            sc_timeouts.CLI_TIMEOUT,
         )
     ]
 

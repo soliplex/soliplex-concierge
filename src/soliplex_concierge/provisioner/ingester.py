@@ -246,11 +246,19 @@ def registrations(*texts: str) -> Registrations:
 def reload(base_url: str, token: str, *, timeout: float = RELOAD_TIMEOUT):
     """Ask the ingester at ``base_url`` to apply its config file again.
 
-    Returns the ingester's reload report when every change applied. Raises
-    :class:`ReloadFailed` (with the report) when a database failed,
-    :class:`ReloadRefused` when the ingester refused the new config,
-    :class:`ReloadTimedOut` when it does not answer within ``timeout``
-    seconds, and :class:`IngesterUnreachable` when it cannot be reached.
+    ``timeout`` bounds each socket operation (connecting, and each read),
+    not the whole call.
+
+    Returns the ingester's reload report when every change applied.
+
+    Raises :class:`ReloadFailed` (with the report) when a database failed.
+
+    Raises :class:`ReloadRefused` when the ingester refused the new config.
+
+    Raises :class:`ReloadTimedOut` when it does not answer within ``timeout``
+    seconds
+
+    Raises :class:`IngesterUnreachable` when it cannot be reached.
     """
     url = f"{base_url.rstrip('/')}/reload"
     request = urllib.request.Request(

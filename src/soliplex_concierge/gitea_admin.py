@@ -37,15 +37,14 @@ import sys
 
 import httpx2
 
-from soliplex_concierge.labels import LABEL_PAGE_SIZE
-from soliplex_concierge.labels import MAX_LABEL_PAGES
-from soliplex_concierge.labels import REQUEST_LABELS as LABELS
-from soliplex_concierge.tls import httpx_verify
+from soliplex_concierge import labels as sc_labels
+from soliplex_concierge import tls as sc_tls
+from soliplex_concierge.provisioner import timeouts as sc_timeouts
 
 # httpx2 'verify' value: an OS-trust-store SSLContext when 'truststore' is
 # present (run with 'uv run --with truststore ...' behind an enterprise CA),
 # else certifi. Built once and reused across every client below.
-_VERIFY = httpx_verify()
+_VERIFY = sc_tls.httpx_verify()
 
 
 def _issues_url(host: str, owner: str, repo: str) -> str:
@@ -72,7 +71,10 @@ def list_issues(
     params: dict[str, str] = {"state": state, "type": "issues"}
     if labels:
         params["labels"] = ",".join(labels)
-    with httpx2.Client(verify=_VERIFY) as client:
+    with httpx2.Client(
+        verify=_VERIFY,
+        timeout=sc_timeouts.HTTP_TIMEOUT,
+    ) as client:
         response = client.get(
             _issues_url(host, owner, repo),
             headers=_headers(token),
@@ -86,7 +88,10 @@ def get_issue(
     host: str, token: str, owner: str, repo: str, number: int
 ) -> dict:
     """Return a single issue's full payload."""
-    with httpx2.Client(verify=_VERIFY) as client:
+    with httpx2.Client(
+        verify=_VERIFY,
+        timeout=sc_timeouts.HTTP_TIMEOUT,
+    ) as client:
         response = client.get(
             f"{_issues_url(host, owner, repo)}/{number}",
             headers=_headers(token),
@@ -99,7 +104,10 @@ def comment_issue(
     host: str, token: str, owner: str, repo: str, number: int, body: str
 ) -> dict:
     """Add a comment to an issue and return the created comment."""
-    with httpx2.Client(verify=_VERIFY) as client:
+    with httpx2.Client(
+        verify=_VERIFY,
+        timeout=sc_timeouts.HTTP_TIMEOUT,
+    ) as client:
         response = client.post(
             f"{_issues_url(host, owner, repo)}/{number}/comments",
             headers=_headers(token),
@@ -120,7 +128,10 @@ def close_issue(
     """Optionally comment, then mark the issue closed; return the issue."""
     if body:
         comment_issue(host, token, owner, repo, number, body)
-    with httpx2.Client(verify=_VERIFY) as client:
+    with httpx2.Client(
+        verify=_VERIFY,
+        timeout=sc_timeouts.HTTP_TIMEOUT,
+    ) as client:
         response = client.patch(
             f"{_issues_url(host, owner, repo)}/{number}",
             headers=_headers(token),
@@ -139,12 +150,15 @@ def list_labels(host: str, token: str, owner: str, repo: str) -> list[dict]:
     apply it (see 'soliplex_concierge.labels').
     """
     labels: list[dict] = []
-    with httpx2.Client(verify=_VERIFY) as client:
-        for page in range(1, MAX_LABEL_PAGES + 1):
+    with httpx2.Client(
+        verify=_VERIFY,
+        timeout=sc_timeouts.HTTP_TIMEOUT,
+    ) as client:
+        for page in range(1, sc_labels.MAX_LABEL_PAGES + 1):
             response = client.get(
                 _labels_url(host, owner, repo),
                 headers=_headers(token),
-                params={"page": page, "limit": LABEL_PAGE_SIZE},
+                params={"page": page, "limit": sc_labels.LABEL_PAGE_SIZE},
             )
             response.raise_for_status()
             batch = response.json()
@@ -164,7 +178,10 @@ def create_label(
     description: str,
 ) -> dict:
     """Create a label on the repository and return it."""
-    with httpx2.Client(verify=_VERIFY) as client:
+    with httpx2.Client(
+        verify=_VERIFY,
+        timeout=sc_timeouts.HTTP_TIMEOUT,
+    ) as client:
         response = client.post(
             _labels_url(host, owner, repo),
             headers=_headers(token),
@@ -183,7 +200,10 @@ def add_labels_to_issue(
     label_ids: list[int],
 ) -> list[dict]:
     """Attach the given label ids to an issue; return its labels."""
-    with httpx2.Client(verify=_VERIFY) as client:
+    with httpx2.Client(
+        verify=_VERIFY,
+        timeout=sc_timeouts.HTTP_TIMEOUT,
+    ) as client:
         response = client.post(
             f"{_issues_url(host, owner, repo)}/{number}/labels",
             headers=_headers(token),
@@ -228,7 +248,7 @@ def init_labels(
         label["name"] for label in list_labels(host, token, owner, repo)
     }
     results: dict[str, str] = {}
-    for name, spec in LABELS.items():
+    for name, spec in sc_labels.REQUEST_LABELS.items():
         if name in existing:
             results[name] = "exists"
             continue

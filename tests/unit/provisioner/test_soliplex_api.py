@@ -14,6 +14,7 @@ from soliplex import token_mint
 
 from soliplex_concierge.provisioner import interfaces
 from soliplex_concierge.provisioner import soliplex_api
+from soliplex_concierge.provisioner import timeouts as sc_timeouts
 
 BACKEND = "http://backend:8000"
 SECRET = "test" * 8
@@ -114,7 +115,7 @@ def test_call_without_a_token(urlopen):
     [(request, timeout)] = urlopen.requests
     assert request.get_header("Authorization") is None
     assert request.data == b""
-    assert timeout == soliplex_api.HTTP_TIMEOUT
+    assert timeout == sc_timeouts.HTTP_TIMEOUT
 
 
 @pytest.mark.parametrize("code", [401, 403])
