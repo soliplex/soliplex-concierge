@@ -1029,10 +1029,13 @@
 
 
 <h1 id="soliplex-concierge-admin"><code>soliplex-concierge-admin</code></h1>
-<p><strong>Function.</strong> Resolves the request issues the concierge files: list and filter
-them, follow up, carry out the operation, and close with a decision. Its
-<code>gitea_issues.py</code> CLI and workflow are documented under
-<a href="../../tasks/admin/">Administering requests</a>.</p>
+<p><strong>Function.</strong> Helps an administrator work through the request issues the
+concierge files: it lists and reads them, and <strong>drafts</strong> the change each asks
+for (a new room's configuration, or the commands granting access) for the
+administrator to review and apply through their deployment's own process. It
+never applies a change itself. Once the administrator has acted, it records
+the outcome and closes the issue. Its <code>gitea_issues.py</code> CLI and workflow are
+documented under <a href="../../tasks/admin/">Administering requests</a>.</p>
 <p><strong>Where to find it.</strong> Published as a release artifact of
 <a href="https://github.com/soliplex/soliplex-concierge/releases"><code>soliplex/soliplex-concierge</code></a>:
 the <a href="https://github.com/soliplex/soliplex-concierge/releases/tag/admin-skill-latest"><code>admin-skill-latest</code></a>

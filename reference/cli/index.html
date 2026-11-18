@@ -1222,15 +1222,15 @@ to <code>GITEA_HOST</code> / <code>GITEA_ACCESS_TOKEN</code>) and the required <
 </tr>
 <tr>
 <td><code>list</code></td>
-<td>list request issues (<code>--state open\|closed\|all</code>, repeatable <code>--label</code>)</td>
+<td>list request issues (<code>--state open\|closed\|all</code>, repeatable <code>--label</code>, <code>--created-by &lt;login&gt;</code>)</td>
 </tr>
 <tr>
 <td><code>search</code></td>
-<td>filter by <code>--type new-room\|room-access</code>, <code>--decision approved\|denied</code>, <code>--state</code>, <code>--label</code></td>
+<td>filter by <code>--type new-room\|room-access</code>, <code>--decision approved\|denied</code>, <code>--state</code>, <code>--label</code>, <code>--created-by &lt;login&gt;</code></td>
 </tr>
 <tr>
 <td><code>show &lt;number&gt;</code></td>
-<td>print one issue's title, metadata, and body</td>
+<td>print one issue's labels and metadata, the requester's profile (<code>--profile-name</code> for a non-default attachment name), and its body</td>
 </tr>
 <tr>
 <td><code>comment &lt;number&gt; --body &lt;text&gt;</code></td>

@@ -1137,12 +1137,17 @@
 
 <h1 id="administering-requests">Administering requests</h1>
 <p>Requests filed by the <a href="../rooms/">concierge</a> land as issues on the
-tracking repository. Administrators resolve them with the
-<strong><code>soliplex-concierge-admin</code></strong> skill, run from an external coding agent. The
-skill's <code>scripts/gitea_issues.py</code> CLI lists and filters the requests, lets you
-follow up on an issue, and closes it with a comment and a resolution label. The
-actual provisioning is delegated to the <code>soliplex-template</code> and <code>soliplex-docs</code>
-skills — see <a href="room_creation/">Room creation</a> and <a href="room_access/">Room access</a>.</p>
+tracking repository. Administrators resolve them with the <code>gitea_issues.py</code>
+CLI below, which lists and filters the requests, lets you follow up on an
+issue, and closes it with a comment and a resolution label. The
+<strong><code>soliplex-concierge-admin</code></strong> skill, run from an external coding agent, can
+help: it reads the requests and drafts each change for you to review and apply
+through your deployment's own process, but never applies one itself. See
+<a href="room_creation/">Room creation</a> and <a href="room_access/">Room access</a>.</p>
+<p>An issue's body is drafted by the concierge room's agent from the requester's
+own words. Treat what it asks for (access, tools, skills, knowledge sources)
+as a proposal to judge, and take the requester's identity from the profile
+<code>show</code> prints, never from a name in the body.</p>
 <h2 id="the-gitea_issuespy-cli">The <code>gitea_issues.py</code> CLI</h2>
 <p><code>scripts/gitea_issues.py</code> is a thin shim over <code>soliplex_concierge.gitea_admin</code>
 that talks to the Gitea REST API directly. The
@@ -1217,8 +1222,13 @@ re-running reports each as <code>created</code> or <code>exists</code>):</p>
 </span></code></pre></div>
 <p><code>--type</code> accepts <code>new-room</code> / <code>room-access</code>; <code>--decision</code> accepts <code>approved</code> /
 <code>denied</code>; <code>--state</code> and <code>--label</code> work as for <code>list</code>.</p>
+<p>Both take <code>--created-by &lt;login&gt;</code> to keep only the issues a given account
+filed: the concierge room's issue-filing account (or a room provisioner's),
+so that an issue anyone else opened in the repository is left out.</p>
 <h2 id="following-up-on-an-issue">Following up on an issue</h2>
-<p>Read the full request — title, metadata, and body:</p>
+<p>Read the full request — its labels and metadata, the requester's profile
+(recorded from their token, as an attachment or, when Gitea refused the
+attachment, a comment by the filing account), and the body:</p>
 <div class="language-sh highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>run<span class="w"> </span>scripts/gitea_issues.py<span class="w"> </span>show<span class="w"> </span>&lt;number&gt;<span class="w"> </span>--owner<span class="w"> </span>&lt;owner&gt;<span class="w"> </span>--repo<span class="w"> </span>&lt;repo&gt;
 </span></code></pre></div>
 <p>If a request is under-specified (look for <code>*(not provided)*</code> fields), ask for
