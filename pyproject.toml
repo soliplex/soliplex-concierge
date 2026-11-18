@@ -18,7 +18,7 @@ dependencies = [
     "pyyaml",
     "ruamel.yaml",                  # `soliplex_concierge.installer`
     "soliplex >= 0.89",
-    "soliplex-plumber >= 0.2.1",    # installer: rooms + installation editors
+    "soliplex-plumber >= 0.6",      # installer: rooms + installation editors
     "soliplex-skills >= 0.5",       # `soliplex_concierge.installer`
 ]
 
