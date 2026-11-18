@@ -314,7 +314,10 @@ uvicorn --factory my_deployment.provisioner:create_app --port 8090
 ```
 
 Run one worker: the service keeps its requests' state in memory. A restart
-loses it, and the tracking issue remains the record.
+loses it, and the tracking issue remains the record. It forgets a finished
+request a day after it finished (`service.REQUEST_TTL`); pass
+`create_app(..., request_ttl=...)` for another span (seconds), or `None` to
+keep every request until the next restart.
 
 The service writes an audit trail to soliplex's `soliplex-audit` logger,
 under the scope `room-provisioning`: each service token it refuses, each

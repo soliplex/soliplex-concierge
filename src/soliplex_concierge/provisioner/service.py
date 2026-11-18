@@ -129,11 +129,21 @@ def watch_access(
 # --------------------------------------------------------------------------
 # Request state
 # --------------------------------------------------------------------------
+# How long (seconds) the service remembers a request after it finishes.
+REQUEST_TTL = 24 * 60 * 60
+
+# The states a request finishes in.
+FINISHED = frozenset({api.State.LIVE, api.State.INCOMPLETE, api.State.FAILED})
+
+
 @dataclasses.dataclass
 class Request:
     """A room request's state.
 
     ``requester`` identifies who asked (see :func:`requester_id`).
+
+    ``finished`` when it reached a :data:`FINISHED` state on the registry's
+    clock): None while pending.
     """
 
     room_id: str
@@ -142,12 +152,24 @@ class Request:
     state: api.State = api.State.PENDING
     incomplete: tuple[str, ...] = ()
     error: str | None = None
+    finished: float | None = None
 
 
 class Requests:
-    """The service's room requests, by room id; safe across threads."""
+    """The service's room requests, by room id; safe across threads.
 
-    def __init__(self):
+    ``ttl`` is a number of seconds to preserve a request after it reaches
+    a finished state;  forever, if ``None``.
+
+    ``clock`` gives the time in seconds (by default :func:`time.monotonic`).
+    """
+
+    def __init__(
+        self,
+        ttl: float | None = REQUEST_TTL,
+        clock: collections.abc.Callable[[], float] = time.monotonic,
+    ):
+        self.ttl, self._clock = ttl, clock
         self._lock = threading.Lock()
         self._requests: dict[str, Request] = {}
 
@@ -156,8 +178,12 @@ class Requests:
             return self._requests.get(room_id)
 
     def reserve(self, room_id: str, requester: str | None) -> bool:
-        """Record a pending request; False when one is pending already."""
+        """Record a pending request; False when one is pending already.
+
+        Forgets the finished requests whose ``ttl`` has passed first.
+        """
         with self._lock:
+            self._prune()
             current = self._requests.get(room_id)
             if current is not None and current.state == api.State.PENDING:
                 return False
@@ -172,9 +198,24 @@ class Requests:
             self._requests.pop(room_id, None)
 
     def update(self, room_id: str, **changes) -> None:
+        """Change a request; one reaching a finished state is stamped."""
         with self._lock:
-            request = self._requests[room_id]
-            self._requests[room_id] = dataclasses.replace(request, **changes)
+            request = dataclasses.replace(self._requests[room_id], **changes)
+            if request.state in FINISHED and request.finished is None:
+                request.finished = self._clock()
+            self._requests[room_id] = request
+
+    def _prune(self) -> None:
+        # Call only while holding `self._lock`.
+        if self.ttl is not None:
+            cutoff = self._clock() - self.ttl
+            expired = [
+                room_id
+                for room_id, request in self._requests.items()
+                if request.finished is not None and request.finished <= cutoff
+            ]
+            for room_id in expired:
+                del self._requests[room_id]
 
 
 def requester_id(
@@ -675,21 +716,30 @@ async def _lifespan(app: fastapi.FastAPI):
 
 
 def create_app(
-    provisioner: provision.Provisioner, admission: interfaces.Admission
+    provisioner: provision.Provisioner,
+    admission: interfaces.Admission,
+    *,
+    request_ttl: float | None = REQUEST_TTL,
 ) -> fastapi.FastAPI:
     """The service's application, over ``provisioner`` and ``admission``.
 
-    ``app.state.access`` records whether the backend admits the
-    provisioner; the application's lifespan starts :func:`watch_access`.
+    ``app.state.access`` records whether the backend admits the provisioner
+
+    the application's lifespan starts :func:`watch_access`.
+
+    ``request_ttl`` is how long (seconds) it remembers a finished request
+    (see :class:`Requests`).
     """
     app = fastapi.FastAPI(
-        title="Soliplex room provisioner", lifespan=_lifespan
+        title="Soliplex room provisioner",
+        lifespan=_lifespan,
     )
     app.state.provisioner = provisioner
     app.state.admission = admission
-    app.state.requests = Requests()
+    app.state.requests = Requests(ttl=request_ttl)
     app.state.access = Access()
     app.middleware("http")(_version_header)
     app.add_exception_handler(RoomRefused, _room_refused)
     app.include_router(router)
+
     return app

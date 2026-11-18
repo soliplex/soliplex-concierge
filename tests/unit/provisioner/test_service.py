@@ -1001,6 +1001,78 @@ def test_requests_reserve_replaces_a_finished_request():
     )
 
 
+@pytest.mark.parametrize(
+    "state, finished",
+    [
+        (api.State.PENDING, None),
+        (api.State.LIVE, 100.0),
+        (api.State.INCOMPLETE, 100.0),
+        (api.State.FAILED, 100.0),
+    ],
+)
+def test_requests_update_stamps_a_finished_request(state, finished):
+    requests = service.Requests(clock=mock.Mock(return_value=100.0))
+    requests.reserve(ROOM, "alice")
+
+    requests.update(ROOM, state=state)
+
+    assert requests.get(ROOM).finished == finished
+
+
+def test_requests_update_keeps_the_first_stamp():
+    clock = mock.Mock(side_effect=[0.0, 100.0, 200.0])
+    requests = service.Requests(clock=clock)
+    requests.reserve(ROOM, "alice")  # prunes: reads the clock
+    requests.update(ROOM, state=api.State.INCOMPLETE)  # stamped at 100
+
+    requests.update(ROOM, incomplete=("push",), state=api.State.LIVE)
+
+    assert requests.get(ROOM).finished == 100.0
+    assert clock.call_count == 2
+
+
+def test_requests_reserve_prunes_expired_requests():
+    clock = mock.Mock(return_value=0.0)
+    requests = service.Requests(clock=clock)
+    requests.reserve("old--live", "alice")
+    requests.update("old--live", state=api.State.LIVE)
+    requests.reserve("old--failed", "alice")
+    requests.update("old--failed", state=api.State.FAILED)
+    requests.reserve("old--pending", "alice")
+    clock.return_value = service.REQUEST_TTL
+
+    requests.reserve(ROOM, "bob")
+
+    assert requests.get("old--live") is None
+    assert requests.get("old--failed") is None
+    assert requests.get("old--pending").state == api.State.PENDING
+    assert requests.get(ROOM).requester == "bob"
+
+
+def test_requests_reserve_keeps_unexpired_requests():
+    clock = mock.Mock(return_value=0.0)
+    requests = service.Requests(clock=clock)
+    requests.reserve("recent--live", "alice")
+    requests.update("recent--live", state=api.State.LIVE)
+    clock.return_value = service.REQUEST_TTL - 1
+
+    requests.reserve(ROOM, "bob")
+
+    assert requests.get("recent--live").state == api.State.LIVE
+
+
+def test_requests_without_a_ttl_never_prune():
+    clock = mock.Mock(return_value=0.0)
+    requests = service.Requests(ttl=None, clock=clock)
+    requests.reserve("old--live", "alice")
+    requests.update("old--live", state=api.State.LIVE)
+    clock.return_value = 10 * service.REQUEST_TTL
+
+    requests.reserve(ROOM, "bob")
+
+    assert requests.get("old--live").state == api.State.LIVE
+
+
 def test_requests_release():
     requests = service.Requests()
     requests.reserve(ROOM, "alice")
@@ -1067,4 +1139,16 @@ def test_create_app():
         "the backend has not been checked yet",
     )
     assert isinstance(result.state.requests, service.Requests)
+    assert result.state.requests.ttl == service.REQUEST_TTL
+
+
+@pytest.mark.parametrize("ttl", [60.0, None])
+def test_create_app_with_a_request_ttl(ttl):
+    provisioner = fake_parts.make_provisioner(fake_parts.Script())
+
+    result = service.create_app(
+        provisioner, fake_parts.FakeAdmission(), request_ttl=ttl
+    )
+
+    assert result.state.requests.ttl == ttl
     assert isinstance(provisioner, provision.Provisioner)

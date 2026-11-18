@@ -116,7 +116,7 @@ The room id is quoted as one path segment (`api.room_path`); the default
 |---|---|---|
 | `200` | `RequestState` | The request's state |
 | `401` | `Error` | As for `POST /rooms` |
-| `404` | `Error` | No request for that room, or one the caller may not see |
+| `404` | `Error` | No extant request for that room, or one the caller may not see |
 | `500` | `Error` | As for `POST /rooms` |
 
 Only a request's requester and admins may see it. Anyone else gets `404`, as
