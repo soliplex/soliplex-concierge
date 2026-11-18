@@ -21,21 +21,26 @@ For a NEW room:
 
        - one person, by a claim and its exact value (for example, 'email' is
          'bharney@example.com'): pass them as 'owner_claim' and
-         'owner_value'
+         'owner_value'. An email address is enough: pass it as it is and
+         leave out 'owner', and the provisioner derives the room id's first
+         part from it. Do not ask the user for an owner prefix or username,
+         nor rewrite the address.
 
        - everyone a predicate the installation registers recognizes (a role,
          say): pass its name as 'owner_predicate'. If you name one it does
-         not register, 'request_room' tells you which ones it does.
+         not register, 'request_room' tells you which ones it does. Choose
+         with the user the room id's first part, 'owner' (for example,
+         'foremen'): a predicate needs one.
 
-     Choose with the user the room id's first part, 'owner' (for example,
-     'foremen'). Then show them the owner and its claim and value, or its
-     predicate, and call 'request_room' only once they confirm. Never write
-     an access rule or JSONPath yourself.
+     Show the user the owner's claim and value, or its predicate (and
+     'owner', when you chose one), and call 'request_room' only once they
+     confirm. Never write an access rule or JSONPath yourself.
 
   2. Call 'request_room' exactly once, passing the name as 'name' and the
      purpose as 'description'. Pass a 'slug' only if the user asked for a
-     particular room id, and an 'owner' (with its claim and value, or its
-     predicate) only for a room they confirmed is for someone else.
+     particular room id, and the owner arguments (a claim and value, or a
+     predicate with 'owner') only for a room they confirmed is for someone
+     else.
 
        - If its 'status' is 'accepted' (or 'already_requested': an earlier
          attempt reached the provisioner), the room is being created, private

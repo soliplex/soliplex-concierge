@@ -40,8 +40,9 @@ def test_room_request_defaults():
     [
         {"owner": "bharney", "claim": "email", "value": "b@example.com"},
         {"owner": "foremen", "predicate": "is_foreman"},
+        {"claim": "email", "value": "b@example.com"},
     ],
-    ids=["claim", "predicate"],
+    ids=["claim", "predicate", "claim-without-owner-part"],
 )
 def test_room_request_with_an_owner(owner):
     result = api.RoomRequest.model_validate(
@@ -59,8 +60,18 @@ def test_room_request_with_an_owner(owner):
         {"owner": "x", "value": "b@example.com"},
         {"owner": "x", "claim": "email", "value": "b", "predicate": "p"},
         {"owner": "x", "json_path": "$"},
+        {},
+        {"claim": "email"},
     ],
-    ids=["no-form", "claim-only", "value-only", "both-forms", "raw-rule"],
+    ids=[
+        "no-form",
+        "claim-only",
+        "value-only",
+        "both-forms",
+        "raw-rule",
+        "nothing",
+        "claim-only-without-owner-part",
+    ],
 )
 def test_room_owner_needs_exactly_one_form(owner):
     with pytest.raises(pydantic.ValidationError):
@@ -80,6 +91,17 @@ def test_room_owner_reports_its_forms():
         "is_staff",
     )
     assert "predicate='is_staff'" in str(invalid)
+
+
+def test_room_owner_by_predicate_needs_an_owner_part():
+    with pytest.raises(pydantic.ValidationError) as caught:
+        api.RoomOwner(predicate="is_staff")
+
+    [error] = caught.value.errors()
+    missing = error["ctx"]["error"]
+    assert type(missing) is api.OwnerPartMissing
+    assert missing.predicate == "is_staff"
+    assert "needs an 'owner' part" in str(missing)
 
 
 def test_request_state_defaults():

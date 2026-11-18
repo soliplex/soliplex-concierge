@@ -42,8 +42,10 @@ calls `request_room`:
 - **For someone else** — an admin may ask for a room owned by another person,
   or by everyone a predicate the installation registers recognizes (a role,
   say). The agent settles whom with them, as a claim and its exact value
-  (`email` is `bharney@example.com`) or a predicate's name, plus the room id's
-  owner part, and asks them to confirm before requesting it; it never writes
+  (`email` is `bharney@example.com`) or a predicate's name, plus, for a
+  predicate, the room id's owner part (a person's derives from the value,
+  `bharney_example.com`), and asks them to confirm before requesting it; it
+  never writes
   an access rule itself. Anyone else who names an owner gets
   **owner not permitted**, and the agent offers the room as their own, or
   files the request as an issue naming whom it is for.

@@ -57,7 +57,10 @@ Routes and statuses
 Room ids are ``<owner><separator><slug>``, the separator being the
 deployment's (by default ``--``). The room's owner is the requester, its
 owner part derived from one of their claims, unless an admin names another
-in the request's ``owner`` (a :class:`RoomOwner`: a group, say). The slug
+in the request's ``owner`` (a :class:`RoomOwner`: a group, say). A named
+owner part is normalized as a claimed one is, and always flattened (``@``
+-> ``_``), so an email address can name it; an owner named by a claim and
+value may leave the part out, to have it derived from the value. The slug
 is the request's ``slug``, or else derives from its ``name``.
 
 Versions
@@ -116,6 +119,21 @@ class OwnerFormInvalid(ValueError):
         )
 
 
+class OwnerPartMissing(ValueError):
+    """A :class:`RoomOwner` names its owner by predicate, with no owner part.
+
+    Pydantic reports it as a validation error, keeping it in the error's
+    context.
+    """
+
+    def __init__(self, predicate):
+        self.predicate = predicate
+        super().__init__(
+            f"an owner named by 'predicate' ({predicate!r}) needs an "
+            "'owner' part: only a claim's value can stand in for one"
+        )
+
+
 class RoomOwner(pydantic.BaseModel):
     """A room's owner, as an admin names it.
 
@@ -123,14 +141,18 @@ class RoomOwner(pydantic.BaseModel):
     in one of two forms, from which the service builds the access rule:
 
     - ``claim`` and ``value``: users whose ``claim`` is ``value`` (e.g.
-      ``email`` is ``bharney@example.com``)
+      ``email`` is ``bharney@example.com``). ``owner`` may be left out:
+      the service then derives the owner part from ``value``, flattened
+      and normalized as a named owner part is (e.g.
+      ``bharney_example.com``)
     - ``predicate``: users whose claims the named predicate passes, a
-      function the installation registers under ``meta.jsonpath_functions``
+      function the installation registers under
+      ``meta.jsonpath_functions``. ``owner`` is required
     """
 
     model_config = pydantic.ConfigDict(extra="forbid")
 
-    owner: str
+    owner: str | None = None
     claim: str | None = None
     value: str | None = None
     predicate: str | None = None
@@ -142,6 +164,8 @@ class RoomOwner(pydantic.BaseModel):
         partial = (self.claim is None) != (self.value is None)
         if partial or by_claim == by_predicate:
             raise OwnerFormInvalid(self.claim, self.value, self.predicate)
+        if by_predicate and self.owner is None:
+            raise OwnerPartMissing(self.predicate)
         return self
 
 

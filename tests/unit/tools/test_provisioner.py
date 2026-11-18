@@ -430,6 +430,67 @@ async def test_request_room_for_a_named_owner(ctx, is_staff, kwargs, owner):
 
 
 @pytest.mark.anyio
+async def test_request_room_for_an_owner_named_by_email(ctx):
+    service = _FakeService(
+        202, {"room_id": "b_example.com--q3-plans", "issue_url": ISSUE_URL}
+    )
+
+    with _patch_service(service):
+        result = await provisioner.request_room(
+            ctx,
+            name="Q3 Plans",
+            owner_claim="email",
+            owner_value="b@example.com",
+        )
+
+    assert result == provisioner.RoomRequestAccepted(
+        status="accepted",
+        room_id="b_example.com--q3-plans",
+        issue_url=ISSUE_URL,
+    )
+    [request] = service.requests
+    assert json.loads(request.content) == {
+        "name": "Q3 Plans",
+        "description": None,
+        "slug": None,
+        "owner": {"claim": "email", "value": "b@example.com"},
+    }
+
+
+@pytest.mark.anyio
+async def test_request_room_owner_named_by_email_not_permitted(ctx):
+    service = _FakeService(403, {"detail": "only an admin may name owners"})
+
+    with _patch_service(service):
+        result = await provisioner.request_room(
+            ctx,
+            name="Q3 Plans",
+            owner_claim="email",
+            owner_value="b@example.com",
+        )
+
+    assert result == provisioner.RoomRequestAccepted(
+        status="owner_not_permitted"
+    )
+
+
+@pytest.mark.anyio
+async def test_request_room_bad_owner_named_by_email(ctx):
+    service = _FakeService(400, {"detail": "room owner '../x' must match"})
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ModelRetry) as caught,
+    ):
+        await provisioner.request_room(
+            ctx, name="Q3 Plans", owner_claim="email", owner_value="../x"
+        )
+
+    assert type(caught.value) is provisioner.BadOwner
+    assert caught.value.owner == "../x"
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -442,18 +503,24 @@ async def test_request_room_for_a_named_owner(ctx, is_staff, kwargs, owner):
             "owner_value": "b@example.com",
             "owner_predicate": "is_staff",
         },
-        {"owner_claim": "email", "owner_value": "b@example.com"},
         {"owner_predicate": "is_staff"},
         {"owner_value": "b@example.com"},
+        {"owner_claim": "email"},
+        {
+            "owner_claim": "email",
+            "owner_value": "b@example.com",
+            "owner_predicate": "is_staff",
+        },
     ],
     ids=[
         "owner-only",
         "claim-without-value",
         "value-without-claim",
         "both-forms",
-        "claim-without-owner",
         "predicate-without-owner",
         "value-without-owner",
+        "claim-without-owner",
+        "both-forms-without-owner",
     ],
 )
 async def test_request_room_with_an_incomplete_owner(ctx, is_staff, kwargs):

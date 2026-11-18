@@ -52,7 +52,8 @@ containing the separator) is a `400`, and the caller may retry with another.
 An admin may make someone other than themselves the room's owner with the
 optional `owner`, a `RoomOwner`. `owner.owner` is the room id's owner part,
 normalized as a claimed one is (lowercased by default, any separator
-replaced, any trailing `.`, `_` or `-` stripped).
+replaced, any trailing `.`, `_` or `-` stripped), and always flattened
+(`@` becomes `_`), so an email address may name it.
 Whom the room is granted to is given in one of two forms:
 
 - a claim and its exact value, for one person:
@@ -63,8 +64,18 @@ Whom the room is granted to is given in one of two forms:
                "value": "bharney@example.com"}}
     ```
 
+    `owner.owner` may be left out; the owner part then derives from the
+    value, normalized as above (here `bharney_example.com`), so an email
+    address alone names a person's room:
+
+    ```json
+    {"name": "Q3 Plans",
+     "owner": {"claim": "email", "value": "bharney@example.com"}}
+    ```
+
 - a predicate the installation registers under `meta.jsonpath_functions`,
-  applied to a user's claims as a whole, for everyone it recognizes:
+  applied to a user's claims as a whole, for everyone it recognizes;
+  `owner.owner` is required:
 
     ```json
     {"name": "Quarry Notes",
@@ -83,12 +94,12 @@ requester is still the one who asked, and may see the request.
 | `403` | `Error` | The requester is not admitted, or names an owner without being an admin |
 | `409` | `Refusal`: `detail`, `room_id` | The room exists, a request for it is in flight, or resources named for it exist already |
 | `409` | `Error` | The deployment's own check finds the room's name conflicts with something it knows of |
-| `422` | | The body is not a `RoomRequest` (including an `owner` in neither form, or both) |
+| `422` | | The body is not a `RoomRequest` (including an `owner` in neither form, or both, or a predicate without an owner part) |
 | `429` | `Error` | The deployment's own check refuses the request as one too many (a rate limit, or a quota of rooms); a `Retry-After` header, when present, says when to ask again |
+| `500` | `Error` | The service failed |
 
 The deployment's own check may answer with any status; those above are
 the ones the concierge's room tool understands.
-| `500` | `Error` | The service failed |
 
 The service refuses in this order, cheapest first: `401` for the token,
 `400` for the request's own form, `409` for a request already in flight,

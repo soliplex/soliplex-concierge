@@ -99,6 +99,26 @@ async def test_check_all_passes_a_conforming_service():
             "naming an owner, by an admin: the answer does not parse",
         ),
         (
+            contract.check_admin_names_an_owner_by_email,
+            "unflattened-owner",
+            "naming the owner part 'group-",
+        ),
+        (
+            contract.check_admin_names_an_owner_by_email,
+            "owner-part-required",
+            "alone, by an admin: expected HTTP 202, got HTTP 400",
+        ),
+        (
+            contract.check_admin_names_an_owner_by_email,
+            "ignore-named-owner",
+            "expected a room id owned by 'group-",
+        ),
+        (
+            contract.check_admin_names_an_owner_by_email,
+            "malformed-accepted",
+            "by an admin: the answer does not parse",
+        ),
+        (
             contract.check_accepts_and_reports,
             "accept-with-200",
             "by an admitted requester: expected HTTP 202, got HTTP 200",

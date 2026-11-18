@@ -208,6 +208,13 @@ def test_named_owner():
         (SCHEME, "ops--", "ops"),
         (UNDERSCORES, "ops_", "ops"),
         (room_ids.RoomIdScheme(flatten_owner=True), "a_b", "a_b"),
+        (SCHEME, "Barney.Rubble@Example.com", "barney.rubble_example.com"),
+        (
+            room_ids.RoomIdScheme(flatten_owner=True),
+            "b@example.com",
+            "b_example.com",
+        ),
+        (SCHEME, "ops@", "ops"),
     ],
     ids=[
         "separator",
@@ -218,7 +225,10 @@ def test_named_owner():
         "trailing-run",
         "trailing-separator",
         "trailing-underscore",
-        "never-flattened",
+        "underscore-kept",
+        "email",
+        "email-flattening-scheme",
+        "trailing-at",
     ],
 )
 def test_named_owner_normalizes(scheme, owner, expected):
@@ -231,7 +241,7 @@ def test_named_owner_normalizes(scheme, owner, expected):
     "owner",
     [
         *_BAD_SEGMENTS,
-        "a@b",
+        "@b",
         "--",
         "_",
         "bob\N{LATIN SMALL LETTER E WITH ACUTE}",
@@ -242,6 +252,16 @@ def test_named_owner_rejects_a_bad_owner_part(owner):
         SCHEME.named_owner(owner, _GROUP_RULE)
 
     assert caught.value.owner == owner
+
+
+def test_named_owner_matches_a_flattened_claimed_owner():
+    scheme = room_ids.RoomIdScheme(flatten_owner=True)
+    claims = {"email": "Barney.Rubble@Example.com"}
+
+    claimed = scheme.owner_from_claims(claims, claim="email")
+    named = scheme.named_owner(claims["email"], claimed.json_path)
+
+    assert named == claimed
 
 
 @pytest.mark.parametrize("json_path", ["", "   "])
