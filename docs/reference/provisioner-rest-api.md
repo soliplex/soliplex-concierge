@@ -81,9 +81,14 @@ requester is still the one who asked, and may see the request.
 | `400` | `Error`: `detail` | The name, slug or named owner yields no usable room id, or the owner's predicate is not registered |
 | `401` | `Error` | No service token, or one that is not valid |
 | `403` | `Error` | The requester is not admitted, or names an owner without being an admin |
-| `409` | `Refusal`: `detail`, `room_id` | The room exists, or a request for it is in flight |
+| `409` | `Refusal`: `detail`, `room_id` | The room exists, a request for it is in flight, or resources named for it exist already |
 | `422` | | The body is not a `RoomRequest` (including an `owner` in neither form, or both) |
 | `500` | `Error` | The service failed |
+
+Answers say what a caller can act on, and nothing about the stack itself. A
+`500`'s `detail` gives only a reference, under which the service logs the
+failure; a `409` for resources that exist already says an administrator must
+clear them, without naming them.
 
 A `409` names the room it refuses, because the caller cannot work the room id
 out for itself. The concierge relies on this when it retries a request that
@@ -99,6 +104,7 @@ The room id is quoted as one path segment (`api.room_path`); the default
 | `200` | `RequestState` | The request's state |
 | `401` | `Error` | As for `POST /rooms` |
 | `404` | `Error` | No request for that room, or one the caller may not see |
+| `500` | `Error` | As for `POST /rooms` |
 
 Only a request's requester and admins may see it. Anyone else gets `404`, as
 if there were no such request.
@@ -110,6 +116,11 @@ A `RequestState` carries:
 - `issue_url`: the request's tracking issue, if any
 - `incomplete`: the steps an admin must finish
 - `error`: why the room was not created
+
+An admin sees `incomplete` and `error` in full. A requester who is not one
+gets a fixed sentence for each instead (an administrator must finish
+setting the room up; creating it failed, and an administrator has the
+details), since both can name the stack's hosts, paths and storage.
 
 The states:
 

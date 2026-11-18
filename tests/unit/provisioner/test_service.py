@@ -7,6 +7,7 @@ which returns once a response's background task has run.
 
 import asyncio
 import logging
+import re
 import threading
 
 import anyio
@@ -63,6 +64,22 @@ def _get(app, room_id=ROOM, token="alice-token"):
 
 def _pending(app, requester="alice"):
     app.state.requests.reserve(ROOM, requester)
+
+
+def _assert_internal_error(response, caplog, cause):
+    """A ``500`` names only a reference, which the log ties to ``cause``."""
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    match = re.fullmatch(
+        service.INTERNAL_ERROR.format(ref="(?P<ref>[0-9a-f]{12})"), detail
+    )
+    assert match is not None
+    assert cause not in detail
+    logged = [
+        r for r in caplog.records if f"[ref {match['ref']}]" in r.message
+    ]
+    assert len(logged) == 1
+    assert cause in str(logged[0].exc_info[1])
 
 
 # ---- the contract ----
@@ -142,13 +159,12 @@ async def test_post_room_with_an_invalid_token(app, caplog):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("failing", ["claims", "is_admitted"])
-async def test_post_room_admission_fails(app, admission, failing):
+async def test_post_room_admission_fails(app, admission, caplog, failing):
     admission.errors[failing] = RuntimeError("no verdict")
 
     response = await _post(app)
 
-    assert response.status_code == 500
-    assert response.json() == {"detail": "no verdict"}
+    _assert_internal_error(response, caplog, "no verdict")
 
 
 @pytest.mark.anyio
@@ -231,13 +247,12 @@ async def test_post_room_admin_names_an_unusable_owner(app, owner, detail):
 
 
 @pytest.mark.anyio
-async def test_post_room_listing_predicates_fails(app, script):
+async def test_post_room_listing_predicates_fails(app, script, caplog):
     script.failures["authz.predicates"] = RuntimeError("no installation")
 
     response = await _post(app, token="root-token", owner=STAFF)
 
-    assert response.status_code == 500
-    assert response.json() == {"detail": "no installation"}
+    _assert_internal_error(response, caplog, "no installation")
 
 
 @pytest.mark.anyio
@@ -271,35 +286,40 @@ async def test_post_room_already_pending(app, script):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    "setting, expected",
-    [
-        ({"rooms": {ROOM}}, "already exists"),
-        ({"clashes": {"uploads": ["3 uploads"]}}, "3 uploads"),
-    ],
-    ids=["room-exists", "resources-exist"],
-)
-async def test_post_room_refused_at_admission(app, script, setting, expected):
-    for name, value in setting.items():
-        setattr(script, name, value)
+async def test_post_room_refused_for_an_existing_room(app, script):
+    script.rooms = {ROOM}
 
     response = await _post(app)
 
     assert response.status_code == 409
     refusal = api.Refusal.model_validate_json(response.content)
     assert refusal.room_id == ROOM
-    assert expected in refusal.detail
+    assert "already exists" in refusal.detail
     assert app.state.requests.get(ROOM) is None
 
 
 @pytest.mark.anyio
-async def test_post_room_admission_step_fails(app, script):
+async def test_post_room_refused_for_existing_resources(app, script, caplog):
+    script.clashes = {"uploads": ["/uploads/rooms/alice--q3-plans"]}
+
+    response = await _post(app)
+
+    assert response.status_code == 409
+    refusal = api.Refusal.model_validate_json(response.content)
+    assert refusal == api.Refusal(
+        detail=service.RESOURCES_EXIST.format(room=ROOM), room_id=ROOM
+    )
+    assert "/uploads/rooms/alice--q3-plans" in caplog.text
+    assert app.state.requests.get(ROOM) is None
+
+
+@pytest.mark.anyio
+async def test_post_room_admission_step_fails(app, script, caplog):
     script.failures["backend.check_access"] = RuntimeError("backend down")
 
     response = await _post(app)
 
-    assert response.status_code == 500
-    assert response.json() == {"detail": "backend down"}
+    _assert_internal_error(response, caplog, "backend down")
     assert app.state.requests.get(ROOM) is None
 
 
@@ -331,24 +351,110 @@ async def test_post_room_creation_incomplete(app, script):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("token", ["alice-token", "root-token"])
-async def test_get_room(app, token):
-    _pending(app)
-    app.state.requests.update(
-        ROOM, issue_url=ISSUE_URL, incomplete=("close the issue",)
-    )
+@pytest.mark.parametrize(
+    "requester, token",
+    [
+        ("alice", "alice-token"),
+        ("alice", "root-token"),
+        ("root", "root-token"),
+    ],
+    ids=["requester", "admin", "requester-and-admin"],
+)
+async def test_get_room(app, requester, token):
+    _pending(app, requester)
+    app.state.requests.update(ROOM, issue_url=ISSUE_URL)
 
     response = await _get(app, token=token)
 
     assert response.status_code == 200
     assert api.RequestState.model_validate_json(response.content) == (
         api.RequestState(
-            room_id=ROOM,
-            state=api.State.PENDING,
-            issue_url=ISSUE_URL,
-            incomplete=["close the issue"],
+            room_id=ROOM, state=api.State.PENDING, issue_url=ISSUE_URL
         )
     )
+
+
+@pytest.mark.anyio
+async def test_get_room_needs_no_admin_check_with_nothing_to_hide(
+    app, admission
+):
+    _pending(app)
+    admission.errors["is_admin"] = RuntimeError("no verdict")
+
+    response = await _get(app, token="alice-token")
+
+    assert response.status_code == 200
+
+
+_INCOMPLETE = {
+    "state": api.State.INCOMPLETE,
+    "incomplete": ("push /srv/rooms.git to gitea.internal",),
+}
+_FAILED = {"state": api.State.FAILED, "error": "CliFailed: Traceback ..."}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "changes, requester, token, incomplete, error",
+    [
+        (
+            _INCOMPLETE,
+            "alice",
+            "alice-token",
+            [service.SETUP_UNFINISHED],
+            None,
+        ),
+        (_FAILED, "alice", "alice-token", [], service.CREATION_FAILED),
+        (
+            _INCOMPLETE,
+            "alice",
+            "root-token",
+            ["push /srv/rooms.git to gitea.internal"],
+            None,
+        ),
+        (_FAILED, "alice", "root-token", [], "CliFailed: Traceback ..."),
+        (
+            _FAILED,
+            "root",
+            "root-token",
+            [],
+            "CliFailed: Traceback ...",
+        ),
+    ],
+    ids=[
+        "incomplete-to-requester",
+        "failed-to-requester",
+        "incomplete-to-admin",
+        "failed-to-admin",
+        "failed-to-requester-and-admin",
+    ],
+)
+async def test_get_room_detail(
+    app, changes, requester, token, incomplete, error
+):
+    _pending(app, requester)
+    app.state.requests.update(ROOM, **changes)
+
+    response = await _get(app, token=token)
+
+    assert response.status_code == 200
+    state = api.RequestState.model_validate_json(response.content)
+    assert state.state == changes["state"]
+    assert state.incomplete == incomplete
+    assert state.error == error
+
+
+@pytest.mark.anyio
+async def test_get_room_admin_check_fails_for_the_requester(
+    app, admission, caplog
+):
+    _pending(app)
+    app.state.requests.update(ROOM, **_FAILED)
+    admission.errors["is_admin"] = RuntimeError("no verdict")
+
+    response = await _get(app, token="alice-token")
+
+    _assert_internal_error(response, caplog, "no verdict")
 
 
 @pytest.mark.anyio

@@ -28,6 +28,7 @@ import logging
 import threading
 import time
 import typing
+import uuid
 
 import fastapi
 
@@ -46,6 +47,23 @@ TOKEN_REQUIRED = "a bearer service token is required"
 TOKEN_INVALID = "the service token is not valid"
 NOT_ADMITTED = "the requester may not request rooms"
 NOT_AN_ADMIN = "only an admin may name a room's owner"
+
+# What a requester is told instead of an internal error's text, which can
+# name the stack's hosts, paths and storage, or hold a traceback (#148).
+# The detail goes to the log (and the tracker), and to admins asking.
+INTERNAL_ERROR = (
+    "the provisioner failed; an administrator can find reference {ref} in "
+    "its log"
+)
+CREATION_FAILED = (
+    "creating the room failed; an administrator has the details (see its "
+    "tracking issue, if any)"
+)
+SETUP_UNFINISHED = "an administrator must finish setting the room up"
+RESOURCES_EXIST = (
+    "resources for room {room!r} already exist; an administrator must clear "
+    "them"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +216,19 @@ async def _room_refused(
 
 
 def _http_error(status: int, error: Exception) -> fastapi.HTTPException:
+    """An error answer carrying ``error``'s text: only for refusals that
+    tell the caller what to fix (a ``400``)."""
     return fastapi.HTTPException(status_code=status, detail=str(error))
+
+
+def _internal_error(what: str, *args) -> fastapi.HTTPException:
+    """Log the error being handled, under a fresh reference; return a ``500``
+    naming only that reference (#148)."""
+    ref = uuid.uuid4().hex[:12]
+    logger.exception(f"[ref {ref}] {what}", *args)
+    return fastapi.HTTPException(
+        status_code=500, detail=INTERNAL_ERROR.format(ref=ref)
+    )
 
 
 def _unauthorized(detail: str) -> fastapi.HTTPException:
@@ -254,16 +284,16 @@ def _claims(admission: interfaces.Admission, token: str):
         logger.info("refused a service token: %s", error)
         raise _unauthorized(TOKEN_INVALID) from error
     except Exception as error:
-        logger.exception("validating a service token failed")
-        raise _http_error(500, error) from error
+        internal = _internal_error("validating a service token failed")
+        raise internal from error
 
 
 def _check(check, token: str, what: str) -> bool:
     try:
         return check(token)
     except Exception as error:
-        logger.exception("checking %s failed", what)
-        raise _http_error(500, error) from error
+        internal = _internal_error("checking %s failed", what)
+        raise internal from error
 
 
 def _named_owner(
@@ -279,8 +309,10 @@ def _named_owner(
         try:
             known = provisioner.authz.predicates()
         except Exception as error:
-            logger.exception("listing the registered predicates failed")
-            raise _http_error(500, error) from error
+            internal = _internal_error(
+                "listing the registered predicates failed"
+            )
+            raise internal from error
         if named.predicate not in known:
             raise access_rules.UnknownPredicate(named.predicate, known)
         rule = access_rules.predicate_rule(named.predicate)
@@ -372,13 +404,20 @@ def post_room(
         )
     try:
         admitted = provision.admit_room(request, provisioner)
-    except (provision.RoomExists, provision.ResourcesExist) as error:
+    except provision.RoomExists as error:
         requests.release(room)
         raise RoomRefused(409, str(error), room) from error
+    except provision.ResourcesExist as error:
+        # Their names are the stack's own paths and stores: logged, not told.
+        requests.release(room)
+        logger.warning("refused room %r: %s", room, error)
+        raise RoomRefused(
+            409, RESOURCES_EXIST.format(room=room), room
+        ) from error
     except Exception as error:
         requests.release(room)
-        logger.exception("admitting room %r failed", room)
-        raise _http_error(500, error) from error
+        internal = _internal_error("admitting room %r failed", room)
+        raise internal from error
 
     issue_url = admitted.issue.url if admitted.issue is not None else None
     requests.update(room, issue_url=issue_url)
@@ -394,7 +433,11 @@ def get_room(
     requests: RequestsDep,
     token: TokenDep,
 ) -> api.RequestState:
-    """The state of a room request, for its requester or an admin."""
+    """The state of a room request, for its requester or an admin.
+
+    An admin sees why a room was not created and what remains to finish
+    it; a requester who is not one gets a fixed sentence for each (#148).
+    """
     claims = _claims(admission, token)
     request = requests.get(room_id)
     not_found = fastapi.HTTPException(
@@ -403,15 +446,26 @@ def get_room(
     if request is None:
         raise not_found
     caller = requester_id(provisioner, claims)
-    if caller is None or caller != request.requester:
+    is_requester = caller is not None and caller == request.requester
+    if not is_requester:
         if not _check(admission.is_admin, token, "admin access"):
             raise not_found
+        sees_detail = True
+    elif request.error or request.incomplete:
+        sees_detail = _check(admission.is_admin, token, "admin access")
+    else:
+        sees_detail = True  # nothing to hide: spare the admin check
+    if sees_detail:
+        incomplete, error = list(request.incomplete), request.error
+    else:
+        incomplete = [SETUP_UNFINISHED] if request.incomplete else []
+        error = CREATION_FAILED if request.error else None
     return api.RequestState(
         room_id=request.room_id,
         state=request.state,
         issue_url=request.issue_url,
-        incomplete=list(request.incomplete),
-        error=request.error,
+        incomplete=incomplete,
+        error=error,
     )
 
 
