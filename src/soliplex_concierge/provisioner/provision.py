@@ -70,12 +70,6 @@ class RoomExists(ProvisionError):
 
 
 class ResourcesExist(ProvisionError):
-    """Things named for the room exist already, so it is not created.
-
-    ``found`` holds the adapters' descriptions of them; an operator decides
-    whether to remove them before the room is provisioned again.
-    """
-
     def __init__(self, room_id, found):
         self.room_id, self.found = room_id, tuple(found)
         super().__init__(
@@ -86,12 +80,6 @@ class ResourcesExist(ProvisionError):
 
 
 class ProvisioningFailed(ProvisionError):
-    """A step before the commit failed; what was done has been undone.
-
-    ``error`` is the step's; ``rollback_failures`` describes each undo
-    that itself failed, leaving its part for an operator to clean up.
-    """
-
     def __init__(self, room_id, error, rollback_failures=()):
         self.room_id, self.error = room_id, error
         self.rollback_failures = tuple(rollback_failures)
@@ -106,6 +94,24 @@ class ProvisioningFailed(ProvisionError):
 
 
 _UNSET = object()
+
+
+class RequestRefused(Exception):
+    def __init__(
+        self, status: int, detail: str, *, retry_after: int | None = None
+    ):
+        self.status, self.detail, self.retry_after = (
+            status,
+            detail,
+            retry_after,
+        )
+        super().__init__(detail)
+
+
+RequestCheck = collections.abc.Callable[
+    [collections.abc.Mapping, interfaces.RoomRequest], None
+]
+
 _LEGACY_SETTINGS = "'room_id_separator' / 'flatten_owner' / 'lowercase_owner'"
 
 
@@ -118,6 +124,11 @@ class Provisioner:
 
     - ``scheme`` holds the rules for room ids: the separator, and how an
       owner part derives (see :class:`room_ids.RoomIdScheme`).
+
+    - ``check_request``, when given, is the deployment's own check of a
+      planned request: called with the requester's claims and the
+      :class:`interfaces.RoomRequest`, it raises :class:`RequestRefused` to
+      refuse it (see :func:`check_request`).
 
     The keyword arguments ``room_id_separator``, ``flatten_owner`` and
     ``lowercase_owner``, and the attributes of those names, are deprecated
@@ -134,6 +145,7 @@ class Provisioner:
     tracker: interfaces.IssueTracker | None
     owner_claim: str
     scheme: room_ids.RoomIdScheme
+    check_request: RequestCheck | None
 
     def __init__(
         self,
@@ -145,6 +157,7 @@ class Provisioner:
         tracker: interfaces.IssueTracker | None = None,
         owner_claim: str = room_ids.DEFAULT_OWNER_CLAIM,
         scheme: room_ids.RoomIdScheme | None = None,
+        check_request: RequestCheck | None = None,
         *,
         room_id_separator=_UNSET,
         flatten_owner=_UNSET,
@@ -177,6 +190,7 @@ class Provisioner:
             ("tracker", tracker),
             ("owner_claim", owner_claim),
             ("scheme", scheme or room_ids.DEFAULT_SCHEME),
+            ("check_request", check_request),
         ):
             object.__setattr__(self, name, value)
 
@@ -258,6 +272,27 @@ def plan_room(
         description=name if description is None else description,
         requested_at=now or datetime.datetime.now(datetime.UTC),
     )
+
+
+def check_request(
+    provisioner: Provisioner,
+    requester_claims: collections.abc.Mapping,
+    request: interfaces.RoomRequest,
+) -> None:
+    """Apply the deployment's own check (``provisioner.check_request``) to a
+    planned request, if it has one.
+
+    Raises :class:`RequestRefused` for a request the deployment refuses;
+    the service answers with its ``status``, ``detail`` and any
+    ``retry_after`` (as ``Retry-After``).
+
+    The service calls this for each well-formed request not already in
+    flight, before admitting its requester; a deployment's other routes to
+    :func:`admit_room` (a retry, say) call it too, so that every route
+    applies the same checks. Changes nothing itself.
+    """
+    if provisioner.check_request is not None:
+        provisioner.check_request(requester_claims, request)
 
 
 def check_free(

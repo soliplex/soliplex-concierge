@@ -326,14 +326,39 @@ def _check_predicate(provisioner: provision.Provisioner, name: str) -> None:
     try:
         known = provisioner.authz.predicates()
     except Exception as error:
-        logger.exception("listing the registered predicates failed")
-        internal = _internal_error(
-            "listing the registered predicates failed"
-        )
+        internal = _internal_error("listing the registered predicates failed")
         raise internal from error
     if name not in known:
         error = access_rules.UnknownPredicate(name, known)
         raise _http_error(400, error)
+
+
+def _check_request(
+    provisioner: provision.Provisioner,
+    claims: collections.abc.Mapping,
+    request: interfaces.RoomRequest,
+) -> None:
+    """Apply the deployment's own check to a planned request (#149).
+
+    Its :class:`provision.RequestRefused` answers with its status, its
+    detail and any ``Retry-After``, as a plain error: never a ``Refusal``
+    naming the room, which a ``409`` after a retry would let the concierge
+    read as a request that got through.
+    """
+    try:
+        provision.check_request(provisioner, claims, request)
+    except provision.RequestRefused as refused:
+        headers = (
+            None
+            if refused.retry_after is None
+            else {"Retry-After": str(refused.retry_after)}
+        )
+        raise fastapi.HTTPException(
+            status_code=refused.status, detail=refused.detail, headers=headers
+        ) from refused
+    except Exception as error:
+        internal = _internal_error("the deployment's request check failed")
+        raise internal from error
 
 
 def _admit_caller(
@@ -415,7 +440,11 @@ def post_room(
     """Admit a room request, then create the room in the background.
 
     The cheap checks come first: the token, then the request's own form
-    (``400``), then whether a request for the room is in flight (``409``).
+    (``400``), then whether a request for the room is in flight (``409``),
+    then the deployment's own check, if any (see
+    :attr:`provision.Provisioner.check_request`). The in-flight check
+    precedes the deployment's, so that a retry of a request that got
+    through meets the former, never a rate limit counting it again.
     Only then is the caller admitted (``403``), which may cost the backend
     a call or two; a refusal there releases the reservation (#145).
     """
@@ -443,6 +472,7 @@ def post_room(
             409, f"room {room!r} is already being provisioned", room
         )
     try:
+        _check_request(provisioner, claims, request)
         _admit_caller(provisioner, admission, token, body.owner)
     except BaseException:
         requests.release(room)

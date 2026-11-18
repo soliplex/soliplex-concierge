@@ -5,6 +5,7 @@ each call, so a test can check the steps' order as well as their outcome.
 """
 
 import datetime
+from unittest import mock
 
 import fake_parts
 import pytest
@@ -138,6 +139,66 @@ def test_provisioner_legacy_attributes_are_deprecated(attribute, expected):
         result = getattr(provisioner, attribute)
 
     assert result == expected
+
+
+# ---- RequestRefused / check_request (#149) ----
+
+
+@pytest.mark.parametrize(
+    "status, retry_after",
+    [(400, None), (409, None), (429, None), (429, 60)],
+)
+def test_request_refused(status, retry_after):
+    result = provision.RequestRefused(
+        status, "too many", retry_after=retry_after
+    )
+
+    assert (result.status, result.detail, result.retry_after) == (
+        status,
+        "too many",
+        retry_after,
+    )
+    assert str(result) == "too many"
+
+
+def test_provisioner_has_no_request_check_by_default():
+    result = fake_parts.make_provisioner(fake_parts.Script())
+
+    assert result.check_request is None
+
+
+def test_check_request_without_a_check():
+    provisioner = fake_parts.make_provisioner(fake_parts.Script())
+
+    result = provision.check_request(
+        provisioner, CLAIMS, _request(provisioner)
+    )
+
+    assert result is None
+
+
+def test_check_request_calls_the_check():
+    check = mock.Mock(return_value=None)
+    provisioner = fake_parts.make_provisioner(
+        fake_parts.Script(), check_request=check
+    )
+    request = _request(provisioner)
+
+    provision.check_request(provisioner, CLAIMS, request)
+
+    check.assert_called_once_with(CLAIMS, request)
+
+
+def test_check_request_propagates_a_refusal():
+    refusal = provision.RequestRefused(429, "slow down", retry_after=60)
+    provisioner = fake_parts.make_provisioner(
+        fake_parts.Script(), check_request=mock.Mock(side_effect=refusal)
+    )
+
+    with pytest.raises(provision.RequestRefused) as caught:
+        provision.check_request(provisioner, CLAIMS, _request(provisioner))
+
+    assert caught.value is refusal
 
 
 # ---- plan_room ----

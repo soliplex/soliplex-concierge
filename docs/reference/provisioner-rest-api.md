@@ -78,22 +78,31 @@ requester is still the one who asked, and may see the request.
 | Status | Body | Meaning |
 |---|---|---|
 | `202` | `Accepted`: `room_id`, `issue_url` | Admitted; the room is created in the background |
-| `400` | `Error`: `detail` | The name, slug or named owner yields no usable room id, or the owner's predicate is not registered |
+| `400` | `Error`: `detail` | The name, slug or named owner yields no usable room id, the owner's predicate is not registered, or the deployment's own check finds the request unacceptable |
 | `401` | `Error` | No service token, or one that is not valid |
 | `403` | `Error` | The requester is not admitted, or names an owner without being an admin |
 | `409` | `Refusal`: `detail`, `room_id` | The room exists, a request for it is in flight, or resources named for it exist already |
+| `409` | `Error` | The deployment's own check finds the room's name conflicts with something it knows of |
 | `422` | | The body is not a `RoomRequest` (including an `owner` in neither form, or both) |
+| `429` | `Error` | The deployment's own check refuses the request as one too many (a rate limit, or a quota of rooms); a `Retry-After` header, when present, says when to ask again |
+
+The deployment's own check may answer with any status; those above are
+the ones the concierge's room tool understands.
 | `500` | `Error` | The service failed |
 
 The service refuses in this order, cheapest first: `401` for the token,
 `400` for the request's own form, `409` for a request already in flight,
-then `403` for a caller it does not admit (a check that may cost the
-backend a call). So a caller it would not admit still gets `400` for a
+then the deployment's own check, if it has one, then `403` for a caller it
+does not admit (a check that may cost the backend a call). The in-flight
+check comes before the deployment's, so a retry of a request that got
+through is answered as in flight, never refused by a rate limit counting it
+again. So a caller it would not admit still gets `400` for a
 malformed request. Whether an admin's named predicate is registered (a
 `400` listing the registered ones) is checked only after the `403`s, and a
 room that exists already (a `409`) only once the caller is admitted.
 
-A `409` names the room it refuses, because the caller cannot work the room id
+The service's own `409`s name the room they refuse (a `Refusal`); a
+deployment's never does (a plain `Error`). A `409` names the room it refuses, because the caller cannot work the room id
 out for itself. The concierge relies on this when it retries a request that
 timed out: a `409` naming the room means the first attempt got through.
 

@@ -434,6 +434,92 @@ async def test_post_room_lists_predicates_only_to_an_admin(app):
     assert "is_staff" not in response.json()["detail"]
 
 
+# ---- POST /rooms: the deployment's own check (#149) ----
+
+
+def _app_with_check(script, admission, check):
+    provisioner = fake_parts.make_provisioner(script, check_request=check)
+    return service.create_app(provisioner, admission)
+
+
+@pytest.mark.anyio
+async def test_post_room_passes_the_check(script, admission):
+    check = mock.Mock(return_value=None)
+    app = _app_with_check(script, admission, check)
+
+    response = await _post(app)
+
+    assert response.status_code == 202
+    [(claims, request)] = [call.args for call in check.call_args_list]
+    assert claims == fake_parts.TOKENS["alice-token"]
+    assert request.room == ROOM
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "refusal, retry_after",
+    [
+        (provision.RequestRefused(400, "description too long"), None),
+        (provision.RequestRefused(409, "'q3-plans' is reserved"), None),
+        (provision.RequestRefused(429, "at most 5 rooms"), None),
+        (provision.RequestRefused(429, "slow down", retry_after=60), "60"),
+    ],
+    ids=["input-limit", "reserved-name", "quota", "rate-limit"],
+)
+async def test_post_room_refused_by_the_check(
+    script, admission, refusal, retry_after
+):
+    _spy(admission)
+    app = _app_with_check(script, admission, mock.Mock(side_effect=refusal))
+
+    response = await _post(app)
+
+    assert response.status_code == refusal.status
+    assert response.json() == {"detail": refusal.detail}  # names no room
+    assert response.headers.get("retry-after") == retry_after
+    admission.is_admitted.assert_not_called()
+    assert script.journal == []
+    assert app.state.requests.get(ROOM) is None
+
+
+@pytest.mark.anyio
+async def test_post_room_retry_meets_the_request_in_flight(script, admission):
+    """A retry of a request that got through is answered as in flight,
+    before a rate limit could count it again."""
+    check = mock.Mock(side_effect=provision.RequestRefused(429, "slow down"))
+    app = _app_with_check(script, admission, check)
+    _pending(app)
+
+    response = await _post(app)
+
+    assert response.status_code == 409
+    refusal = api.Refusal.model_validate_json(response.content)
+    assert refusal.room_id == ROOM
+    check.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_post_room_check_fails(script, admission, caplog):
+    check = mock.Mock(side_effect=RuntimeError("quota store down"))
+    app = _app_with_check(script, admission, check)
+
+    response = await _post(app)
+
+    _assert_internal_error(response, caplog, "quota store down")
+    assert app.state.requests.get(ROOM) is None
+
+
+@pytest.mark.anyio
+async def test_post_room_checks_only_a_well_formed_request(script, admission):
+    check = mock.Mock(return_value=None)
+    app = _app_with_check(script, admission, check)
+
+    response = await _post(app, slug="../escape")
+
+    assert response.status_code == 400
+    check.assert_not_called()
+
+
 @pytest.mark.anyio
 async def test_post_room_creation_fails(app, script):
     script.failures["authz.audit"] = RuntimeError("audit failed")

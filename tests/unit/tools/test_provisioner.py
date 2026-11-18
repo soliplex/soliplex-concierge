@@ -192,7 +192,7 @@ async def test_request_room_bad_name(ctx):
 
     assert type(caught.value) is provisioner.BadRoomName
     assert "must not be blank" in caught.value.message
-    assert "ask the user for another name" in caught.value.message
+    assert "ask the user to correct what that says" in caught.value.message
 
 
 @pytest.mark.anyio
@@ -208,6 +208,37 @@ async def test_request_room_taken(ctx):
     assert type(caught.value) is provisioner.RoomTaken
     assert "already exists" in caught.value.message
     assert "different room name" in caught.value.message
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "headers, when",
+    [
+        ({"Retry-After": "60"}, "may ask again after 60 seconds"),
+        (None, None),
+    ],
+    ids=["retry-after", "quota"],
+)
+async def test_request_room_too_many(ctx, headers, when):
+    service = _FakeService(
+        429, {"detail": "at most 5 rooms per owner"}, headers=headers
+    )
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ToolFailed) as caught,
+    ):
+        await provisioner.request_room(ctx, name="Q3 Plans")
+
+    assert type(caught.value) is provisioner.TooManyRequests
+    assert "at most 5 rooms per owner" in caught.value.message
+    assert (
+        (when in caught.value.message)
+        if when
+        else ("ask again" not in caught.value.message)
+    )
+    assert "issue only if they ask" in caught.value.message
+    assert "'new-room' issue instead" not in caught.value.message
 
 
 @pytest.mark.anyio
@@ -316,17 +347,9 @@ async def test_request_room_already_requested_after_a_timeout(ctx):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    "service",
-    [
-        _FakeService(error=_TIMEOUT),
-        _FakeService(409, {"detail": "room exists"}, first=_TIMEOUT),
-        _FakeService(409, {"detail": "x", "room_id": 7}, first=_TIMEOUT),
-        _FakeService(409, "conflict", first=_TIMEOUT),
-    ],
-    ids=["twice", "no-room-id", "not-a-string", "not-json"],
-)
-async def test_request_room_timed_out(ctx, service):
+async def test_request_room_timed_out(ctx):
+    service = _FakeService(error=_TIMEOUT)
+
     with (
         _patch_service(service),
         pytest.raises(pydantic_ai.ToolFailed) as caught,
@@ -335,6 +358,30 @@ async def test_request_room_timed_out(ctx, service):
 
     assert type(caught.value) is provisioner.RequestTimedOut
     assert "Do not file the request as an issue" in caught.value.message
+    assert len(service.requests) == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "payload, detail",
+    [
+        ({"detail": "'admin' is reserved"}, "'admin' is reserved"),
+        ({"detail": "conflict", "room_id": 7}, "conflict"),
+        ("conflict", "conflict"),
+    ],
+    ids=["plain-error", "bad-room-id", "not-json"],
+)
+async def test_request_room_refused_after_a_retry(ctx, payload, detail):
+    service = _FakeService(409, payload, first=_TIMEOUT)
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ToolFailed) as caught,
+    ):
+        await provisioner.request_room(ctx, name="admin")
+
+    assert type(caught.value) is provisioner.RoomTaken
+    assert detail in caught.value.message
     assert len(service.requests) == 2
 
 

@@ -157,8 +157,25 @@ class BadRoomName(pydantic_ai.ToolFailed):
     def __init__(self, detail: str):
         self.detail = detail
         super().__init__(
-            f"the room name is unusable ({detail}): ask the user for another "
-            "name"
+            f"the request is unusable ({detail}): ask the user to correct "
+            "what that says (for instance, to give another name)"
+        )
+
+
+class TooManyRequests(pydantic_ai.ToolFailed):
+    """One too many: a rate limit, or a quota of rooms."""
+
+    def __init__(self, detail: str, retry_after: str | None):
+        self.detail, self.retry_after = detail, retry_after
+        when = (
+            f" The user may ask again after {retry_after} seconds."
+            if retry_after
+            else ""
+        )
+        super().__init__(
+            f"the room provisioner refused the request ({detail}).{when} "
+            "Tell the user what it says; file the request as an issue only "
+            "if they ask for an administrator's help with it"
         )
 
 
@@ -414,10 +431,14 @@ async def request_room(
         retried = True
 
     if retried and response.status_code == 409:
+        # The service names the room in a 409 only when a request for it is
+        # in flight, or it exists: the first attempt got through. Any other
+        # 409 (the deployment's own refusal) is answered below.
         room_id = _room_id(response)
-        if room_id is None:
-            raise RequestTimedOut()
-        return RoomRequestAccepted(status="already_requested", room_id=room_id)
+        if room_id is not None:
+            return RoomRequestAccepted(
+                status="already_requested", room_id=room_id
+            )
     if response.status_code == 202:
         accepted = _answer(api.Accepted, response)
         return RoomRequestAccepted(status="accepted", **accepted.model_dump())
@@ -433,6 +454,10 @@ async def request_room(
         raise BadRoomName(_detail(response))
     if response.status_code == 409:
         raise RoomTaken(_detail(response))
+    if response.status_code == 429:
+        raise TooManyRequests(
+            _detail(response), response.headers.get("retry-after")
+        )
     raise ServiceFailed(response.status_code, _detail(response))
 
 
