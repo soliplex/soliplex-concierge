@@ -9,6 +9,7 @@ import asyncio
 import logging
 import re
 import threading
+from unittest import mock
 
 import anyio
 import fake_parts
@@ -321,6 +322,116 @@ async def test_post_room_admission_step_fails(app, script, caplog):
 
     _assert_internal_error(response, caplog, "backend down")
     assert app.state.requests.get(ROOM) is None
+
+
+# ---- POST /rooms: the cheap checks come first (#145) ----
+
+
+def _spy(admission):
+    """Wrap the admission's checks in mocks, recording their calls."""
+    admission.is_admitted = mock.Mock(wraps=admission.is_admitted)
+    admission.is_admin = mock.Mock(wraps=admission.is_admin)
+    return admission
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "token, body",
+    [
+        ("carol-token", {"slug": "../escape"}),
+        ("carol-token", {"name": "!!!"}),
+        ("bob-token", {"owner": {**BHARNEY, "owner": "../escape"}}),
+        ("bob-token", {"owner": {**STAFF, "predicate": "not a name"}}),
+    ],
+    ids=["bad-slug", "no-slug", "bad-owner-part", "bad-predicate-name"],
+)
+async def test_post_room_refuses_a_malformed_request_before_admission(
+    app, admission, script, token, body
+):
+    _spy(admission)
+
+    response = await _post(app, token=token, **body)
+
+    assert response.status_code == 400
+    admission.is_admitted.assert_not_called()
+    admission.is_admin.assert_not_called()
+    assert script.journal == []
+    assert app.state.requests.get(ROOM) is None
+
+
+@pytest.mark.anyio
+async def test_post_room_refuses_a_room_in_flight_before_admission(
+    app, admission, script
+):
+    _spy(admission)
+    _pending(app, "bob")
+
+    response = await _post(app, token="alice-token")
+
+    assert response.status_code == 409
+    admission.is_admitted.assert_not_called()
+    assert script.journal == []
+    assert app.state.requests.get(ROOM).requester == "bob"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "token, owner, status",
+    [
+        ("carol-token", None, 403),
+        ("bob-token", STAFF, 403),
+        ("root-token", {**STAFF, "predicate": "is_foreman"}, 400),
+    ],
+    ids=["not-admitted", "not-an-admin", "unknown-predicate"],
+)
+async def test_post_room_releases_the_room_when_refusing_the_caller(
+    app, script, token, owner, status
+):
+    body = {} if owner is None else {"owner": owner}
+
+    response = await _post(app, token=token, **body)
+
+    assert response.status_code == status
+    room = "staff--q3-plans" if owner else ROOM
+    assert app.state.requests.get(room) is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failing, token, owner",
+    [
+        ("is_admitted", "alice-token", None),
+        ("is_admin", "root-token", STAFF),
+    ],
+)
+async def test_post_room_releases_the_room_when_a_check_fails(
+    app, admission, failing, token, owner
+):
+    admission.errors[failing] = RuntimeError("no verdict")
+    body = {} if owner is None else {"owner": owner}
+
+    response = await _post(app, token=token, **body)
+
+    assert response.status_code == 500
+    assert app.state.requests.get("staff--q3-plans" if owner else ROOM) is None
+
+
+@pytest.mark.anyio
+async def test_post_room_looks_predicates_up_only_for_an_admin(app, script):
+    response = await _post(app, token="bob-token", owner=STAFF)
+
+    assert response.status_code == 403
+    assert "authz.predicates" not in script.journal
+
+
+@pytest.mark.anyio
+async def test_post_room_lists_predicates_only_to_an_admin(app):
+    owner = {**STAFF, "predicate": "is_foreman"}
+
+    response = await _post(app, token="bob-token", owner=owner)
+
+    assert response.status_code == 403
+    assert "is_staff" not in response.json()["detail"]
 
 
 @pytest.mark.anyio

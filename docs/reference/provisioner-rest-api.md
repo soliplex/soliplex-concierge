@@ -85,10 +85,13 @@ requester is still the one who asked, and may see the request.
 | `422` | | The body is not a `RoomRequest` (including an `owner` in neither form, or both) |
 | `500` | `Error` | The service failed |
 
-Answers say what a caller can act on, and nothing about the stack itself. A
-`500`'s `detail` gives only a reference, under which the service logs the
-failure; a `409` for resources that exist already says an administrator must
-clear them, without naming them.
+The service refuses in this order, cheapest first: `401` for the token,
+`400` for the request's own form, `409` for a request already in flight,
+then `403` for a caller it does not admit (a check that may cost the
+backend a call). So a caller it would not admit still gets `400` for a
+malformed request. Whether an admin's named predicate is registered (a
+`400` listing the registered ones) is checked only after the `403`s, and a
+room that exists already (a `409`) only once the caller is admitted.
 
 A `409` names the room it refuses, because the caller cannot work the room id
 out for itself. The concierge relies on this when it retries a request that
