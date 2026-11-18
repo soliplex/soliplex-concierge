@@ -1962,8 +1962,8 @@ own message:</p>
   block to extend.</li>
 <li><code>BadDockerfile()</code> — the <code>backend/Dockerfile</code> <code>uv add</code> block has no
   <code>soliplex \</code> line to extend.</li>
-<li><code>SkillWhitelistActive(kind, entries)</code> — <code>installation.yaml</code> has an explicit
-  <code>skill_configs</code> whitelist and <code>--confirm-skill-whitelist</code> was not given.</li>
+<li><code>SkillAllowListActive(kind, entries)</code> — <code>installation.yaml</code> has an explicit
+  <code>skill_configs</code> allow-list and <code>--confirm-skill-allow-list</code> was not given.</li>
 </ul>
 <p><strong>Published skills</strong></p>
 <ul>
@@ -2005,14 +2005,14 @@ just "compute, don't write"; <code>action</code> is <code>ADDED</code> or <code>
 <li><code>add_dockerfile_dep(text, pin=None, with_truststore=False)</code> — add it to the
   <code>backend/Dockerfile</code> <code>uv add</code> block, in an older stack without
   <code>backend/requirements.txt</code>.</li>
-<li><code>merge_installation(text, *, confirm_skill_whitelist=False) -&gt;
+<li><code>merge_installation(text, *, confirm_skill_allow_list=False) -&gt;
   (new_text, {target: action})</code> — surgically merge the <code>installation.yaml</code>
   entries: the three <code>meta.tool_configs</code> classes, <code>environment</code>, <code>secrets</code>,
   and the two filesystem <code>skill_configs</code> (<code>room_paths</code> is wired by
   <code>install_room</code>). The <code>skill_configs</code> targets come back <code>COVERED</code> on a
-  permissive stack; on one with an explicit whitelist they are added only
-  when <code>confirm_skill_whitelist</code> is true, and otherwise it raises
-  <code>SkillWhitelistActive</code>.</li>
+  permissive stack; on one with an explicit allow-list they are added only
+  when <code>confirm_skill_allow_list</code> is true, and otherwise it raises
+  <code>SkillAllowListActive</code>.</li>
 <li><code>update_env(text, host, token)</code> — add the <code>GITEA_HOST</code> / <code>GITEA_ACCESS_TOKEN</code>
   lines.</li>
 <li><code>stack_gitea_script(pin=None, with_truststore=False) -&gt; str</code> — render the
