@@ -10,6 +10,8 @@ from soliplex import installation
 from soliplex import models
 
 from soliplex_concierge import config
+from soliplex_concierge import labels as sc_labels
+from soliplex_concierge.provisioner import timeouts as sc_timeouts
 from soliplex_concierge.tools import gitea
 
 USER = models.UserProfile(
@@ -115,11 +117,14 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
     assert found.title == "New room request: marketing"
     assert found.profile == "attached"
 
-    p_client.assert_called_once_with(verify=p_verify.return_value)
+    p_client.assert_called_once_with(
+        verify=p_verify.return_value,
+        timeout=sc_timeouts.HTTP_TIMEOUT,
+    )
     client.get.assert_awaited_once_with(
         f"{REPO}/labels",
         headers=HEADERS,
-        params={"page": 1, "limit": gitea.LABEL_PAGE_SIZE},
+        params={"page": 1, "limit": sc_labels.LABEL_PAGE_SIZE},
     )
     issue_call, asset_call = client.post.await_args_list
     assert issue_call == mock.call(
@@ -256,7 +261,7 @@ async def test_create_gitea_issue_creates_missing_label(ctx):
     client.get.assert_awaited_once_with(
         f"{REPO}/labels",
         headers=HEADERS,
-        params={"page": 1, "limit": gitea.LABEL_PAGE_SIZE},
+        params={"page": 1, "limit": sc_labels.LABEL_PAGE_SIZE},
     )
     create_call, issue_call, _asset_call = client.post.await_args_list
     assert create_call == mock.call(
@@ -277,7 +282,7 @@ async def test_create_gitea_issue_reuses_label_from_a_later_page(ctx):
     first_page = _resp(
         [
             {"name": f"filler-{n}", "id": n}
-            for n in range(gitea.LABEL_PAGE_SIZE)
+            for n in range(sc_labels.LABEL_PAGE_SIZE)
         ]
     )
     second_page = _resp([{"name": "new-room", "id": 5}])
@@ -307,7 +312,7 @@ async def test_create_gitea_issue_reuses_label_from_a_later_page(ctx):
         mock.call(
             f"{REPO}/labels",
             headers=HEADERS,
-            params={"page": page, "limit": gitea.LABEL_PAGE_SIZE},
+            params={"page": page, "limit": sc_labels.LABEL_PAGE_SIZE},
         )
         for page in (1, 2)
     ]
@@ -320,7 +325,7 @@ async def test_create_gitea_issue_reuses_label_from_a_later_page(ctx):
 async def test_create_gitea_issue_bounds_the_label_page_walk(ctx):
     # a server that ignored 'page' would otherwise be walked forever
     page = [{"name": f"filler-{n}", "id": n} for n in range(3)]
-    pages = [_resp(page) for _ in range(gitea.MAX_LABEL_PAGES)]
+    pages = [_resp(page) for _ in range(sc_labels.MAX_LABEL_PAGES)]
     created = _resp({"name": "new-room", "id": 5})
     issue = _resp(
         {
@@ -344,7 +349,7 @@ async def test_create_gitea_issue_bounds_the_label_page_walk(ctx):
         )
 
     assert found.number == 7
-    assert client.get.await_count == gitea.MAX_LABEL_PAGES
+    assert client.get.await_count == sc_labels.MAX_LABEL_PAGES
     create_call, _issue_call, _asset_call = client.post.await_args_list
     assert create_call.args[0] == f"{REPO}/labels"
 
@@ -589,11 +594,14 @@ def test_create_gitea_issue_sync_applies_existing_label(user):
         url=f"{REPO}/issues/7",
         title="New room request: marketing",
     )
-    p_client.assert_called_once_with(verify=p_verify.return_value)
+    p_client.assert_called_once_with(
+        verify=p_verify.return_value,
+        timeout=sc_timeouts.HTTP_TIMEOUT,
+    )
     client.get.assert_called_once_with(
         f"{REPO}/labels",
         headers=HEADERS,
-        params={"page": 1, "limit": gitea.LABEL_PAGE_SIZE},
+        params={"page": 1, "limit": sc_labels.LABEL_PAGE_SIZE},
     )
     issue_call, asset_call = client.post.call_args_list
     assert issue_call == mock.call(

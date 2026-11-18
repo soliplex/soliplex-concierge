@@ -152,6 +152,19 @@ the wording to you:
   tags one with the named labels a deployment's tracker decides on, among
   those defined on the repository
 
+The core calls your adapters while it holds the store, so a call that never
+returns stops every later request. Every blocking call in the toolkit is
+bounded, by a `timeout=` defaulting to one in `timeouts`: `CLI_TIMEOUT` for
+a `soliplex-cli` command, `GIT_TIMEOUT` for a local git command (its hooks
+and signing included), `PUSH_TIMEOUT` for a push, `LOCK_TIMEOUT` (their sum)
+for waiting on the clone's lock, and `HTTP_TIMEOUT` for each socket
+operation of an HTTP call. When a command runs out of time, it is killed
+with everything it started, and the module raises `soliplex_cli.CliTimedOut`
+(a `CliFailed`), `landing_clone.GitTimedOut` or `PushTimedOut`; a lock that
+stays taken raises `landing_clone.CloneBusy`, naming its holder. Pass other
+values at your call sites, and bound your own adapters' blocking calls the
+same way.
+
 For example, an uploads area on a local directory:
 
 ```python

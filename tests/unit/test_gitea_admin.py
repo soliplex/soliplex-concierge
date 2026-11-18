@@ -6,6 +6,7 @@ from unittest import mock
 import pytest
 
 from soliplex_concierge import gitea_admin
+from soliplex_concierge import labels as sc_labels
 
 # The admin skill's 'gitea_issues.py' is now a thin shim over this module; its
 # path is used by the shim smoke test at the bottom.
@@ -285,7 +286,7 @@ def test_list_labels():
         mock.call(
             LABELS_URL,
             headers=HEADERS,
-            params={"page": page, "limit": gitea_admin.LABEL_PAGE_SIZE},
+            params={"page": page, "limit": sc_labels.LABEL_PAGE_SIZE},
         )
         for page in (1, 2, 3)
     ]
@@ -294,15 +295,13 @@ def test_list_labels():
 def test_list_labels_bounds_the_page_walk():
     # a server that ignored 'page' would otherwise be walked forever
     page = [{"name": "approved", "id": 1}]
-    patched, client = _patch_client_seq(
-        get=[page] * gitea_admin.MAX_LABEL_PAGES
-    )
+    patched, client = _patch_client_seq(get=[page] * sc_labels.MAX_LABEL_PAGES)
 
     with patched:
         result = gitea_admin.list_labels(HOST, TOKEN, OWNER, REPO)
 
-    assert client.get.call_count == gitea_admin.MAX_LABEL_PAGES
-    assert result == page * gitea_admin.MAX_LABEL_PAGES
+    assert client.get.call_count == sc_labels.MAX_LABEL_PAGES
+    assert result == page * sc_labels.MAX_LABEL_PAGES
 
 
 def test_create_label():
@@ -401,8 +400,8 @@ def test_init_labels_all_missing():
     with patched:
         result = gitea_admin.init_labels(HOST, TOKEN, OWNER, REPO)
 
-    assert result == {name: "created" for name in gitea_admin.LABELS}
-    assert client.post.call_count == len(gitea_admin.LABELS)
+    assert result == {name: "created" for name in sc_labels.REQUEST_LABELS}
+    assert client.post.call_count == len(sc_labels.REQUEST_LABELS)
 
 
 def test_init_labels_partial():
@@ -416,7 +415,7 @@ def test_init_labels_partial():
 
     assert result["approved"] == "exists"
     assert result["new-room"] == "created"
-    assert client.post.call_count == len(gitea_admin.LABELS) - 1
+    assert client.post.call_count == len(sc_labels.REQUEST_LABELS) - 1
 
 
 # --- decision helpers -----------------------------------------------------

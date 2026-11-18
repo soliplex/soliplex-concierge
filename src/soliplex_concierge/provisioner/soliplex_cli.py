@@ -1,12 +1,23 @@
 """Run ``soliplex-cli`` for a provisioner: authorization, checks, audits.
 
-Each function takes ``cli``, the command to run (``soliplex-cli``, or a
-deployment's own CLI offering the same commands), and ``environment``, the
-installation's path as that command sees it.
+Each function takes:
+
+- ``cli``
+  the command to run (``soliplex-cli``, or a deployment's own CLI
+  offering the same commands)
+
+- ``environment``
+  the installation's path as that command sees it
+
+- ``timeout``
+  how long the command may run (seconds; by default
+  :data:`sc_timeouts.CLI_TIMEOUT`).
 """
 
 import json
 import subprocess
+
+from soliplex_concierge.provisioner import timeouts as sc_timeouts
 
 # The ACL permissions a room's owner is granted.
 OWNER_PERMISSIONS = ("READ", "WRITE")
@@ -20,24 +31,33 @@ class CliFailed(Exception):
         super().__init__(f"'{cli} {' '.join(command)}' failed:\n{output}")
 
 
+class CliTimedOut(CliFailed):
+    def __init__(self, cli, command, timeout):
+        self.timeout = timeout
+        super().__init__(cli, command, f"timed out after {timeout} seconds")
+
+
 def _run(
     cli: str,
     command: tuple[str, ...],
     stdin: str | None,
     ok_codes: tuple[int, ...],
+    timeout: float | None = sc_timeouts.CLI_TIMEOUT,
 ) -> subprocess.CompletedProcess[str]:
-    """Run ``cli <command>``; return the completed process.
+    """Run ``cli <command>``, returning the completed process.
 
     Raises :class:`CliFailed` when it cannot run, or exits with a code not
-    in ``ok_codes``.
+    in ``ok_codes``
+
+    Raises :class:`CliTimedOut` (killing it, and whatever it started) when
+    it runs longer than ``timeout``.
     """
     try:
-        result = subprocess.run(
-            [cli, *command],
-            input=stdin,
-            capture_output=True,
-            text=True,
+        result = sc_timeouts.run_bounded(
+            [cli, *command], input_=stdin, timeout=timeout
         )
+    except subprocess.TimeoutExpired as error:
+        raise CliTimedOut(cli, command, timeout) from error
     except OSError as error:
         raise CliFailed(cli, command, str(error)) from error
     if result.returncode not in ok_codes:
@@ -50,22 +70,25 @@ def run(
     *command: str,
     stdin: str | None = None,
     ok_codes: tuple[int, ...] = (0,),
+    timeout: float | None = sc_timeouts.CLI_TIMEOUT,
 ) -> str:
-    """Run ``cli <command>``; return its standard output.
+    """Run ``cli <command>``, returning its standard output.
+
+    Discards the CLI's stderr on success: callers which need it use
+    :func:`_run`.
 
     Raises :class:`CliFailed` when it cannot run, or exits with a code not
-    in ``ok_codes``.  Discards the CLI's stderr on success: callers which
-    need it use :func:`_run`.
+    in ``ok_codes``.
     """
-    return _run(cli, command, stdin, ok_codes).stdout
+    return _run(cli, command, stdin, ok_codes, timeout).stdout
 
 
 class NoVerdict(CliFailed):
     """A check gave no verdict (for instance, over a stale ACL entry)."""
 
 
-def _verdict(cli, command, key, token) -> bool:
-    result = _run(cli, command, token, (0, 1))
+def _verdict(cli, command, key, token, timeout) -> bool:
+    result = _run(cli, command, token, (0, 1), timeout)
     try:
         verdict = json.loads(result.stdout)[key]
     except (json.JSONDecodeError, TypeError, KeyError) as error:
@@ -75,23 +98,37 @@ def _verdict(cli, command, key, token) -> bool:
     return verdict is True
 
 
-def is_admin(cli: str, environment: str, token: str) -> bool:
+def is_admin(
+    cli: str,
+    environment: str,
+    token: str,
+    *,
+    timeout: float | None = sc_timeouts.CLI_TIMEOUT,
+) -> bool:
     """Is the holder of the service token ``token`` an admin?
 
     Raises :class:`NoVerdict` when the check gives none.
     """
     command = ("admin-users", "--quiet", "check", environment)
-    return _verdict(cli, command, "is_admin", token)
+    return _verdict(cli, command, "is_admin", token, timeout)
 
 
 def may(
-    cli: str, environment: str, token: str, room_id: str, permission: str
+    cli: str,
+    environment: str,
+    token: str,
+    room_id: str,
+    permission: str,
+    *,
+    timeout: float | None = sc_timeouts.CLI_TIMEOUT,
 ) -> bool:
     """Does the holder of ``token`` hold ``permission`` on ``room_id``?
 
-    ``permission`` is ``read`` or ``write``; ``room_id`` may be a reserved
-    id such as ``__provision__``. Raises :class:`NoVerdict` when the check
-    gives none.
+    ``room_id``: either a real ID or a reserved id such as ``__provision__``.
+
+    ``permission`` is ``read`` or ``write``
+
+    Raises :class:`NoVerdict` when the check gives none.
     """
     command = (
         "room-authz",
@@ -102,26 +139,39 @@ def may(
         "--permission",
         permission,
     )
-    return _verdict(cli, command, "allowed", token)
+    return _verdict(cli, command, "allowed", token, timeout)
 
 
-def stale_policy_ids(cli: str, environment: str) -> set[str]:
-    """The ids of authz policies for rooms the installation does not have.
+def stale_policy_ids(
+    cli: str,
+    environment: str,
+    *,
+    timeout: float | None = sc_timeouts.CLI_TIMEOUT,
+) -> set[str]:
+    """Return a set of ids of authz policies for rooms not in the installation.
 
     ``audit room-authz`` reports them as "stale", exiting 1 with a JSON
-    error report (``--quiet``); a clean audit prints nothing. Raises
-    :class:`CliFailed` when the audit fails, or its report is unreadable.
+    error report (``--quiet``)
+
+    A clean audit prints nothing.
+
+    Raises :class:`CliFailed` when the audit fails, or its report is
+    unreadable.
     """
     command = ("audit", "--quiet", "room-authz", environment)
-    output = run(cli, *command, ok_codes=(0, 1))
+    output = run(cli, *command, ok_codes=(0, 1), timeout=timeout)
+
     if not output.strip():
         return set()
+
     try:
         report = json.loads(output).get("room_authz", {})
     except (json.JSONDecodeError, AttributeError) as error:
         raise CliFailed(cli, command, output.strip()) from error
+
     if "unreachable" in report:
         raise CliFailed(cli, command, report["unreachable"])
+
     return set(report.get("stale_rooms", ()))
 
 
@@ -148,19 +198,45 @@ def owner_policy(room_id: str, json_path: str) -> str:
     )
 
 
-def set_policy(cli: str, environment: str, room_id: str, policy: str) -> None:
+def set_policy(
+    cli: str,
+    environment: str,
+    room_id: str,
+    policy: str,
+    *,
+    timeout: float | None = sc_timeouts.CLI_TIMEOUT,
+) -> None:
     """Store ``policy`` (JSON, as :func:`owner_policy` makes) for the room.
 
     Raises :class:`CliFailed` when the command fails.
     """
-    run(cli, "room-authz", "from-yaml", environment, room_id, stdin=policy)
+    run(
+        cli,
+        "room-authz",
+        "from-yaml",
+        environment,
+        room_id,
+        stdin=policy,
+        timeout=timeout,
+    )
 
 
-def remove_policy(cli: str, environment: str, room_id: str) -> None:
+def remove_policy(
+    cli: str,
+    environment: str,
+    room_id: str,
+    *,
+    timeout: float | None = sc_timeouts.CLI_TIMEOUT,
+) -> None:
     """Remove the room's authz policy, leaving it as if never set."""
-    set_policy(cli, environment, room_id, "null")
+    set_policy(cli, environment, room_id, "null", timeout=timeout)
 
 
-def audit_rooms(cli: str, environment: str) -> None:
+def audit_rooms(
+    cli: str,
+    environment: str,
+    *,
+    timeout: float | None = sc_timeouts.CLI_TIMEOUT,
+) -> None:
     """Audit the installation's rooms; raise :class:`CliFailed` on errors."""
-    run(cli, "audit", "--quiet", "rooms", environment)
+    run(cli, "audit", "--quiet", "rooms", environment, timeout=timeout)
