@@ -1339,6 +1339,18 @@ the wording to you:</p>
   tags one with the named labels a deployment's tracker decides on, among
   those defined on the repository</li>
 </ul>
+<p>The core calls your adapters while it holds the store, so a call that never
+returns stops every later request. Every blocking call in the toolkit is
+bounded, by a <code>timeout=</code> defaulting to one in <code>timeouts</code>: <code>CLI_TIMEOUT</code> for
+a <code>soliplex-cli</code> command, <code>GIT_TIMEOUT</code> for a local git command (its hooks
+and signing included), <code>PUSH_TIMEOUT</code> for a push, <code>LOCK_TIMEOUT</code> (their sum)
+for waiting on the clone's lock, and <code>HTTP_TIMEOUT</code> for each socket
+operation of an HTTP call. When a command runs out of time, it is killed
+with everything it started, and the module raises <code>soliplex_cli.CliTimedOut</code>
+(a <code>CliFailed</code>), <code>landing_clone.GitTimedOut</code> or <code>PushTimedOut</code>; a lock that
+stays taken raises <code>landing_clone.CloneBusy</code>, naming its holder. Pass other
+values at your call sites, and bound your own adapters' blocking calls the
+same way.</p>
 <p>For example, an uploads area on a local directory:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">dataclasses</span>
 </span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pathlib</span>
