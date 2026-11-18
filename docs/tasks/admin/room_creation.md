@@ -41,6 +41,13 @@ Any field the requester left blank shows as `*(not provided)*`; comment on the
 issue to fill the gap rather than guessing (see
 [Administering requests](index.md)).
 
+The body was drafted from the requester's own words, so treat its access,
+tools, skills and knowledge sources as a proposal: anything beyond your
+deployment's defaults (open access, tools, MCP toolsets, code-execution
+skills, sources outside the room) deserves a deliberate decision. The
+`soliplex-concierge-admin` skill drafts the room's configuration for your
+review, and flags such items, but never applies it.
+
 ## 2. Create the room
 
 Use the `soliplex-template` skill against the target stack to create and

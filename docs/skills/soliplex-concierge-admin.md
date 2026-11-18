@@ -1,9 +1,12 @@
 # `soliplex-concierge-admin`
 
-**Function.** Resolves the request issues the concierge files: list and filter
-them, follow up, carry out the operation, and close with a decision. Its
-`gitea_issues.py` CLI and workflow are documented under
-[Administering requests](../tasks/admin/index.md).
+**Function.** Helps an administrator work through the request issues the
+concierge files: it lists and reads them, and **drafts** the change each asks
+for (a new room's configuration, or the commands granting access) for the
+administrator to review and apply through their deployment's own process. It
+never applies a change itself. Once the administrator has acted, it records
+the outcome and closes the issue. Its `gitea_issues.py` CLI and workflow are
+documented under [Administering requests](../tasks/admin/index.md).
 
 **Where to find it.** Published as a release artifact of
 [`soliplex/soliplex-concierge`](https://github.com/soliplex/soliplex-concierge/releases):

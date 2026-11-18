@@ -1,12 +1,18 @@
 # Administering requests
 
 Requests filed by the [concierge](../rooms/index.md) land as issues on the
-tracking repository. Administrators resolve them with the
-**`soliplex-concierge-admin`** skill, run from an external coding agent. The
-skill's `scripts/gitea_issues.py` CLI lists and filters the requests, lets you
-follow up on an issue, and closes it with a comment and a resolution label. The
-actual provisioning is delegated to the `soliplex-template` and `soliplex-docs`
-skills — see [Room creation](room_creation.md) and [Room access](room_access.md).
+tracking repository. Administrators resolve them with the `gitea_issues.py`
+CLI below, which lists and filters the requests, lets you follow up on an
+issue, and closes it with a comment and a resolution label. The
+**`soliplex-concierge-admin`** skill, run from an external coding agent, can
+help: it reads the requests and drafts each change for you to review and apply
+through your deployment's own process, but never applies one itself. See
+[Room creation](room_creation.md) and [Room access](room_access.md).
+
+An issue's body is drafted by the concierge room's agent from the requester's
+own words. Treat what it asks for (access, tools, skills, knowledge sources)
+as a proposal to judge, and take the requester's identity from the profile
+`show` prints, never from a name in the body.
 
 ## The `gitea_issues.py` CLI
 
@@ -74,9 +80,15 @@ uv run scripts/gitea_issues.py search --type room-access \
 `--type` accepts `new-room` / `room-access`; `--decision` accepts `approved` /
 `denied`; `--state` and `--label` work as for `list`.
 
+Both take `--created-by <login>` to keep only the issues a given account
+filed: the concierge room's issue-filing account (or a room provisioner's),
+so that an issue anyone else opened in the repository is left out.
+
 ## Following up on an issue
 
-Read the full request — title, metadata, and body:
+Read the full request — its labels and metadata, the requester's profile
+(recorded from their token, as an attachment or, when Gitea refused the
+attachment, a comment by the filing account), and the body:
 
 ```sh
 uv run scripts/gitea_issues.py show <number> --owner <owner> --repo <repo>

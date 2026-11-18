@@ -393,10 +393,11 @@ def _dist_requirement(with_truststore: bool) -> str:
     return f"{DIST}[truststore]" if with_truststore else DIST
 
 
-# The release that first ships 'soliplex_concierge.gitea_admin' (the module the
-# stack 'gitea_issues.py' shim imports); used as the dependency floor when no
-# '--version' pin is given.
-GITEA_ADMIN_MIN = ">=0.6"
+# The oldest release whose 'soliplex_concierge.gitea_admin' (the module the
+# stack 'gitea_issues.py' shim imports) does what the admin skill relies on:
+# 'show' printing the requester's profile, and '--created-by' (#151). Used as
+# the dependency floor when no '--version' pin is given.
+GITEA_ADMIN_MIN = ">=0.16"
 
 
 def stack_gitea_script(

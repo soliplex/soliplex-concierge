@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.12"
-# dependencies = ["soliplex-concierge>=0.6"]
+# dependencies = ["soliplex-concierge>=0.16"]
 # ///
 """Read and resolve Soliplex room-request issues on a Gitea repository.
 
