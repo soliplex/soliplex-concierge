@@ -55,6 +55,13 @@ class AccessRefused(Exception):
     """
 
 
+class StoreBusy(Exception):
+    """The store stayed held by another provisioning run for too long.
+
+    :meth:`RoomStore.locked` raises it rather than wait indefinitely.
+    """
+
+
 @dataclasses.dataclass(frozen=True)
 class RoomRequest:
     """One requester's request for a provisioned room.
@@ -113,7 +120,14 @@ class RoomStore(typing.Protocol):
     """Where provisioned rooms' files live, and their history."""
 
     def locked(self) -> contextlib.AbstractContextManager:
-        """Serialize provisioning runs: hold the store for one of them."""
+        """Serialize provisioning runs: hold the store for one of them.
+
+        Keep the wait shorter than the concierge's ``request_timeout``:
+        admission waits for the store within the requester's ``POST /rooms``.
+
+        Raise :class:`StoreBusy` on entering, rather than wait without
+        limit, when another run keeps the store too long.
+        """
 
     def prepare(self) -> None:
         """Make the store ready to take rooms (e.g., clone it)."""

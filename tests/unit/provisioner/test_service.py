@@ -544,6 +544,49 @@ async def test_post_room_creation_incomplete(app, script):
     assert request.incomplete == ("push the rooms repository",)
 
 
+# ---- POST /rooms: a busy store (#144) ----
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "delays, retry_after",
+    [((12.5, 60.0), "13"), ((), "30")],
+    ids=["first-delay", "default"],
+)
+async def test_post_room_store_busy(admission, caplog, delays, retry_after):
+    holder = interfaces.StoreBusy("held by other-host pid 7")
+    script = fake_parts.Script(lock_refusals=[holder])
+    provisioner = fake_parts.make_provisioner(script, busy_retry_delays=delays)
+    app = service.create_app(provisioner, admission)
+
+    response = await _post(app)
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == retry_after
+    assert response.json() == {
+        "detail": service.STORE_BUSY.format(retry_after=retry_after)
+    }
+    assert "other-host" in caplog.text
+    assert app.state.requests.get(ROOM) is None
+
+
+@pytest.mark.anyio
+async def test_post_room_creation_finds_the_store_busy(script, monkeypatch):
+    monkeypatch.setattr(provision.time, "sleep", mock.Mock())
+    holder = interfaces.StoreBusy("held by other-host pid 7")
+    script.lock_refusals = [None, holder, holder, holder]
+    app = service.create_app(
+        fake_parts.make_provisioner(script), fake_parts.FakeAdmission()
+    )
+
+    response = await _post(app)
+
+    assert response.status_code == 202
+    request = app.state.requests.get(ROOM)
+    assert request.state == api.State.FAILED
+    assert "other-host" in request.error
+
+
 # ---- GET /rooms/{room_id} ----
 
 

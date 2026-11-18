@@ -24,7 +24,9 @@ Every call is bounded (see :mod:`timeouts`):
 
 When any timeout expires, git and whatever it started are killed.
 
-Stdlib only -- git via :mod:`subprocess`, the lock via :mod:`fcntl`.
+External operations:
+- git via :mod:`subprocess`
+- the lock via :mod:`fcntl`
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ import socket
 import subprocess
 import time
 
+from soliplex_concierge.provisioner import interfaces
 from soliplex_concierge.provisioner import timeouts as sc_timeouts
 
 BRANCH = "main"
@@ -72,7 +75,7 @@ class GitTimedOut(LandingCloneError):
         )
 
 
-class CloneBusy(LandingCloneError):
+class CloneBusy(LandingCloneError, interfaces.StoreBusy):
     def __init__(self, path, timeout, holder):
         self.path, self.timeout, self.holder = path, timeout, holder
         held = f" (held by {holder})" if holder else ""

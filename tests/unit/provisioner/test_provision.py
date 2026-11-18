@@ -524,6 +524,87 @@ def test_admit_room_issue_filing_fails():
 # ---- create_room ----
 
 
+# ---- a busy store (#144) ----
+
+
+def test_provisioner_retries_a_busy_store_by_default():
+    result = fake_parts.make_provisioner(fake_parts.Script())
+
+    assert result.busy_retry_delays == provision.BUSY_RETRY_DELAYS
+
+
+def _busy():
+    return interfaces.StoreBusy("held by other-host pid 7")
+
+
+def test_admit_room_refuses_a_busy_store():
+    script = fake_parts.Script(lock_refusals=[_busy()])
+    provisioner = fake_parts.make_provisioner(script)
+
+    with pytest.raises(interfaces.StoreBusy):
+        provision.admit_room(_request(provisioner), provisioner)
+
+    assert script.journal == ["backend.check_access", "store.lock"]
+
+
+def test_create_room_retries_a_busy_store(monkeypatch):
+    sleep = mock.Mock()
+    monkeypatch.setattr(provision.time, "sleep", sleep)
+    script = fake_parts.Script()
+    provisioner = fake_parts.make_provisioner(script)
+    admitted = _admitted(script, provisioner)
+    script.lock_refusals = [_busy(), _busy()]
+
+    result = provision.create_room(admitted, provisioner)
+
+    assert result.commit == fake_parts.COMMIT
+    assert [call.args[0] for call in sleep.call_args_list] == [30.0, 60.0]
+    assert script.journal[:4] == [
+        "store.lock",
+        "store.lock",
+        "store.lock",
+        *CHECK_FREE[:1],
+    ]
+
+
+@pytest.mark.parametrize(
+    "delays, sleeps",
+    [((30.0, 60.0), [30.0, 60.0]), ((), [])],
+    ids=["after-retries", "no-retries"],
+)
+def test_create_room_gives_up_on_a_busy_store(monkeypatch, delays, sleeps):
+    sleep = mock.Mock()
+    monkeypatch.setattr(provision.time, "sleep", sleep)
+    script = fake_parts.Script()
+    provisioner = fake_parts.make_provisioner(script, busy_retry_delays=delays)
+    admitted = _admitted(script, provisioner)
+    script.lock_refusals = [_busy() for _ in range(len(delays) + 1)]
+
+    with pytest.raises(interfaces.StoreBusy) as caught:
+        provision.create_room(admitted, provisioner)
+
+    assert [call.args[0] for call in sleep.call_args_list] == sleeps
+    assert script.journal == [
+        *["store.lock"] * (len(delays) + 1),
+        "tracker.report_failure",
+    ]
+    assert script.reported == [caught.value]
+
+
+def test_create_room_never_retries_work_done_holding_the_store(monkeypatch):
+    sleep = mock.Mock()
+    monkeypatch.setattr(provision.time, "sleep", sleep)
+    script = fake_parts.Script(failures={"store.add_room": _busy()})
+    provisioner = fake_parts.make_provisioner(script)
+    admitted = _admitted(script, provisioner)
+
+    with pytest.raises(provision.ProvisioningFailed):
+        provision.create_room(admitted, provisioner)
+
+    sleep.assert_not_called()
+    assert script.journal.count("store.lock") == 1
+
+
 def test_create_room():
     script = fake_parts.Script()
     provisioner = fake_parts.make_provisioner(script)

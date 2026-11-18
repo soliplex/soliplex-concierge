@@ -51,7 +51,7 @@ interfaces are in `soliplex_concierge.provisioner.interfaces`:
 - `Backend`: the Soliplex backend that serves the room
 - `IssueTracker` (optional): the request's tracking issue
 
-They share three conventions:
+They share these conventions:
 
 - `clashes(request)` describes, in the adapter's words, each thing named for
   the room that exists already. It changes nothing, and may raise to refuse
@@ -60,6 +60,15 @@ They share three conventions:
   `None` when it created nothing.
 - A step after the commit (`publish`, `reload_rooms`, `resolve`) returns what
   remains to do, each a sentence saying how to finish it.
+- `RoomStore.locked()` raises `interfaces.StoreBusy` on entering, rather than
+  wait without limit, when another run keeps the store too long
+  (`landing_clone.locked` raises `CloneBusy`, which is one). During
+  admission the service answers it with a `503` and a `Retry-After`; while
+  creating an admitted room, the core tries again after each of the
+  `Provisioner`'s `busy_retry_delays` (by default 30 and 60 seconds), then
+  gives up, reporting on the tracking issue. Admission waits for the store
+  within the requester's `POST /rooms`, so keep the wait shorter than the
+  concierge's `request_timeout` (120 seconds by default).
 
 ### The owner and the requester
 

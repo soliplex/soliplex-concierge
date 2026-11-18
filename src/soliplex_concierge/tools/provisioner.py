@@ -102,6 +102,18 @@ class ServiceFailed(pydantic_ai.ToolFailed):
         )
 
 
+class ServiceBusy(pydantic_ai.ToolFailed):
+    def __init__(self, detail: str, retry_after: str | None):
+        self.detail, self.retry_after = detail, retry_after
+        when = "in a few minutes"
+        if retry_after:
+            when = f"after {retry_after} seconds"
+        super().__init__(
+            f"the room provisioner is busy ({detail}). Do not file the "
+            f"request as an issue: tell the user to ask again {when}"
+        )
+
+
 class IncompatibleService(pydantic_ai.ToolFailed):
     """The service implements another version of the API."""
 
@@ -454,6 +466,9 @@ async def request_room(
         raise BadRoomName(_detail(response))
     if response.status_code == 409:
         raise RoomTaken(_detail(response))
+    if response.status_code == 503:
+        retry_after = response.headers.get("retry-after")
+        raise ServiceBusy(_detail(response), retry_after)
     if response.status_code == 429:
         raise TooManyRequests(
             _detail(response), response.headers.get("retry-after")
