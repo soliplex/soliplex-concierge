@@ -68,6 +68,14 @@ def _resp(payload=None, error=None):
     return response
 
 
+def _status_error(code):
+    return httpx2.HTTPStatusError(
+        f"{code} Error",
+        request=mock.Mock(),
+        response=mock.Mock(status_code=code),
+    )
+
+
 def _patch_async_client(get_responses, post_responses):
     """Patch httpx2.AsyncClient; get/post yield the given responses in order.
 
@@ -379,7 +387,7 @@ async def test_create_gitea_issue_rejects_anonymous_user(ctx):
     ctx.deps.user = None
     patched_client, client = _patch_async_client([_resp([])], [])
 
-    with patched_client, pytest.raises(gitea.AnonymousUser) as exc:
+    with patched_client, pytest.raises(gitea.IssueNotFiled) as exc:
         await gitea.create_gitea_issue(
             ctx=ctx,
             title="New room request: marketing",
@@ -387,21 +395,94 @@ async def test_create_gitea_issue_rejects_anonymous_user(ctx):
             request_type="new-room",
         )
 
-    assert "anonymous" in str(exc.value)
+    assert isinstance(exc.value.error, gitea.AnonymousUser)
+    assert "anonymous" in exc.value.message
+    assert "New room request: marketing" in exc.value.message
+    assert "Requested anonymously." in exc.value.message
     client.get.assert_not_awaited()
 
 
 @pytest.mark.anyio
-async def test_create_gitea_issue_raises_on_http_error(ctx):
-    labels = _resp([{"name": "new-room", "id": 5}])
-    issue = _resp(
-        error=httpx2.HTTPStatusError(
-            "401 Unauthorized", request=mock.Mock(), response=mock.Mock()
-        )
+@pytest.mark.parametrize(
+    "get_responses, post_responses",
+    [
+        (
+            [_resp([{"name": "new-room", "id": 5}])],
+            [_resp(error=_status_error(401))],
+        ),
+        ([_resp(error=_status_error(401))], []),
+        ([httpx2.ConnectError("refused")], []),
+    ],
+    ids=["issue-refused", "labels-refused", "labels-unreachable"],
+)
+async def test_create_gitea_issue_not_filed(
+    ctx, get_responses, post_responses
+):
+    patched_client, _client = _patch_async_client(
+        get_responses, post_responses
     )
-    patched_client, _client = _patch_async_client([labels], [issue])
 
-    with patched_client, pytest.raises(httpx2.HTTPStatusError):
+    with patched_client, pytest.raises(gitea.IssueNotFiled) as exc:
+        await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="New room request: marketing",
+            body="Requested by Phreddy.",
+            request_type="new-room",
+        )
+
+    assert isinstance(exc.value.error, httpx2.HTTPError)
+    assert exc.value.__cause__ is exc.value.error
+    assert "New room request: marketing" in exc.value.message
+    assert "Requested by Phreddy." in exc.value.message
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_maybe_filed(ctx):
+    labels = _resp([{"name": "new-room", "id": 5}])
+    patched_client, _client = _patch_async_client(
+        [labels], [httpx2.ReadTimeout("no answer")]
+    )
+
+    with patched_client, pytest.raises(gitea.IssueMaybeFiled) as exc:
+        await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="New room request: marketing",
+            body="Requested by Phreddy.",
+            request_type="new-room",
+        )
+
+    assert isinstance(exc.value.error, httpx2.ReadTimeout)
+    assert "may exist" in exc.value.message
+    assert "do not file the request again" in exc.value.message
+    assert "Requested by Phreddy." not in exc.value.message
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_maybe_filed_after_a_malformed_answer(ctx):
+    labels = _resp([{"name": "new-room", "id": 5}])
+    patched_client, _client = _patch_async_client(
+        [labels], [_resp({"labels": [{"name": "new-room"}]})]
+    )
+
+    with patched_client, pytest.raises(gitea.IssueMaybeFiled) as exc:
+        await gitea.create_gitea_issue(
+            ctx=ctx,
+            title="New room request: marketing",
+            body="Requested by Phreddy.",
+            request_type="new-room",
+        )
+
+    assert isinstance(exc.value.error, KeyError)
+
+
+@pytest.mark.anyio
+async def test_create_gitea_issue_propagates_other_errors(ctx):
+    labels = _resp([{"name": "new-room", "id": 5}])
+    patched_client, _client = _patch_async_client(
+        [labels], [RuntimeError("a bug")]
+    )
+
+    with patched_client, pytest.raises(RuntimeError):
         await gitea.create_gitea_issue(
             ctx=ctx,
             title="New room request: marketing",
@@ -418,14 +499,6 @@ def _issue_resp():
             "title": "New room request: marketing",
             "labels": [{"name": "new-room"}],
         }
-    )
-
-
-def _status_error(code):
-    return httpx2.HTTPStatusError(
-        f"{code} Error",
-        request=mock.Mock(),
-        response=mock.Mock(status_code=code),
     )
 
 
@@ -521,7 +594,7 @@ async def test_create_gitea_issue_raises_when_label_dropped(ctx):
     )
     patched_client, client = _patch_async_client([labels], [issue])
 
-    with patched_client, pytest.raises(gitea.LabelNotApplied) as exc:
+    with patched_client, pytest.raises(gitea.IssueFiledWithoutLabel) as exc:
         await gitea.create_gitea_issue(
             ctx=ctx,
             title="Room access request: chat",
@@ -529,10 +602,11 @@ async def test_create_gitea_issue_raises_when_label_dropped(ctx):
             request_type="room-access",
         )
 
-    assert exc.value.request_type == "room-access"
-    assert exc.value.number == 12
-    assert exc.value.url == f"{REPO}/issues/12"
-    assert "Write access" in str(exc.value)
+    assert exc.value.error.request_type == "room-access"
+    assert exc.value.error.number == 12
+    assert f"{REPO}/issues/12" in exc.value.message
+    assert "do not file the request again" in exc.value.message
+    assert "Requested by Phreddy." not in exc.value.message
     (issue_call,) = client.post.await_args_list
     assert issue_call.args[0] == f"{REPO}/issues"
 
@@ -891,7 +965,7 @@ async def test_create_gitea_issue_audits_a_failed_filing(ctx, audited):
         [labels], [_resp(error=_status_error(502))]
     )
 
-    with patched_client, pytest.raises(httpx2.HTTPStatusError):
+    with patched_client, pytest.raises(gitea.IssueNotFiled):
         await gitea.create_gitea_issue(
             ctx=ctx, title="t", body="b", request_type="new-room"
         )

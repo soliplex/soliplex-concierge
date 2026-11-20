@@ -105,7 +105,10 @@ every page of its label listing, and creating one only when it is truly absent �
 files the issue, attaches the requesting user's profile, and returns the issue
 number and URL. Once the issue exists, recording the profile is best-effort:
 when Gitea refuses the attachment, the profile is commented on the issue
-instead, and the issue is returned either way.
+instead, and the issue is returned either way. Its failures reach the model as
+`pydantic_ai.ToolFailed` subclasses, which say whether the issue exists:
+`IssueNotFiled` (its message carries the title and body for the user to
+submit), `IssueFiledWithoutLabel`, and `IssueMaybeFiled`.
 
 **`create_gitea_issue_sync(*, host, token, owner, repo, user, title, body, request_type, profile_attachment_name="user-profile.yaml", exclude_claims=()) -> CreatedGiteaIssue`**
 
@@ -114,8 +117,9 @@ agent run (e.g. a room provisioner). What the tool reads from its run context
 is passed in explicitly: the connection and profile settings its
 `CreateGiteaIssueToolConfig` supplies, and the requesting `user` (a
 `soliplex.models.UserProfile`, or a mapping of the user's claims). It files the
-same issue the tool does — the two share one implementation — and raises the
-same `UnknownRequestType` / `LabelNotApplied`.
+same issue the tool does — the two share one implementation. It raises
+`UnknownRequestType`, `LabelNotApplied`, and the `httpx2` error of a failed
+request.
 
 **Exceptions**
 
@@ -125,6 +129,13 @@ same `UnknownRequestType` / `LabelNotApplied`.
   request cannot be attributed.
 - `LabelNotApplied(RuntimeError)` — the issue was created but its type label was
   not applied (typically the Gitea account lacks Write access; see issue #59).
+- `IssueNotFiled(ToolFailed)` — the room tool filed no issue. `error` holds the
+  cause: an `AnonymousUser`, or the `httpx2` error.
+- `IssueFiledWithoutLabel(ToolFailed)` — the room tool filed the issue without
+  its type label. `error` holds the `LabelNotApplied`.
+- `IssueMaybeFiled(ToolFailed)` — Gitea gave no usable answer to the room
+  tool's filing request, so the issue may exist. `error` holds the `httpx2`
+  error, or the error from reading the answer.
 
 ## `soliplex_concierge.tools.provisioner`
 

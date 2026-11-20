@@ -6,7 +6,6 @@ The installation is built from the room's own 'room_config.yaml' and
 
 import pathlib
 import shutil
-import typing
 from unittest import mock
 
 import httpx2
@@ -17,6 +16,9 @@ from pydantic_ai.models import function as ai_function
 from soliplex import installation
 from soliplex import models
 from soliplex.config import installation as config_installation
+
+from soliplex_concierge.tools import gitea
+from soliplex_concierge.tools import provisioner
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ROOM_ID = "about_soliplex"
@@ -31,8 +33,10 @@ ROOM_DIR = (
 ROOM_SKILL = REPO_ROOT / "skills" / "soliplex-concierge-room"
 SNIPPET = ROOM_DIR.parents[1] / "installation-snippet.yaml"
 
-PROVISIONER_URL = "http://soliplex-provisioner:8090"
-ISSUE_URL = "http://gitea.test/your-gitea-owner/soliplex-requests/issues/7"
+REPO_PATH = "/api/v1/repos/your-gitea-owner/soliplex-requests"
+ISSUE_URL = (
+    f"http://gitea.test{REPO_PATH.removeprefix('/api/v1/repos')}/issues/7"
+)
 
 # The tool-config registrations come from the shipped snippet.
 INSTALLATION_YAML = """\
@@ -98,11 +102,15 @@ def the_installation(temp_dir) -> installation.Installation:
 def _services(routes):
     """Patch 'httpx2.AsyncClient' to answer each request from 'routes'.
 
-    'routes' maps '(method, url)' to the 'httpx2.Response' answering it.
+    'routes' maps '(method, path)' to the 'httpx2.Response' answering it, or
+    to the exception the request raises.
     """
 
     def answer(request):
-        return routes[(request.method, str(request.url))]
+        answer = routes[(request.method, request.url.path)]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
     # The model's OpenAI client checks 'isinstance(.., httpx2.AsyncClient)'.
     class Client(httpx2.AsyncClient):
@@ -130,21 +138,21 @@ def _scripted(*tool_calls):
     return ai_function.FunctionModel(respond)
 
 
-async def _run(the_installation, model):
+async def _run(the_installation, model, user=USER):
     agent = await the_installation.get_agent_for_room(
         room_id=ROOM_ID, user=USER.model_dump()
     )
     deps = await the_installation.get_agent_deps_for_room(
-        room_id=ROOM_ID, user=USER
+        room_id=ROOM_ID, user=user
     )
     with agent.override(model=model):
         return await agent.run("I need a room for my Q3 plans", deps=deps)
 
 
-def _tool_returns(result) -> dict[str, typing.Any]:
+def _tool_returns(result) -> dict[str, ai_messages.ToolReturnPart]:
     """What each tool returned to the model during the run, by tool name."""
     return {
-        part.tool_name: part.content
+        part.tool_name: part
         for message in result.all_messages()
         for part in message.parts
         if isinstance(part, ai_messages.ToolReturnPart)
@@ -154,7 +162,7 @@ def _tool_returns(result) -> dict[str, typing.Any]:
 @pytest.mark.anyio
 async def test_request_room_accepted(the_installation):
     routes = {
-        ("POST", f"{PROVISIONER_URL}/rooms"): httpx2.Response(
+        ("POST", "/rooms"): httpx2.Response(
             202,
             json={"room_id": "phreddy--q3-plans", "issue_url": ISSUE_URL},
         ),
@@ -166,8 +174,126 @@ async def test_request_room_accepted(the_installation):
     with _services(routes):
         result = await _run(the_installation, model)
 
-    returned = _tool_returns(result)["request_room"]
+    returned = _tool_returns(result)["request_room"].content
+    assert isinstance(returned, provisioner.RoomRequestAccepted)
     assert returned.status == "accepted"
     assert returned.room_id == "phreddy--q3-plans"
     assert returned.issue_url == ISSUE_URL
     assert result.output == "done"
+
+
+# ---- filing an issue ----
+
+TITLE = "New room request: Q3 Plans"
+BODY = "## Purpose\n\nQ3 planning"
+FILE_ISSUE = (
+    "create_gitea_issue",
+    {"title": TITLE, "body": BODY, "request_type": "new-room"},
+)
+LABELS = ("GET", f"{REPO_PATH}/labels")
+ISSUES = ("POST", f"{REPO_PATH}/issues")
+LABEL_LISTING = httpx2.Response(200, json=[{"name": "new-room", "id": 5}])
+
+
+def _filed(labels=("new-room",)):
+    return httpx2.Response(
+        201,
+        json={
+            "number": 7,
+            "html_url": ISSUE_URL,
+            "title": TITLE,
+            "labels": [{"name": name} for name in labels],
+        },
+    )
+
+
+async def _file(the_installation, routes, user=USER):
+    with _services(routes):
+        result = await _run(the_installation, _scripted(FILE_ISSUE), user)
+    assert result.output == "done"
+    return _tool_returns(result)["create_gitea_issue"]
+
+
+@pytest.mark.anyio
+async def test_file_issue_with_a_missing_profile(the_installation):
+    returned = await _file(
+        the_installation,
+        {
+            LABELS: LABEL_LISTING,
+            ISSUES: _filed(),
+            ("POST", f"{REPO_PATH}/issues/7/assets"): httpx2.Response(415),
+            ("POST", f"{REPO_PATH}/issues/7/comments"): httpx2.Response(500),
+        },
+    )
+
+    assert returned.outcome == "success"
+    assert isinstance(returned.content, gitea.CreatedGiteaIssue)
+    assert returned.content.number == 7
+    assert returned.content.profile == "missing"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "routes, user",
+    [
+        ({LABELS: LABEL_LISTING, ISSUES: httpx2.Response(500)}, USER),
+        ({LABELS: httpx2.Response(401)}, USER),
+        ({}, None),
+    ],
+    ids=["issue-refused", "labels-refused", "anonymous"],
+)
+async def test_file_issue_not_filed(the_installation, routes, user):
+    returned = await _file(the_installation, routes, user)
+
+    assert returned.outcome == "failed"
+    assert TITLE in returned.content
+    assert BODY in returned.content
+    assert "submit" in returned.content
+
+
+@pytest.mark.anyio
+async def test_file_issue_filed_without_its_label(the_installation):
+    returned = await _file(
+        the_installation, {LABELS: LABEL_LISTING, ISSUES: _filed(labels=())}
+    )
+
+    assert returned.outcome == "failed"
+    assert ISSUE_URL in returned.content
+    assert "do not file" in returned.content
+    assert BODY not in returned.content
+
+
+@pytest.mark.anyio
+async def test_file_issue_maybe_filed(the_installation):
+    returned = await _file(
+        the_installation,
+        {LABELS: LABEL_LISTING, ISSUES: httpx2.ReadTimeout("no answer")},
+    )
+
+    assert returned.outcome == "failed"
+    assert "may exist" in returned.content
+    assert "do not file" in returned.content
+    assert BODY not in returned.content
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "answer",
+    [
+        httpx2.Response(201, text="<html>"),
+        httpx2.Response(201, json=None),
+        httpx2.Response(201, json=[]),
+        httpx2.Response(201, json={"number": 7}),
+    ],
+    ids=["not-json", "null", "list", "missing-fields"],
+)
+async def test_file_issue_maybe_filed_after_a_malformed_answer(
+    the_installation, answer
+):
+    returned = await _file(
+        the_installation, {LABELS: LABEL_LISTING, ISSUES: answer}
+    )
+
+    assert returned.outcome == "failed"
+    assert "may exist" in returned.content
+    assert BODY not in returned.content
