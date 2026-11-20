@@ -27,6 +27,9 @@ REPO = "https://gitea.example.com/api/v1/repos/acme/widgets"
 HEADERS = {"Authorization": "token tok-abc123"}
 
 # YAML the user profile serializes to, in field-declaration order.
+NEW_ROOM = gitea.NewRoomRequest(name="marketing", purpose="Campaign planning")
+ACCESS = gitea.RoomAccessRequest(room="chat", justification="I join the team")
+
 PROFILE_YAML = (
     "given_name: Phreddy\n"
     "family_name: Phlyntstone\n"
@@ -116,9 +119,7 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
     ):
         found = await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     assert isinstance(found, gitea.CreatedGiteaIssue)
@@ -142,7 +143,7 @@ async def test_create_gitea_issue_applies_existing_label(ctx):
         headers=HEADERS,
         json={
             "title": "New room request: marketing",
-            "body": "Requested by Phreddy.",
+            "body": NEW_ROOM.body,
             "labels": [5],
         },
     )
@@ -180,9 +181,7 @@ async def test_create_gitea_issue_honors_configured_attachment_name(ctx):
     with patched_client:
         await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     _issue_call, asset_call = client.post.await_args_list
@@ -218,9 +217,7 @@ async def test_create_gitea_issue_excludes_configured_claims(ctx):
     with patched_client:
         await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     profile_yaml = (
@@ -262,9 +259,7 @@ async def test_create_gitea_issue_creates_missing_label(ctx):
     with patched_client:
         found = await gitea.create_gitea_issue(
             ctx=ctx,
-            title="Room access request: chat",
-            body="Requested by Phreddy.",
-            request_type="room-access",
+            request=ACCESS,
         )
 
     assert found.number == 8
@@ -312,9 +307,7 @@ async def test_create_gitea_issue_reuses_label_from_a_later_page(ctx):
     with patched_client:
         found = await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     assert found.number == 7
@@ -353,33 +346,13 @@ async def test_create_gitea_issue_bounds_the_label_page_walk(ctx):
     with patched_client:
         found = await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     assert found.number == 7
     assert client.get.await_count == sc_labels.MAX_LABEL_PAGES
     create_call, _issue_call, _asset_call = client.post.await_args_list
     assert create_call.args[0] == f"{REPO}/labels"
-
-
-@pytest.mark.anyio
-async def test_create_gitea_issue_rejects_unknown_request_type(ctx):
-    patched_client, client = _patch_async_client([_resp([])], [])
-
-    with patched_client, pytest.raises(gitea.UnknownRequestType) as exc:
-        await gitea.create_gitea_issue(
-            ctx=ctx,
-            title="Mystery request",
-            body="Requested by Phreddy.",
-            request_type="bogus",
-        )
-
-    assert exc.value.request_type == "bogus"
-    assert exc.value.supported == {"new-room", "room-access"}
-    assert "new-room" in str(exc.value)
-    client.get.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -390,15 +363,13 @@ async def test_create_gitea_issue_rejects_anonymous_user(ctx):
     with patched_client, pytest.raises(gitea.IssueNotFiled) as exc:
         await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested anonymously.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     assert isinstance(exc.value.error, gitea.AnonymousUser)
     assert "anonymous" in exc.value.message
     assert "New room request: marketing" in exc.value.message
-    assert "Requested anonymously." in exc.value.message
+    assert NEW_ROOM.body in exc.value.message
     client.get.assert_not_awaited()
 
 
@@ -425,15 +396,13 @@ async def test_create_gitea_issue_not_filed(
     with patched_client, pytest.raises(gitea.IssueNotFiled) as exc:
         await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     assert isinstance(exc.value.error, httpx2.HTTPError)
     assert exc.value.__cause__ is exc.value.error
     assert "New room request: marketing" in exc.value.message
-    assert "Requested by Phreddy." in exc.value.message
+    assert NEW_ROOM.body in exc.value.message
 
 
 @pytest.mark.anyio
@@ -446,15 +415,13 @@ async def test_create_gitea_issue_maybe_filed(ctx):
     with patched_client, pytest.raises(gitea.IssueMaybeFiled) as exc:
         await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     assert isinstance(exc.value.error, httpx2.ReadTimeout)
     assert "may exist" in exc.value.message
     assert "do not file the request again" in exc.value.message
-    assert "Requested by Phreddy." not in exc.value.message
+    assert NEW_ROOM.body not in exc.value.message
 
 
 @pytest.mark.anyio
@@ -467,9 +434,7 @@ async def test_create_gitea_issue_maybe_filed_after_a_malformed_answer(ctx):
     with patched_client, pytest.raises(gitea.IssueMaybeFiled) as exc:
         await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     assert isinstance(exc.value.error, KeyError)
@@ -485,9 +450,7 @@ async def test_create_gitea_issue_propagates_other_errors(ctx):
     with patched_client, pytest.raises(RuntimeError):
         await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
 
@@ -521,9 +484,7 @@ async def test_create_gitea_issue_comments_a_refused_profile(ctx):
     with patched_client:
         found = await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     assert found.number == 7
@@ -548,9 +509,7 @@ async def test_create_gitea_issue_returns_the_issue_without_a_profile(ctx):
     with patched_client:
         found = await gitea.create_gitea_issue(
             ctx=ctx,
-            title="New room request: marketing",
-            body="Requested by Phreddy.",
-            request_type="new-room",
+            request=NEW_ROOM,
         )
 
     assert found.number == 7
@@ -597,16 +556,14 @@ async def test_create_gitea_issue_raises_when_label_dropped(ctx):
     with patched_client, pytest.raises(gitea.IssueFiledWithoutLabel) as exc:
         await gitea.create_gitea_issue(
             ctx=ctx,
-            title="Room access request: chat",
-            body="Requested by Phreddy.",
-            request_type="room-access",
+            request=ACCESS,
         )
 
     assert exc.value.error.request_type == "room-access"
     assert exc.value.error.number == 12
     assert f"{REPO}/issues/12" in exc.value.message
     assert "do not file the request again" in exc.value.message
-    assert "Requested by Phreddy." not in exc.value.message
+    assert NEW_ROOM.body not in exc.value.message
     (issue_call,) = client.post.await_args_list
     assert issue_call.args[0] == f"{REPO}/issues"
 
@@ -941,9 +898,7 @@ async def test_create_gitea_issue_audits_the_filing(ctx, audited):
     )
 
     with patched_client:
-        await gitea.create_gitea_issue(
-            ctx=ctx, title="t", body="b", request_type="new-room"
-        )
+        await gitea.create_gitea_issue(ctx=ctx, request=NEW_ROOM)
 
     [record] = audited()
     assert record.getMessage() == audit.AUDIT_ISSUE_FILED
@@ -966,9 +921,7 @@ async def test_create_gitea_issue_audits_a_failed_filing(ctx, audited):
     )
 
     with patched_client, pytest.raises(gitea.IssueNotFiled):
-        await gitea.create_gitea_issue(
-            ctx=ctx, title="t", body="b", request_type="new-room"
-        )
+        await gitea.create_gitea_issue(ctx=ctx, request=NEW_ROOM)
 
     [record] = audited()
     assert (record.getMessage(), record.outcome) == (

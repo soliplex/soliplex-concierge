@@ -108,6 +108,91 @@ class CreatedGiteaIssue(pydantic.BaseModel):
     profile: ProfileRecord = "attached"
 
 
+NOT_PROVIDED = "*(not provided)*"
+
+
+def _section(heading: str, text: str | None) -> str:
+    return f"## {heading}\n\n{text or NOT_PROVIDED}\n"
+
+
+class NewRoomRequest(pydantic.BaseModel):
+    """A request for a room that does not exist yet."""
+
+    kind: typing.Literal["new-room"] = "new-room"
+    name: str = pydantic.Field(min_length=1, description="The room's name.")
+    purpose: str = pydantic.Field(
+        min_length=1, description="What the room is for, in a sentence or two."
+    )
+    knowledge_sources: str | None = pydantic.Field(
+        None,
+        description="Documents, URLs or datasets the room should draw from.",
+    )
+    access: str | None = pydantic.Field(
+        None,
+        description="Who should have access: everyone, a group, or people.",
+    )
+    tools_and_skills: str | None = pydantic.Field(
+        None, description="Tools or skills the room should provide."
+    )
+    notes: str | None = pydantic.Field(
+        None, description="Anything else an administrator should know."
+    )
+
+    @property
+    def title(self) -> str:
+        return f"New room request: {self.name}"
+
+    @property
+    def body(self) -> str:
+        return "\n".join(
+            [
+                f"# {self.title}\n",
+                "- **Request type:** New room\n",
+                _section("Purpose", self.purpose),
+                _section("Knowledge sources", self.knowledge_sources),
+                _section("Access", self.access),
+                _section("Tools & skills", self.tools_and_skills),
+                _section("Additional notes", self.notes),
+            ]
+        )
+
+
+class RoomAccessRequest(pydantic.BaseModel):
+    """A request for access to an existing private room."""
+
+    kind: typing.Literal["room-access"] = "room-access"
+    room: str = pydantic.Field(
+        min_length=1, description="The existing private room."
+    )
+    justification: str = pydantic.Field(
+        min_length=1, description="Why the user needs access."
+    )
+    notes: str | None = pydantic.Field(
+        None, description="Anything else an administrator should know."
+    )
+
+    @property
+    def title(self) -> str:
+        return f"Room access request: {self.room}"
+
+    @property
+    def body(self) -> str:
+        return "\n".join(
+            [
+                f"# {self.title}\n",
+                "- **Request type:** Access to an existing private room\n",
+                _section("Room", self.room),
+                _section("Justification", self.justification),
+                _section("Additional notes", self.notes),
+            ]
+        )
+
+
+RequestDetails = typing.Annotated[
+    NewRoomRequest | RoomAccessRequest, pydantic.Field(discriminator="kind")
+]
+
+
 # The steps that file an issue are written once, sans-IO: each step is a
 # generator that yields '(method, url, kwargs)' for every HTTP call it needs
 # and is sent back the response. '_drive_sync' / '_drive_async' run them
@@ -479,23 +564,14 @@ def create_gitea_issue_sync(
 
 async def create_gitea_issue(
     ctx: pydantic_ai.RunContext[agents.AgentDependencies],
-    title: str,
-    body: str,
-    request_type: str,
+    request: RequestDetails,
 ) -> CreatedGiteaIssue:
     """File a room request as a Gitea issue and return its number and link.
 
     The target repository is fixed by this room's configuration, so you do
-    not choose it -- just supply a clear, specific 'title' and a 'body' that
-    captures the request type, the requesting user, and every detail you
-    collected.
-
-    `request_type` is used to tag the issue a type label to allow
-    administrators to triage it.
-
-    The requesting user's profile is attached to the issue as a YAML
-    file (or commented on it), so you need not transcribe their identity
-    into the 'body'.
+    not choose it. Pass every detail you collected in 'request'; leave out
+    what the user did not say. The requesting user's profile is attached to
+    the issue, so you need not record who they are.
 
     Report the returned issue number and URL back to the user. If the
     returned 'profile' is 'missing', also tell them the issue does not
@@ -503,11 +579,8 @@ async def create_gitea_issue(
     the failure says whether the issue exists, and what to tell the user.
 
     Args:
-        title: the issue title.
-        body: the issue body (Markdown).
-        request_type: which kind of request this is -- 'new-room' for a new
-            room, or 'room-access' for access to an existing private room
-            (the 'TYPE:' line returned by the room-request concierge skill).
+        request: a new-room request, or a request for access to an existing
+            private room.
 
     Returns:
         CreatedGiteaIssue: the 'number', 'url', and 'title' of the new issue,
@@ -515,19 +588,13 @@ async def create_gitea_issue(
             'missing').
 
     Raises:
-        UnknownRequestType: if 'request_type' is not a known issue-type label.
         IssueNotFiled: if no issue was filed (including for a run with no
             user profile attached).
         IssueFiledWithoutLabel: if the issue was filed without its type
             label (typically the Gitea account lacks Write access).
         IssueMaybeFiled: if Gitea gave no usable answer to the filing itself.
     """
-    if request_type not in sc_labels.ISSUE_TYPE_LABELS:
-        raise UnknownRequestType(
-            request_type,
-            set(sc_labels.ISSUE_TYPE_LABELS),
-        )
-
+    title, body, request_type = request.title, request.body, request.kind
     deps = ctx.deps
     if deps.user is None:
         raise IssueNotFiled(AnonymousUser(), title, body)

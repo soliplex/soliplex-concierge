@@ -4,6 +4,7 @@ The installation is built from the room's own 'room_config.yaml' and
 'prompt.txt', and the tools run their real code against faked HTTP services.
 """
 
+import json
 import pathlib
 import shutil
 from unittest import mock
@@ -30,7 +31,6 @@ ROOM_DIR = (
     / "rooms"
     / ROOM_ID
 )
-ROOM_SKILL = REPO_ROOT / "skills" / "soliplex-concierge-room"
 SNIPPET = ROOM_DIR.parents[1] / "installation-snippet.yaml"
 
 REPO_PATH = "/api/v1/repos/your-gitea-owner/soliplex-requests"
@@ -82,7 +82,6 @@ USER = models.UserProfile.from_user_claims(
 @pytest.fixture
 def the_installation(temp_dir) -> installation.Installation:
     shutil.copytree(ROOM_DIR, temp_dir / "rooms" / ROOM_ID)
-    shutil.copytree(ROOM_SKILL, temp_dir / "skills" / ROOM_SKILL.name)
     docs = temp_dir / "skills" / "soliplex-docs"
     docs.mkdir(parents=True)
     (docs / "SKILL.md").write_text(DOCS_SKILL)
@@ -99,14 +98,16 @@ def the_installation(temp_dir) -> installation.Installation:
     return the_installation
 
 
-def _services(routes):
+def _services(routes, sent=None):
     """Patch 'httpx2.AsyncClient' to answer each request from 'routes'.
 
     'routes' maps '(method, path)' to the 'httpx2.Response' answering it, or
-    to the exception the request raises.
+    to the exception the request raises. Each request is appended to 'sent'.
     """
 
     def answer(request):
+        if sent is not None:
+            sent.append(request)
         answer = routes[(request.method, request.url.path)]
         if isinstance(answer, Exception):
             raise answer
@@ -184,12 +185,57 @@ async def test_request_room_accepted(the_installation):
 
 # ---- filing an issue ----
 
+NEW_ROOM = {"kind": "new-room", "name": "Q3 Plans", "purpose": "Q3 planning"}
 TITLE = "New room request: Q3 Plans"
-BODY = "## Purpose\n\nQ3 planning"
-FILE_ISSUE = (
-    "create_gitea_issue",
-    {"title": TITLE, "body": BODY, "request_type": "new-room"},
-)
+BODY = """\
+# New room request: Q3 Plans
+
+- **Request type:** New room
+
+## Purpose
+
+Q3 planning
+
+## Knowledge sources
+
+*(not provided)*
+
+## Access
+
+*(not provided)*
+
+## Tools & skills
+
+*(not provided)*
+
+## Additional notes
+
+*(not provided)*
+"""
+ROOM_ACCESS = {
+    "kind": "room-access",
+    "room": "finance",
+    "justification": "I review the budget",
+    "notes": "Read access is enough",
+}
+ACCESS_TITLE = "Room access request: finance"
+ACCESS_BODY = """\
+# Room access request: finance
+
+- **Request type:** Access to an existing private room
+
+## Room
+
+finance
+
+## Justification
+
+I review the budget
+
+## Additional notes
+
+Read access is enough
+"""
 LABELS = ("GET", f"{REPO_PATH}/labels")
 ISSUES = ("POST", f"{REPO_PATH}/issues")
 LABEL_LISTING = httpx2.Response(200, json=[{"name": "new-room", "id": 5}])
@@ -207,11 +253,45 @@ def _filed(labels=("new-room",)):
     )
 
 
-async def _file(the_installation, routes, user=USER):
-    with _services(routes):
-        result = await _run(the_installation, _scripted(FILE_ISSUE), user)
+async def _file(
+    the_installation, routes, user=USER, request=NEW_ROOM, sent=None
+):
+    model = _scripted(("create_gitea_issue", {"request": request}))
+    with _services(routes, sent):
+        result = await _run(the_installation, model, user)
     assert result.output == "done"
     return _tool_returns(result)["create_gitea_issue"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "request_, label, title, body",
+    [
+        (NEW_ROOM, "new-room", TITLE, BODY),
+        (ROOM_ACCESS, "room-access", ACCESS_TITLE, ACCESS_BODY),
+    ],
+    ids=["new-room", "room-access"],
+)
+async def test_file_issue(the_installation, request_, label, title, body):
+    sent = []
+    returned = await _file(
+        the_installation,
+        {
+            LABELS: httpx2.Response(200, json=[{"name": label, "id": 5}]),
+            ISSUES: _filed(labels=(label,)),
+            ("POST", f"{REPO_PATH}/issues/7/assets"): httpx2.Response(201),
+        },
+        request=request_,
+        sent=sent,
+    )
+
+    assert returned.outcome == "success"
+    issue_post = next(r for r in sent if r.url.path == ISSUES[1])
+    assert json.loads(issue_post.content) == {
+        "title": title,
+        "body": body,
+        "labels": [5],
+    }
 
 
 @pytest.mark.anyio
@@ -297,3 +377,60 @@ async def test_file_issue_maybe_filed_after_a_malformed_answer(
     assert returned.outcome == "failed"
     assert "may exist" in returned.content
     assert BODY not in returned.content
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "request_",
+    [
+        {"kind": "bogus", "name": "Q3 Plans", "purpose": "Q3 planning"},
+        {"kind": "new-room", "name": "", "purpose": "Q3 planning"},
+        {"kind": "room-access", "room": "finance"},
+    ],
+    ids=["unknown-kind", "empty-name", "missing-justification"],
+)
+async def test_file_issue_rejects_an_invalid_request(
+    the_installation, request_
+):
+    sent = []
+    model = _scripted(("create_gitea_issue", {"request": request_}))
+
+    with _services({}, sent):
+        result = await _run(the_installation, model)
+
+    retries = [
+        part
+        for message in result.all_messages()
+        for part in message.parts
+        if isinstance(part, ai_messages.RetryPromptPart)
+    ]
+    assert [part.tool_name for part in retries] == ["create_gitea_issue"]
+    assert sent == []
+    assert result.output == "done"
+
+
+@pytest.mark.anyio
+async def test_not_admitted_then_file_issue(the_installation):
+    sent = []
+    routes = {
+        ("POST", "/rooms"): httpx2.Response(403, json={"detail": "no"}),
+        LABELS: LABEL_LISTING,
+        ISSUES: _filed(),
+        ("POST", f"{REPO_PATH}/issues/7/assets"): httpx2.Response(201),
+    }
+    model = _scripted(
+        ("request_room", {"name": "Q3 Plans", "description": "Q3 planning"}),
+        ("create_gitea_issue", {"request": NEW_ROOM}),
+    )
+
+    with _services(routes, sent):
+        result = await _run(the_installation, model)
+
+    returned = _tool_returns(result)
+    refusal = returned["request_room"].content
+    assert isinstance(refusal, provisioner.RoomRequestAccepted)
+    assert refusal.status == "not_admitted"
+    assert returned["create_gitea_issue"].outcome == "success"
+    issue_post = next(r for r in sent if r.url.path == ISSUES[1])
+    assert json.loads(issue_post.content)["body"] == BODY
+    assert result.output == "done"

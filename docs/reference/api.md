@@ -95,10 +95,21 @@ user's profile was recorded on it:
   attachment
 - `"missing"` — not at all, Gitea having refused the comment too
 
-**`async create_gitea_issue(ctx, title, body, request_type) -> CreatedGiteaIssue`**
+**`NewRoomRequest`**, **`RoomAccessRequest`**
+
+The two kinds of request the about-room files, discriminated on `kind`
+(`"new-room"` or `"room-access"`, which is also the issue's type label).
+`NewRoomRequest` requires `name` and `purpose`, and takes `knowledge_sources`,
+`access`, `tools_and_skills` and `notes`. `RoomAccessRequest` requires `room`
+and `justification`, and takes `notes`. Required fields must not be empty.
+Each renders its issue `title` and Markdown `body`, with `*(not provided)*`
+for a field left out.
+
+**`async create_gitea_issue(ctx, request) -> CreatedGiteaIssue`**
 
 The tool the about-room calls to file a request. `ctx` is the pydantic-ai
-`RunContext`; `request_type` is `"new-room"` or `"room-access"`. The target
+`RunContext`, and `request` a `NewRoomRequest` or `RoomAccessRequest`, whose
+rendered title and body become the issue's. The target
 repository is fixed by the room's `CreateGiteaIssueToolConfig`. It ensures the
 type label exists — reusing the repository's existing label, found by walking
 every page of its label listing, and creating one only when it is truly absent —
@@ -117,7 +128,8 @@ agent run (e.g. a room provisioner). What the tool reads from its run context
 is passed in explicitly: the connection and profile settings its
 `CreateGiteaIssueToolConfig` supplies, and the requesting `user` (a
 `soliplex.models.UserProfile`, or a mapping of the user's claims). It files the
-same issue the tool does — the two share one implementation. It raises
+issue the same way the tool does — the two share their filing steps —
+from the `title`, `body` and `request_type` it is given. It raises
 `UnknownRequestType`, `LabelNotApplied`, and the `httpx2` error of a failed
 request.
 
