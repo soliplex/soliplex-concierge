@@ -17,8 +17,8 @@ uv run scripts/gitea_issues.py search --type room-access \
 uv run scripts/gitea_issues.py show <number> --owner <owner> --repo <repo>
 ```
 
-The body (the room-skill's room-access template) gives the **room** and the
-**justification**. The requester's identity, though, comes from the **attached
+The body (rendered by `create_gitea_issue` from a `RoomAccessRequest`) gives
+the **room** and the **justification**. The requester's identity, though, comes from the **attached
 user profile**, not the body: when the concierge filed the issue,
 `create_gitea_issue` attached the signed-in user's profile as a YAML file
 (`user-profile.yaml` by default). It holds the OIDC claims Soliplex knows about

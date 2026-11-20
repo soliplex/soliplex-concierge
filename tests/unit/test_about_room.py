@@ -6,6 +6,7 @@ The installation is built from the room's own 'room_config.yaml' and
 
 import json
 import pathlib
+import re
 import shutil
 from unittest import mock
 
@@ -32,6 +33,7 @@ ROOM_DIR = (
     / ROOM_ID
 )
 SNIPPET = ROOM_DIR.parents[1] / "installation-snippet.yaml"
+PROMPT = ROOM_DIR / "prompt.txt"
 
 REPO_PATH = "/api/v1/repos/your-gitea-owner/soliplex-requests"
 ISSUE_URL = (
@@ -434,3 +436,31 @@ async def test_not_admitted_then_file_issue(the_installation):
     issue_post = next(r for r in sent if r.url.path == ISSUES[1])
     assert json.loads(issue_post.content)["body"] == BODY
     assert result.output == "done"
+
+
+def _property_names(schema) -> set[str]:
+    """Every property name anywhere in a JSON schema."""
+    if isinstance(schema, list):
+        return set().union(*(_property_names(item) for item in schema))
+    if not isinstance(schema, dict):
+        return set()
+    names = set(schema.get("properties", {}))
+    return names.union(*(_property_names(value) for value in schema.values()))
+
+
+@pytest.mark.anyio
+async def test_prompt_names_only_the_room_tools(the_installation):
+    """Each quoted 'snake_case' word in the prompt names a tool or argument."""
+    named = set(re.findall(r"'([a-z]+(?:_[a-z]+)+)'", PROMPT.read_text()))
+    tools, arguments = set(), set()
+
+    def respond(_messages, info):
+        for tool in info.function_tools:
+            tools.add(tool.name)
+            arguments.update(_property_names(tool.parameters_json_schema))
+        return ai_messages.ModelResponse(parts=[ai_messages.TextPart("done")])
+
+    await _run(the_installation, ai_function.FunctionModel(respond))
+
+    assert {"request_room", "create_gitea_issue"} <= named & tools
+    assert named <= tools | arguments

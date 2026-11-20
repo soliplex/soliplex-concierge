@@ -16,8 +16,8 @@ metadata:
 # Soliplex concierge admin
 
 You run in an external coding agent (not inside the Soliplex server) to help
-an administrator work through the room-request issues that the
-`soliplex-concierge-room` skill files on a Gitea repository. For each
+an administrator work through the room-request issues that the concierge
+room's `create_gitea_issue` tool files on a Gitea repository. For each
 request you read the issue and **draft** the change it asks for; the
 administrator reviews the draft and applies it through their deployment's
 own process. Once they tell you it is done (or that they refuse it), you
@@ -113,7 +113,7 @@ uv run scripts/gitea_issues.py init --owner <owner> --repo <repo>
    token: an attachment, or a comment the filing account posted when Gitea
    refused the attachment), then the body. Pass `--profile-name <name>` when
    the room's `create_gitea_issue` sets another `profile_attachment_name`.
-   The body follows one of two templates the room skill fills in:
+   The body follows one of two layouts the room tool renders:
    - **New room request** — name, purpose, knowledge sources, access, and any
      requested tools/skills.
    - **Room access request** — the existing room and the justification.

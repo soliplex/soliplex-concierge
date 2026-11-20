@@ -29,7 +29,7 @@ uv run scripts/gitea_issues.py search --type new-room \
 uv run scripts/gitea_issues.py show <number> --owner <owner> --repo <repo>
 ```
 
-The body follows the room-skill's new-room template, which captures:
+The body (rendered by `create_gitea_issue` from a `NewRoomRequest`) captures:
 
 - **Name and purpose** — what the room is for.
 - **Knowledge sources** — the documents or data it should draw from (this drives
