@@ -48,12 +48,10 @@ def _repo_api(gitea_server):
 @pytest.mark.needs_docker
 @pytest.mark.anyio
 async def test_create_gitea_issue_against_live_gitea(gitea_server, ctx):
-    issue = await gitea.create_gitea_issue(
-        ctx=ctx,
-        title="Room access request: marketing",
-        body="Requested by Phreddy Phlyntstone.",
-        request_type="room-access",
+    request = gitea.RoomAccessRequest(
+        room="marketing", justification="I plan the campaigns"
     )
+    issue = await gitea.create_gitea_issue(ctx=ctx, request=request)
 
     assert isinstance(issue, gitea.CreatedGiteaIssue)
     assert issue.number == 1
@@ -68,7 +66,7 @@ async def test_create_gitea_issue_against_live_gitea(gitea_server, ctx):
         timeout=10,
     )
     assert verify.status_code == 200
-    assert verify.json()["body"] == "Requested by Phreddy Phlyntstone."
+    assert verify.json()["body"] == request.body
     # the tool self-created the 'room-access' type label and applied it
     assert "room-access" in {
         label["name"] for label in verify.json()["labels"]
@@ -121,9 +119,9 @@ async def test_create_gitea_issue_reuses_a_label_past_the_first_page(
 
     issue = await gitea.create_gitea_issue(
         ctx=ctx,
-        title="New room request: marketing",
-        body="Requested by Phreddy Phlyntstone.",
-        request_type="new-room",
+        request=gitea.NewRoomRequest(
+            name="marketing", purpose="Campaign planning"
+        ),
     )
 
     verify = httpx2.get(

@@ -51,14 +51,11 @@ tools:
     # service_url: "http://soliplex-provisioner:8090"
 
 skills:
-  # The detailed concierge behavior lives in the 'soliplex-concierge-room'
-  # filesystem skill shipped by this package; the 'soliplex-docs' skill (the
-  # full Soliplex documentation) lets the room answer "how do I ..." questions
-  # about Soliplex. Both are wired into the installation's
-  # 'filesystem_skills_paths' (see installation-snippet.yaml); the installer
-  # downloads them from their published GitHub releases.
+  # The 'soliplex-docs' skill (the full Soliplex documentation) lets the room
+  # answer "how do I ..." questions about Soliplex. It is wired into the
+  # installation's 'filesystem_skills_paths' (see installation-snippet.yaml).
+  # The installer downloads it from its published GitHub releases.
   installation_skill_names:
-    - "soliplex-concierge-room"
     - "soliplex-docs"
 
   # By default the room answers from 'soliplex-docs' above, so no RAG database

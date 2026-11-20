@@ -400,9 +400,9 @@ async def request_room(
       installation registers (e.g. a role or group membership check)
 
     When the result's 'status' is 'accepted', the room is being created:
-    tell the user its 'room_id' and tracking issue ('issue_url', when
-    present), and that you can check whether it is ready with
-    'check_room_request'. When it is 'already_requested', an earlier
+    tell the user its 'room_id', whom it belongs to, and its tracking issue
+    ('issue_url', when present), and that you can check whether it is ready
+    with 'check_room_request'. When it is 'already_requested', an earlier
     attempt of this request reached the provisioner: tell the user its
     'room_id', and check on it with 'check_room_request'. When it is
     'not_admitted', the user may not have rooms created on request: file
@@ -416,7 +416,8 @@ async def request_room(
         description: a one-line description of the room's purpose; defaults
             to the name.
         slug: the room id's second part: lowercase letters and digits,
-            joined by single '-'; omit it to derive one from the name.
+            joined by single '-'. Pass one only when the user asks for a
+            particular room id: omit it to derive one from the name.
         owner: the room id's first part, for a room owned by someone other
             than the user (letters, digits, '.', '_', '-').
         owner_claim: with 'owner_value', the claim a user must hold.

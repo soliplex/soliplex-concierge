@@ -59,6 +59,38 @@ class LabelNotApplied(RuntimeError):
         )
 
 
+class IssueNotFiled(pydantic_ai.ToolFailed):
+    def __init__(self, error: Exception, title: str, body: str):
+        self.error = error
+        super().__init__(
+            f"the request was not filed ({audit.reason(error)}). Tell the "
+            "user, and show them this draft to submit to an administrator "
+            f"themselves:\n\n{title}\n\n{body}"
+        )
+
+
+class IssueFiledWithoutLabel(pydantic_ai.ToolFailed):
+    def __init__(self, error: LabelNotApplied):
+        self.error = error
+        super().__init__(
+            f"issue #{error.number} was filed ({error.url}), but without its "
+            f"{error.request_type!r} label, so triage may miss it. Give the "
+            "user the link, tell them an administrator must label it, and do "
+            "not file the request again"
+        )
+
+
+class IssueMaybeFiled(pydantic_ai.ToolFailed):
+    def __init__(self, error: Exception):
+        self.error = error
+        super().__init__(
+            "Gitea gave no usable answer to the filing "
+            f"({audit.reason(error)}), so the issue may exist. Tell the user "
+            "to ask an administrator to check for it, and do not file the "
+            "request again"
+        )
+
+
 # How the requesting user's profile was recorded on their issue:
 # - 'attached': as the YAML attachment
 # - 'commented': as a comment holding the YAML, Gitea having refused the
@@ -76,13 +108,110 @@ class CreatedGiteaIssue(pydantic.BaseModel):
     profile: ProfileRecord = "attached"
 
 
-# The request sequence that files an issue is written once, sans-IO: each
-# step is a generator that yields '(method, url, kwargs)' for every HTTP call
-# it needs and is sent back the response. '_drive_sync' / '_drive_async' run
-# it against an 'httpx2.Client' / 'httpx2.AsyncClient', so the room tool and
-# its synchronous counterpart cannot drift apart.
+NOT_PROVIDED = "*(not provided)*"
+
+
+def _section(heading: str, text: str | None) -> str:
+    return f"## {heading}\n\n{text or NOT_PROVIDED}\n"
+
+
+class NewRoomRequest(pydantic.BaseModel):
+    """A request for a room that does not exist yet."""
+
+    kind: typing.Literal["new-room"] = "new-room"
+    name: str = pydantic.Field(min_length=1, description="The room's name.")
+    purpose: str = pydantic.Field(
+        min_length=1, description="What the room is for, in a sentence or two."
+    )
+    knowledge_sources: str | None = pydantic.Field(
+        None,
+        description="Documents, URLs or datasets the room should draw from.",
+    )
+    access: str | None = pydantic.Field(
+        None,
+        description="Who should have access: everyone, a group, or people.",
+    )
+    tools_and_skills: str | None = pydantic.Field(
+        None, description="Tools or skills the room should provide."
+    )
+    notes: str | None = pydantic.Field(
+        None, description="Anything else an administrator should know."
+    )
+
+    @property
+    def title(self) -> str:
+        return f"New room request: {self.name}"
+
+    @property
+    def body(self) -> str:
+        return "\n".join(
+            [
+                f"# {self.title}\n",
+                "- **Request type:** New room\n",
+                _section("Purpose", self.purpose),
+                _section("Knowledge sources", self.knowledge_sources),
+                _section("Access", self.access),
+                _section("Tools & skills", self.tools_and_skills),
+                _section("Additional notes", self.notes),
+            ]
+        )
+
+
+class RoomAccessRequest(pydantic.BaseModel):
+    """A request for access to an existing private room."""
+
+    kind: typing.Literal["room-access"] = "room-access"
+    room: str = pydantic.Field(
+        min_length=1, description="The existing private room."
+    )
+    justification: str = pydantic.Field(
+        min_length=1, description="Why the user needs access."
+    )
+    notes: str | None = pydantic.Field(
+        None, description="Anything else an administrator should know."
+    )
+
+    @property
+    def title(self) -> str:
+        return f"Room access request: {self.room}"
+
+    @property
+    def body(self) -> str:
+        return "\n".join(
+            [
+                f"# {self.title}\n",
+                "- **Request type:** Access to an existing private room\n",
+                _section("Room", self.room),
+                _section("Justification", self.justification),
+                _section("Additional notes", self.notes),
+            ]
+        )
+
+
+RequestDetails = typing.Annotated[
+    NewRoomRequest | RoomAccessRequest, pydantic.Field(discriminator="kind")
+]
+
+
+# The steps that file an issue are written once, sans-IO: each step is a
+# generator that yields '(method, url, kwargs)' for every HTTP call it needs
+# and is sent back the response. '_drive_sync' / '_drive_async' run them
+# against an 'httpx2.Client' / 'httpx2.AsyncClient'. The synchronous function
+# runs them chained in '_file_issue'. The room tool runs them one at a time,
+# to tell which step failed.
 _Request = tuple[str, str, dict[str, typing.Any]]
 _Steps = typing.Generator[_Request, httpx2.Response, typing.Any]
+
+# What a failed request, or an answer that is not what Gitea documents,
+# raises: a non-JSON body (ValueError), a missing field (KeyError), a value
+# of the wrong type (TypeError, AttributeError).
+_UPSTREAM_ERRORS = (
+    httpx2.HTTPError,
+    ValueError,
+    KeyError,
+    TypeError,
+    AttributeError,
+)
 
 
 def _find_label(
@@ -226,10 +355,44 @@ def _file_issue(
     Once the issue exists, recording the profile is best-effort (see
     '_record_user_profile'): the issue is returned however that goes.
     """
-    repo_url = f"{host.rstrip('/')}/api/v1/repos/{owner}/{repo}"
-    headers = {"Authorization": f"token {token}"}
+    repo_url = _repo_url(host, owner, repo)
+    headers = _headers(token)
 
     label_id = yield from _ensure_label(repo_url, headers, request_type)
+    data = yield from _post_issue(
+        repo_url, headers, label_id, title, body, request_type
+    )
+    profile = yield from _record_user_profile(
+        repo_url,
+        headers,
+        data["number"],
+        claims,
+        profile_attachment_name,
+        exclude_claims,
+    )
+    return _created(data, profile)
+
+
+def _repo_url(host: str, owner: str, repo: str) -> str:
+    return f"{host.rstrip('/')}/api/v1/repos/{owner}/{repo}"
+
+
+def _headers(token: str) -> dict[str, str]:
+    return {"Authorization": f"token {token}"}
+
+
+def _post_issue(
+    repo_url: str,
+    headers: dict[str, str],
+    label_id: int,
+    title: str,
+    body: str,
+    request_type: str,
+) -> _Steps:
+    """File the issue with its type label; return Gitea's answer.
+
+    Raises 'LabelNotApplied' when the issue was created without the label.
+    """
     response = yield (
         "post",
         f"{repo_url}/issues",
@@ -244,16 +407,10 @@ def _file_issue(
     applied = {label["name"] for label in data.get("labels", [])}
     if request_type not in applied:
         raise LabelNotApplied(request_type, data["number"], data["html_url"])
+    return data
 
-    profile = yield from _record_user_profile(
-        repo_url,
-        headers,
-        data["number"],
-        claims,
-        profile_attachment_name,
-        exclude_claims,
-    )
 
+def _created(data: dict, profile: ProfileRecord) -> CreatedGiteaIssue:
     return CreatedGiteaIssue(
         number=data["number"],
         url=data["html_url"],
@@ -407,34 +564,23 @@ def create_gitea_issue_sync(
 
 async def create_gitea_issue(
     ctx: pydantic_ai.RunContext[agents.AgentDependencies],
-    title: str,
-    body: str,
-    request_type: str,
+    request: RequestDetails,
 ) -> CreatedGiteaIssue:
     """File a room request as a Gitea issue and return its number and link.
 
     The target repository is fixed by this room's configuration, so you do
-    not choose it -- just supply a clear, specific 'title' and a 'body' that
-    captures the request type, the requesting user, and every detail you
-    collected.
-
-    `request_type` is used to tag the issue a type label to allow
-    administrators to triage it.
-
-    The requesting user's profile is attached to the issue as a YAML
-    file (or commented on it), so you need not transcribe their identity
-    into the 'body'.
+    not choose it. Pass every detail you collected in 'request'; leave out
+    what the user did not say. The requesting user's profile is attached to
+    the issue, so you need not record who they are.
 
     Report the returned issue number and URL back to the user. If the
     returned 'profile' is 'missing', also tell them the issue does not
-    record who they are, so an administrator may ask.
+    record who they are, so an administrator may ask. When filing fails,
+    the failure says whether the issue exists, and what to tell the user.
 
     Args:
-        title: the issue title.
-        body: the issue body (Markdown).
-        request_type: which kind of request this is -- 'new-room' for a new
-            room, or 'room-access' for access to an existing private room
-            (the 'TYPE:' line returned by the room-request concierge skill).
+        request: a new-room request, or a request for access to an existing
+            private room.
 
     Returns:
         CreatedGiteaIssue: the 'number', 'url', and 'title' of the new issue,
@@ -442,53 +588,70 @@ async def create_gitea_issue(
             'missing').
 
     Raises:
-        UnknownRequestType: if 'request_type' is not a known issue-type label.
-        AnonymousUser: if no user profile is attached to the run.
-        LabelNotApplied: if the created issue did not receive its type label
-            (typically the Gitea account lacks Write access to the repo).
+        IssueNotFiled: if no issue was filed (including for a run with no
+            user profile attached).
+        IssueFiledWithoutLabel: if the issue was filed without its type
+            label (typically the Gitea account lacks Write access).
+        IssueMaybeFiled: if Gitea gave no usable answer to the filing itself.
     """
-    if request_type not in sc_labels.ISSUE_TYPE_LABELS:
-        raise UnknownRequestType(
-            request_type,
-            set(sc_labels.ISSUE_TYPE_LABELS),
-        )
-
-    if ctx.deps.user is None:
-        raise AnonymousUser()
-
-    tool_config = ctx.deps.tool_configs[config.CGI_TOOL_KIND]
-
-    steps = _file_issue(
-        host=tool_config.host,
-        token=tool_config.token,
-        owner=tool_config.owner,
-        repo=tool_config.repo,
-        profile_attachment_name=tool_config.profile_attachment_name,
-        exclude_claims=tool_config.exclude_claims,
-        claims=ctx.deps.user.model_dump(),
-        title=title,
-        body=body,
-        request_type=request_type,
-    )
+    title, body, request_type = request.title, request.body, request.kind
     deps = ctx.deps
+    if deps.user is None:
+        raise IssueNotFiled(AnonymousUser(), title, body)
+
+    tool_config = deps.tool_configs[config.CGI_TOOL_KIND]
+    claims = deps.user.model_dump()
     log = audit.RoomRequestsAuditLog(
-        claims=audit.audited_claims(
-            deps.user.model_dump(), tool_config.exclude_claims
-        ),
+        claims=audit.audited_claims(claims, tool_config.exclude_claims),
         room_id=deps.room_id,
         thread_id=deps.thread_id,
         run_id=deps.run_id,
     )
+    repo_url = _repo_url(tool_config.host, tool_config.owner, tool_config.repo)
+    headers = _headers(tool_config.token)
+
+    # The phases are driven one at a time: which one failed decides whether
+    # the issue exists.
+    posting = False
     try:
         async with httpx2.AsyncClient(
             verify=tls.httpx_verify(),
             timeout=sc_timeouts.HTTP_TIMEOUT,
         ) as client:
-            created = await _drive_async(client, steps)
+            label_id = await _drive_async(
+                client, _ensure_label(repo_url, headers, request_type)
+            )
+            posting = True
+            data = await _drive_async(
+                client,
+                _post_issue(
+                    repo_url, headers, label_id, title, body, request_type
+                ),
+            )
+            profile = await _drive_async(
+                client,
+                _record_user_profile(
+                    repo_url,
+                    headers,
+                    data["number"],
+                    claims,
+                    tool_config.profile_attachment_name,
+                    tool_config.exclude_claims,
+                ),
+            )
+            created = _created(data, profile)
     except Exception as error:
         log.issue_filing_failed(
             request_type=request_type, reason=audit.reason(error)
         )
+        if isinstance(error, LabelNotApplied):
+            raise IssueFiledWithoutLabel(error) from error
+        if isinstance(error, httpx2.HTTPStatusError) or (
+            isinstance(error, _UPSTREAM_ERRORS) and not posting
+        ):
+            raise IssueNotFiled(error, title, body) from error
+        if isinstance(error, _UPSTREAM_ERRORS):
+            raise IssueMaybeFiled(error) from error
         raise
     _record_filed(log, created, request_type, tool_config.exclude_claims)
     return created
