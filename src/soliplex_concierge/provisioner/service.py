@@ -25,6 +25,7 @@ import collections.abc
 import contextlib
 import dataclasses
 import logging
+import math
 import threading
 import time
 import typing
@@ -32,6 +33,7 @@ import uuid
 
 import fastapi
 
+from soliplex_concierge import audit
 from soliplex_concierge.provisioner import access_rules
 from soliplex_concierge.provisioner import api
 from soliplex_concierge.provisioner import interfaces
@@ -63,6 +65,10 @@ SETUP_UNFINISHED = "an administrator must finish setting the room up"
 RESOURCES_EXIST = (
     "resources for room {room!r} already exist; an administrator must clear "
     "them"
+)
+STORE_BUSY = (
+    "the provisioner is busy with other rooms; ask again after "
+    "{retry_after} seconds"
 )
 
 logger = logging.getLogger(__name__)
@@ -123,11 +129,21 @@ def watch_access(
 # --------------------------------------------------------------------------
 # Request state
 # --------------------------------------------------------------------------
+# How long (seconds) the service remembers a request after it finishes.
+REQUEST_TTL = 24 * 60 * 60
+
+# The states a request finishes in.
+FINISHED = frozenset({api.State.LIVE, api.State.INCOMPLETE, api.State.FAILED})
+
+
 @dataclasses.dataclass
 class Request:
     """A room request's state.
 
     ``requester`` identifies who asked (see :func:`requester_id`).
+
+    ``finished`` when it reached a :data:`FINISHED` state on the registry's
+    clock): None while pending.
     """
 
     room_id: str
@@ -136,12 +152,24 @@ class Request:
     state: api.State = api.State.PENDING
     incomplete: tuple[str, ...] = ()
     error: str | None = None
+    finished: float | None = None
 
 
 class Requests:
-    """The service's room requests, by room id; safe across threads."""
+    """The service's room requests, by room id; safe across threads.
 
-    def __init__(self):
+    ``ttl`` is a number of seconds to preserve a request after it reaches
+    a finished state;  forever, if ``None``.
+
+    ``clock`` gives the time in seconds (by default :func:`time.monotonic`).
+    """
+
+    def __init__(
+        self,
+        ttl: float | None = REQUEST_TTL,
+        clock: collections.abc.Callable[[], float] = time.monotonic,
+    ):
+        self.ttl, self._clock = ttl, clock
         self._lock = threading.Lock()
         self._requests: dict[str, Request] = {}
 
@@ -150,8 +178,12 @@ class Requests:
             return self._requests.get(room_id)
 
     def reserve(self, room_id: str, requester: str | None) -> bool:
-        """Record a pending request; False when one is pending already."""
+        """Record a pending request; False when one is pending already.
+
+        Forgets the finished requests whose ``ttl`` has passed first.
+        """
         with self._lock:
+            self._prune()
             current = self._requests.get(room_id)
             if current is not None and current.state == api.State.PENDING:
                 return False
@@ -166,9 +198,24 @@ class Requests:
             self._requests.pop(room_id, None)
 
     def update(self, room_id: str, **changes) -> None:
+        """Change a request; one reaching a finished state is stamped."""
         with self._lock:
-            request = self._requests[room_id]
-            self._requests[room_id] = dataclasses.replace(request, **changes)
+            request = dataclasses.replace(self._requests[room_id], **changes)
+            if request.state in FINISHED and request.finished is None:
+                request.finished = self._clock()
+            self._requests[room_id] = request
+
+    def _prune(self) -> None:
+        # Call only while holding `self._lock`.
+        if self.ttl is not None:
+            cutoff = self._clock() - self.ttl
+            expired = [
+                room_id
+                for room_id, request in self._requests.items()
+                if request.finished is not None and request.finished <= cutoff
+            ]
+            for room_id in expired:
+                del self._requests[room_id]
 
 
 def requester_id(
@@ -282,6 +329,9 @@ def _claims(admission: interfaces.Admission, token: str):
         return admission.claims(token)
     except interfaces.InvalidToken as error:
         logger.info("refused a service token: %s", error)
+        audit.RoomProvisioningAuditLog(claims={}).service_token_refused(
+            reason=str(error)
+        )
         raise _unauthorized(TOKEN_INVALID) from error
     except Exception as error:
         internal = _internal_error("validating a service token failed")
@@ -366,6 +416,37 @@ def _check_request(
         raise internal from error
 
 
+def _store_busy(provisioner: provision.Provisioner) -> fastapi.HTTPException:
+    """Construct a ``503`` for a request refused while the store is busy
+
+    Tell the requester to retry after the provisioner's first busy-retry
+    delay.
+    """
+    delays = provisioner.busy_retry_delays or provision.BUSY_RETRY_DELAYS
+    retry_after = math.ceil(delays[0])
+    return fastapi.HTTPException(
+        status_code=503,
+        detail=STORE_BUSY.format(retry_after=retry_after),
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _record_refusal(
+    log: audit.RoomProvisioningAuditLog,
+    room: str | None,
+    refusal: fastapi.HTTPException | RoomRefused,
+) -> None:
+    """Record a refused (``4xx``) or failed (``5xx``) room request."""
+    if isinstance(refusal, RoomRefused):
+        status = refusal.status
+    else:
+        status = refusal.status_code
+    record = (
+        log.room_request_refused if status < 500 else log.room_request_failed
+    )
+    record(room_id=room, status=status, reason=audit.reason(refusal))
+
+
 def _admit_caller(
     provisioner: provision.Provisioner,
     admission: interfaces.Admission,
@@ -398,17 +479,21 @@ def _create(
 ) -> None:
     """Create the admitted room, recording the outcome."""
     room = admitted.request.room
+    log = audit.RoomProvisioningAuditLog(
+        claims=dict(admitted.request.requester_claims)
+    )
     try:
         result = provision.create_room(admitted, provisioner)
     except Exception as error:
         logger.exception("provisioning room %r failed", room)
+        log.room_provisioning_failed(room_id=room, reason=audit.reason(error))
         requests.update(room, state=api.State.FAILED, error=str(error))
         return
-    requests.update(
-        room,
-        state=(api.State.INCOMPLETE if result.unfinished else api.State.LIVE),
-        incomplete=result.unfinished,
+    state = api.State.INCOMPLETE if result.unfinished else api.State.LIVE
+    log.room_provisioned(
+        room_id=room, state=state, unfinished=list(result.unfinished)
     )
+    requests.update(room, state=state, incomplete=result.unfinished)
 
 
 router = fastapi.APIRouter()
@@ -444,23 +529,65 @@ def post_room(
 ) -> api.Accepted:
     """Admit a room request, then create the room in the background.
 
-    The cheap checks come first: the token, then the request's own form
-    (``400``), then whether a request for the room is in flight (``409``),
-    then the deployment's own check, if any (see
-    :attr:`provision.Provisioner.check_request`). The in-flight check
-    precedes the deployment's, so that a retry of a request that got
-    through meets the former, never a rate limit counting it again.
-    Only then is the caller admitted (``403``), which may cost the backend
-    a call or two; a refusal there releases the reservation (#145).
+    Check:
+
+    - the token
+
+    - the request's own form (``400``)
+
+    - whether a request for the room is in flight (``409``)
+
+    - the deployment's own check, if any (see
+      :attr:`provision.Provisioner.check_request`).
+
+    The in-flight check precedes the deployment's, so that a retry of a
+    request that got through meets the former.
+
+    A store busy with other runs gets ``503``, with ``Retry-After``.
+
+    Only then is the caller admitted (``403``); a refusal there releases
+    the reservation.
     """
     claims = _claims(admission, token)
+    log = audit.RoomProvisioningAuditLog(claims=claims)
+    try:
+        request = _plan(provisioner, claims, body)
+    except fastapi.HTTPException as refusal:
+        _record_refusal(log, None, refusal)
+        raise
+    try:
+        accepted = _admit(
+            provisioner,
+            admission,
+            requests,
+            background,
+            token,
+            claims,
+            body,
+            request,
+        )
+    except (fastapi.HTTPException, RoomRefused) as refusal:
+        _record_refusal(log, request.room, refusal)
+        raise
+    log.room_request_admitted(
+        room_id=accepted.room_id, issue_url=accepted.issue_url
+    )
+    return accepted
+
+
+def _plan(
+    provisioner: provision.Provisioner,
+    claims: collections.abc.Mapping,
+    body: api.RoomRequest,
+) -> interfaces.RoomRequest:
+    """Plan the request (``400`` when it yields no usable room)."""
     try:
         owner = (
             None
             if body.owner is None
             else _named_owner(provisioner, body.owner)
         )
-        request = provision.plan_room(
+        return provision.plan_room(
             claims,
             name=body.name,
             provisioner=provisioner,
@@ -471,29 +598,49 @@ def post_room(
     except (room_ids.RoomIdError, access_rules.AccessRuleError) as error:
         raise _http_error(400, error) from error
 
+
+def _admit(
+    provisioner: provision.Provisioner,
+    admission: interfaces.Admission,
+    requests: Requests,
+    background: fastapi.BackgroundTasks,
+    token: str,
+    claims: collections.abc.Mapping,
+    body: api.RoomRequest,
+    request: interfaces.RoomRequest,
+) -> api.Accepted:
+    """Reserve, check and admit a planned request; start creating its room.
+
+    The checks and their order are ``post_room``'s.
+    """
     room = request.room
     if not requests.reserve(room, requester_id(provisioner, claims)):
         raise RoomRefused(
             409, f"room {room!r} is already being provisioned", room
         )
+
     try:
         _check_request(provisioner, claims, request)
         _admit_caller(provisioner, admission, token, body.owner)
     except BaseException:
         requests.release(room)
         raise
+
     try:
         admitted = provision.admit_room(request, provisioner)
     except provision.RoomExists as error:
         requests.release(room)
         raise RoomRefused(409, str(error), room) from error
     except provision.ResourcesExist as error:
-        # Their names are the stack's own paths and stores: logged, not told.
         requests.release(room)
         logger.warning("refused room %r: %s", room, error)
         raise RoomRefused(
             409, RESOURCES_EXIST.format(room=room), room
         ) from error
+    except interfaces.StoreBusy as error:
+        requests.release(room)
+        logger.warning("refused room %r: %s", room, error)
+        raise _store_busy(provisioner) from error
     except Exception as error:
         requests.release(room)
         internal = _internal_error("admitting room %r failed", room)
@@ -519,16 +666,21 @@ def get_room(
     it; a requester who is not one gets a fixed sentence for each (#148).
     """
     claims = _claims(admission, token)
+    log = audit.RoomProvisioningAuditLog(claims=claims)
     request = requests.get(room_id)
     not_found = fastapi.HTTPException(
         status_code=404, detail=f"no request for room {room_id!r}"
     )
     if request is None:
+        log.room_request_read_denied(room_id=room_id, reason="no such request")
         raise not_found
     caller = requester_id(provisioner, claims)
     is_requester = caller is not None and caller == request.requester
     if not is_requester:
         if not _check(admission.is_admin, token, "admin access"):
+            log.room_request_read_denied(
+                room_id=room_id, reason="neither its requester nor an admin"
+            )
             raise not_found
         sees_detail = True
     elif request.error or request.incomplete:
@@ -540,6 +692,7 @@ def get_room(
     else:
         incomplete = [SETUP_UNFINISHED] if request.incomplete else []
         error = CREATION_FAILED if request.error else None
+    log.room_request_read(room_id=room_id, as_admin=not is_requester)
     return api.RequestState(
         room_id=request.room_id,
         state=request.state,
@@ -568,21 +721,30 @@ async def _lifespan(app: fastapi.FastAPI):
 
 
 def create_app(
-    provisioner: provision.Provisioner, admission: interfaces.Admission
+    provisioner: provision.Provisioner,
+    admission: interfaces.Admission,
+    *,
+    request_ttl: float | None = REQUEST_TTL,
 ) -> fastapi.FastAPI:
     """The service's application, over ``provisioner`` and ``admission``.
 
-    ``app.state.access`` records whether the backend admits the
-    provisioner; the application's lifespan starts :func:`watch_access`.
+    ``app.state.access`` records whether the backend admits the provisioner
+
+    the application's lifespan starts :func:`watch_access`.
+
+    ``request_ttl`` is how long (seconds) it remembers a finished request
+    (see :class:`Requests`).
     """
     app = fastapi.FastAPI(
-        title="Soliplex room provisioner", lifespan=_lifespan
+        title="Soliplex room provisioner",
+        lifespan=_lifespan,
     )
     app.state.provisioner = provisioner
     app.state.admission = admission
-    app.state.requests = Requests()
+    app.state.requests = Requests(ttl=request_ttl)
     app.state.access = Access()
     app.middleware("http")(_version_header)
     app.add_exception_handler(RoomRefused, _room_refused)
     app.include_router(router)
+
     return app

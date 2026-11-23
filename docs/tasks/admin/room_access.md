@@ -25,8 +25,12 @@ user profile**, not the body: when the concierge filed the issue,
 the user — typically their `email` and `preferred_username` — which are exactly
 the discriminators you grant against below.
 
-Open the attachment from the issue to read the claims. If Gitea refused the
-attachment, the profile is in a comment on the issue instead, as a YAML block. (An installation may set
+`show` prints the profile's claims, ahead of the body. If Gitea refused the
+attachment, they come from the comment the filing account posted instead, as
+a YAML block; a look-alike block in the body, or in another account's comment,
+is ignored. If the installation names the attachment differently, pass
+`--profile-name <name>` to `show`. If the issue carries no profile, the
+request cannot be attributed: don't take an identity from the body. (An installation may set
 `exclude_claims` on the tool to keep selected fields — e.g. `email` — out of the
 tracking repo; if the discriminator you need was excluded, fall back to the
 other, or ask the requester.)

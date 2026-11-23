@@ -1,4 +1,6 @@
+import contextlib
 import json
+import logging
 from unittest import mock
 
 import httpx2
@@ -10,6 +12,7 @@ from soliplex import installation
 from soliplex import models
 from soliplex import token_mint
 
+from soliplex_concierge import audit
 from soliplex_concierge import config
 from soliplex_concierge.provisioner import api
 from soliplex_concierge.tools import provisioner
@@ -239,6 +242,26 @@ async def test_request_room_too_many(ctx, headers, when):
     )
     assert "issue only if they ask" in caught.value.message
     assert "'new-room' issue instead" not in caught.value.message
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "headers, when",
+    [({"Retry-After": "30"}, "after 30 seconds"), (None, "in a few minutes")],
+    ids=["retry-after", "none"],
+)
+async def test_request_room_service_busy(ctx, headers, when):
+    service = _FakeService(503, {"detail": "busy"}, headers=headers)
+
+    with (
+        _patch_service(service),
+        pytest.raises(pydantic_ai.ToolFailed) as caught,
+    ):
+        await provisioner.request_room(ctx, name="Q3 Plans")
+
+    assert type(caught.value) is provisioner.ServiceBusy
+    assert f"ask again {when}" in caught.value.message
+    assert "Do not file the request as an issue" in caught.value.message
 
 
 @pytest.mark.anyio
@@ -751,3 +774,72 @@ async def test_check_room_request_service_failed(ctx):
 
     assert type(caught.value) is provisioner.ServiceFailed
     assert "HTTP 500: boom" in caught.value.message
+
+
+# ---- the audit trail (#152) ----
+
+
+@pytest.fixture
+def audited(caplog):
+    caplog.set_level(logging.INFO, logger="soliplex-audit")
+    return lambda: [
+        (r.getMessage(), r.outcome, r)
+        for r in caplog.records
+        if r.name == "soliplex-audit"
+    ]
+
+
+@pytest.mark.anyio
+async def test_request_room_audits_token_and_request(ctx, audited):
+    service = _FakeService(202, {"room_id": ROOM, "issue_url": None})
+
+    with _patch_service(service):
+        await provisioner.request_room(ctx, name="Q3 Plans")
+
+    [(minted, _, m_record), (requested, outcome, r_record)] = audited()
+    assert minted == audit.AUDIT_SERVICE_TOKEN_MINTED
+    assert m_record.purpose == f"POST {api.ROOMS_PATH}"
+    assert m_record.expires_in == provisioner.SERVICE_TOKEN_LIFETIME
+    assert (requested, outcome) == (audit.AUDIT_ROOM_REQUESTED, "success")
+    assert (r_record.status, r_record.room_id) == ("accepted", ROOM)
+    assert r_record.claims["preferred_username"] == USER.preferred_username
+
+
+@pytest.mark.anyio
+async def test_request_room_audits_a_failure(ctx, audited):
+    service = _FakeService(409, {"detail": f"room {ROOM!r} already exists"})
+
+    with _patch_service(service), pytest.raises(provisioner.RoomTaken):
+        await provisioner.request_room(ctx, name="Q3 Plans")
+
+    *_, (message, outcome, record) = audited()
+    assert (message, outcome) == (audit.AUDIT_ROOM_REQUESTED, "error")
+    assert record.reason.startswith("RoomTaken: ")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "status, payload, outcome",
+    [
+        (200, {"room_id": ROOM, "state": "live"}, "success"),
+        (404, {"detail": "no request"}, "error"),
+    ],
+    ids=["checked", "unknown"],
+)
+async def test_check_room_request_audits(
+    ctx, audited, status, payload, outcome
+):
+    service = _FakeService(status, payload)
+
+    with (
+        _patch_service(service),
+        contextlib.suppress(provisioner.UnknownRequest),
+    ):
+        await provisioner.check_room_request(ctx, ROOM)
+
+    *_, (message, recorded_outcome, record) = audited()
+    assert (message, recorded_outcome) == (
+        audit.AUDIT_ROOM_REQUEST_CHECKED,
+        outcome,
+    )
+    assert record.room_id == ROOM

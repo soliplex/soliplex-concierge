@@ -230,15 +230,15 @@ class BadDockerfile(InstallerError):
         )
 
 
-class SkillWhitelistActive(InstallerError):
+class SkillAllowListActive(InstallerError):
     def __init__(self, kind: str, entries: list[str]):
         self.kind = kind
         self.entries = entries
         listed = ", ".join(entries) or "(none)"
         super().__init__(
             f"installation.yaml has an explicit '{kind}' skill_configs "
-            f"whitelist ({listed}); re-run with --confirm-skill-whitelist to "
-            "add the soliplex-concierge skills to it"
+            f"allow_list ({listed}); re-run with --confirm-skill-allow_list "
+            "to add the soliplex-concierge skills to it"
         )
 
 
@@ -254,7 +254,7 @@ class Options:
     repo: str | None = None
     local_gitea: bool = False
     with_truststore: bool = False
-    confirm_skill_whitelist: bool = False
+    confirm_skill_allow_list: bool = False
     force: bool = False
     dry_run: bool = False
 
@@ -393,10 +393,11 @@ def _dist_requirement(with_truststore: bool) -> str:
     return f"{DIST}[truststore]" if with_truststore else DIST
 
 
-# The release that first ships 'soliplex_concierge.gitea_admin' (the module the
-# stack 'gitea_issues.py' shim imports); used as the dependency floor when no
-# '--version' pin is given.
-GITEA_ADMIN_MIN = ">=0.6"
+# The oldest release whose 'soliplex_concierge.gitea_admin' (the module the
+# stack 'gitea_issues.py' shim imports) does what the admin skill relies on:
+# 'show' printing the requester's profile, and '--created-by' (#151). Used as
+# the dependency floor when no '--version' pin is given.
+GITEA_ADMIN_MIN = ">=0.16"
 
 
 def stack_gitea_script(
@@ -523,14 +524,14 @@ def update_env(text: str, host: str, token: str) -> tuple[str, str]:
 # installation.yaml via plumber's section editors (comment-preserving,
 # section-scoped). room_paths is *not* here -- it is wired by the room
 # install (install_room_from). The
-# 'skill_configs' entries go through the per-kind whitelist editor: on a
+# 'skill_configs' entries go through the per-kind allow-list editor: on a
 # permissive stack they are COVERED (the skills are auto-discovered under
-# ./skills) and nothing is added; an explicit 'filesystem' whitelist makes
-# plumber raise WhitelistActive, which we surface as a confirm-or-abort.
+# ./skills) and nothing is added; an explicit 'filesystem' allow-list makes
+# plumber raise AllowListActive, which we surface as a confirm-or-abort.
 
 
 def merge_installation(
-    text: str, *, confirm_skill_whitelist: bool = False
+    text: str, *, confirm_skill_allow_list: bool = False
 ) -> tuple[str, dict[str, installation.TargetAction]]:
     """Add the concierge's installation.yaml entries to ``text``."""
     results: dict[str, installation.TargetAction] = {}
@@ -553,7 +554,7 @@ def merge_installation(
                 text,
                 SKILL_NAME,
                 kind="filesystem",
-                confirm=confirm_skill_whitelist,
+                confirm=confirm_skill_allow_list,
             )
         )
         text, results["installation: skill_configs (docs)"] = (
@@ -561,11 +562,11 @@ def merge_installation(
                 text,
                 DOCS.name,
                 kind="filesystem",
-                confirm=confirm_skill_whitelist,
+                confirm=confirm_skill_allow_list,
             )
         )
-    except installation.WhitelistActive as exc:
-        raise SkillWhitelistActive(kind=exc.kind, entries=exc.entries) from exc
+    except installation.AllowListActive as exc:
+        raise SkillAllowListActive(kind=exc.kind, entries=exc.entries) from exc
     return text, results
 
 
@@ -750,7 +751,8 @@ def apply(
 
     inst = stack / "backend" / "environment" / "installation.yaml"
     new, inst_results = merge_installation(
-        inst.read_text(), confirm_skill_whitelist=opts.confirm_skill_whitelist
+        inst.read_text(),
+        confirm_skill_allow_list=opts.confirm_skill_allow_list,
     )
     results.update(inst_results)
     changed = any(a == ADDED for a in inst_results.values())
@@ -880,13 +882,13 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--confirm-skill-whitelist",
+        "--confirm-skill-allow-list",
         action="store_true",
         help=(
             "if installation.yaml already has an explicit filesystem "
-            "'skill_configs' whitelist, add the soliplex-concierge skills to "
+            "'skill_configs' allow-list, add the soliplex-concierge skills to "
             "it (otherwise the install aborts rather than narrow your "
-            "curated whitelist). On a stack without such a whitelist this "
+            "curated allow-list). On a stack without such an allow-list this "
             "has no effect -- the skills are auto-discovered."
         ),
     )
@@ -991,7 +993,7 @@ def main(argv: list[str] | None = None) -> int:
             repo=repo,
             local_gitea=local_gitea,
             with_truststore=args.with_truststore,
-            confirm_skill_whitelist=args.confirm_skill_whitelist,
+            confirm_skill_allow_list=args.confirm_skill_allow_list,
             force=args.force,
             dry_run=args.dry_run,
         )

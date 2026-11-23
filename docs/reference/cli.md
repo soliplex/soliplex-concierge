@@ -66,9 +66,9 @@ uv run scripts/gitea_issues.py <command> --owner <owner> --repo <repo> [...]
 | Command | Purpose |
 | --- | --- |
 | `init` | create the request labels on the repository |
-| `list` | list request issues (`--state open\|closed\|all`, repeatable `--label`) |
-| `search` | filter by `--type new-room\|room-access`, `--decision approved\|denied`, `--state`, `--label` |
-| `show <number>` | print one issue's title, metadata, and body |
+| `list` | list request issues (`--state open\|closed\|all`, repeatable `--label`, `--created-by <login>`) |
+| `search` | filter by `--type new-room\|room-access`, `--decision approved\|denied`, `--state`, `--label`, `--created-by <login>` |
+| `show <number>` | print one issue's labels and metadata, the requester's profile (`--profile-name` for a non-default attachment name), and its body |
 | `comment <number> --body <text>` | add a comment |
 | `close <number> [--body <text>]` | optionally comment, then close |
 | `approve <number> [--body <text>]` | label `approved`, record the decision, and close |

@@ -51,7 +51,7 @@ interfaces are in `soliplex_concierge.provisioner.interfaces`:
 - `Backend`: the Soliplex backend that serves the room
 - `IssueTracker` (optional): the request's tracking issue
 
-They share three conventions:
+They share these conventions:
 
 - `clashes(request)` describes, in the adapter's words, each thing named for
   the room that exists already. It changes nothing, and may raise to refuse
@@ -60,6 +60,15 @@ They share three conventions:
   `None` when it created nothing.
 - A step after the commit (`publish`, `reload_rooms`, `resolve`) returns what
   remains to do, each a sentence saying how to finish it.
+- `RoomStore.locked()` raises `interfaces.StoreBusy` on entering, rather than
+  wait without limit, when another run keeps the store too long
+  (`landing_clone.locked` raises `CloneBusy`, which is one). During
+  admission the service answers it with a `503` and a `Retry-After`; while
+  creating an admitted room, the core tries again after each of the
+  `Provisioner`'s `busy_retry_delays` (by default 30 and 60 seconds), then
+  gives up, reporting on the tracking issue. Admission waits for the store
+  within the requester's `POST /rooms`, so keep the wait shorter than the
+  concierge's `request_timeout` (120 seconds by default).
 
 ### The owner and the requester
 
@@ -152,6 +161,19 @@ the wording to you:
   `gitea_admin`, for an issue tracker on Gitea — `gitea_admin.label_issue`
   tags one with the named labels a deployment's tracker decides on, among
   those defined on the repository
+
+The core calls your adapters while it holds the store, so a call that never
+returns stops every later request. Every blocking call in the toolkit is
+bounded, by a `timeout=` defaulting to one in `timeouts`: `CLI_TIMEOUT` for
+a `soliplex-cli` command, `GIT_TIMEOUT` for a local git command (its hooks
+and signing included), `PUSH_TIMEOUT` for a push, `LOCK_TIMEOUT` (their sum)
+for waiting on the clone's lock, and `HTTP_TIMEOUT` for each socket
+operation of an HTTP call. When a command runs out of time, it is killed
+with everything it started, and the module raises `soliplex_cli.CliTimedOut`
+(a `CliFailed`), `landing_clone.GitTimedOut` or `PushTimedOut`; a lock that
+stays taken raises `landing_clone.CloneBusy`, naming its holder. Pass other
+values at your call sites, and bound your own adapters' blocking calls the
+same way.
 
 For example, an uploads area on a local directory:
 
@@ -293,7 +315,18 @@ uvicorn --factory my_deployment.provisioner:create_app --port 8090
 ```
 
 Run one worker: the service keeps its requests' state in memory. A restart
-loses it, and the tracking issue remains the record.
+loses it, and the tracking issue remains the record. It forgets a finished
+request a day after it finished (`service.REQUEST_TTL`); pass
+`create_app(..., request_ttl=...)` for another span (seconds), or `None` to
+keep every request until the next restart.
+
+The service writes an audit trail to soliplex's `soliplex-audit` logger,
+under the scope `room-provisioning`: each service token it refuses, each
+request it admits, refuses (`denied`) or fails on (`error`, with the
+cause a requester is not told), each read of a request (by its requester,
+or by an admin) and each it hides, and how creating each room ended. Each
+record names the user by their token's claims. Configure that logger as
+for soliplex itself, and your own adapters' records join the same trail.
 
 ## Checking an implementation against the contract
 

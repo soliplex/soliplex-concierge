@@ -104,9 +104,9 @@ room_paths:
   - "./rooms/chat"
 """
 
-# Variant with an explicit *filesystem* skill_configs whitelist active: adding
+# Variant with an explicit *filesystem* skill_configs allow_list active: adding
 # the concierge skills would narrow it, so the install aborts unless confirmed.
-_INSTALLATION_FS_WHITELIST = """\
+_INSTALLATION_FS_ALLOW_LIST = """\
 meta:
   # nothing registered yet
 
@@ -580,7 +580,7 @@ def test_merge_installation_adds():
     assert results["installation: environment"] == installer.ADDED
     assert results["installation: secrets"] == installer.ADDED
     # A permissive stack auto-discovers the skills (installed under ./skills),
-    # so the whitelist entries are COVERED -- nothing is added.
+    # so the allow_list entries are COVERED -- nothing is added.
     assert results["installation: skill_configs"] == installer.COVERED
     assert results["installation: skill_configs (docs)"] == installer.COVERED
     data = _loads(new_text)
@@ -628,14 +628,14 @@ def test_merge_installation_appends_to_existing_tool_configs():
     assert "some.Existing.ToolConfig" in tcs
 
 
-def test_merge_installation_aborts_on_active_skill_whitelist():
-    with pytest.raises(installer.SkillWhitelistActive):
-        installer.merge_installation(_INSTALLATION_FS_WHITELIST)
+def test_merge_installation_aborts_on_active_skill_allow_list():
+    with pytest.raises(installer.SkillAllowListActive):
+        installer.merge_installation(_INSTALLATION_FS_ALLOW_LIST)
 
 
-def test_merge_installation_confirm_adds_to_active_whitelist():
+def test_merge_installation_confirm_adds_to_active_allow_list():
     new_text, results = installer.merge_installation(
-        _INSTALLATION_FS_WHITELIST, confirm_skill_whitelist=True
+        _INSTALLATION_FS_ALLOW_LIST, confirm_skill_allow_list=True
     )
 
     assert results["installation: skill_configs"] == installer.ADDED
@@ -970,9 +970,9 @@ def test_install_skill_force(stack):
 @pytest.mark.parametrize(
     "pin,with_truststore,expected",
     [
-        (None, False, '"soliplex-concierge>=0.6"'),
+        (None, False, '"soliplex-concierge>=0.16"'),
         ("== 0.2", False, '"soliplex-concierge == 0.2"'),
-        (None, True, '"soliplex-concierge[truststore]>=0.6"'),
+        (None, True, '"soliplex-concierge[truststore]>=0.16"'),
         ("== 0.2", True, '"soliplex-concierge[truststore] == 0.2"'),
     ],
 )

@@ -17,11 +17,11 @@ import yaml
 from soliplex import agents
 from soliplex import models
 
+from soliplex_concierge import audit
 from soliplex_concierge import config
+from soliplex_concierge import labels as sc_labels
 from soliplex_concierge import tls
-from soliplex_concierge.labels import ISSUE_TYPE_LABELS
-from soliplex_concierge.labels import LABEL_PAGE_SIZE
-from soliplex_concierge.labels import MAX_LABEL_PAGES
+from soliplex_concierge.provisioner import timeouts as sc_timeouts
 
 
 class UnknownRequestType(ValueError):
@@ -47,16 +47,6 @@ class AnonymousUser(ValueError):
 
 
 class LabelNotApplied(RuntimeError):
-    """The issue was created but its request-type label was not applied.
-
-    Gitea accepts an issue (and its attachments) from an account with only
-    Read access to the repository, but silently drops the 'labels' it was
-    asked to set -- applying labels requires Write access. We surface that as
-    an error rather than quietly filing an untagged request that would slip
-    past triage. The created (but unlabeled) issue is named so an operator can
-    find it; the fix is to grant the Gitea account Write access to the repo.
-    """
-
     def __init__(self, request_type: str, number: int, url: str):
         self.request_type = request_type
         self.number = number
@@ -106,13 +96,13 @@ def _find_label(
     first page: a canonical label sitting past the page boundary must not be
     mistaken for a missing one (see 'soliplex_concierge.labels').
     """
-    for page in range(1, MAX_LABEL_PAGES + 1):
+    for page in range(1, sc_labels.MAX_LABEL_PAGES + 1):
         response = yield (
             "get",
             f"{repo_url}/labels",
             {
                 "headers": headers,
-                "params": {"page": page, "limit": LABEL_PAGE_SIZE},
+                "params": {"page": page, "limit": sc_labels.LABEL_PAGE_SIZE},
             },
         )
         response.raise_for_status()
@@ -135,7 +125,7 @@ def _ensure_label(
     if label_id is not None:
         return label_id
 
-    spec = ISSUE_TYPE_LABELS[name]
+    spec = sc_labels.ISSUE_TYPE_LABELS[name]
     response = yield (
         "post",
         f"{repo_url}/labels",
@@ -272,6 +262,20 @@ def _file_issue(
     )
 
 
+def _record_filed(
+    log: audit.RoomRequestsAuditLog,
+    created: CreatedGiteaIssue,
+    request_type: str,
+    exclude_claims: Iterable[str],
+) -> None:
+    log.issue_filed(
+        number=created.number,
+        request_type=request_type,
+        profile=created.profile,
+        excluded_claims=sorted(exclude_claims),
+    )
+
+
 def _drive_sync(client: httpx2.Client, steps: _Steps) -> typing.Any:
     """Run 'steps' to completion, issuing its requests via 'client'.
 
@@ -360,8 +364,11 @@ def create_gitea_issue_sync(
         LabelNotApplied: if the created issue did not receive its type label
             (typically the Gitea account lacks Write access to the repo).
     """
-    if request_type not in ISSUE_TYPE_LABELS:
-        raise UnknownRequestType(request_type, set(ISSUE_TYPE_LABELS))
+    if request_type not in sc_labels.ISSUE_TYPE_LABELS:
+        raise UnknownRequestType(
+            request_type,
+            set(sc_labels.ISSUE_TYPE_LABELS),
+        )
 
     if isinstance(user, models.UserProfile):
         claims = user.model_dump()
@@ -380,8 +387,22 @@ def create_gitea_issue_sync(
         body=body,
         request_type=request_type,
     )
-    with httpx2.Client(verify=tls.httpx_verify()) as client:
-        return _drive_sync(client, steps)
+    log = audit.RoomRequestsAuditLog(
+        claims=audit.audited_claims(claims, exclude_claims)
+    )
+    try:
+        with httpx2.Client(
+            verify=tls.httpx_verify(),
+            timeout=sc_timeouts.HTTP_TIMEOUT,
+        ) as client:
+            created = _drive_sync(client, steps)
+    except Exception as error:
+        log.issue_filing_failed(
+            request_type=request_type, reason=audit.reason(error)
+        )
+        raise
+    _record_filed(log, created, request_type, exclude_claims)
+    return created
 
 
 async def create_gitea_issue(
@@ -426,8 +447,11 @@ async def create_gitea_issue(
         LabelNotApplied: if the created issue did not receive its type label
             (typically the Gitea account lacks Write access to the repo).
     """
-    if request_type not in ISSUE_TYPE_LABELS:
-        raise UnknownRequestType(request_type, set(ISSUE_TYPE_LABELS))
+    if request_type not in sc_labels.ISSUE_TYPE_LABELS:
+        raise UnknownRequestType(
+            request_type,
+            set(sc_labels.ISSUE_TYPE_LABELS),
+        )
 
     if ctx.deps.user is None:
         raise AnonymousUser()
@@ -446,5 +470,25 @@ async def create_gitea_issue(
         body=body,
         request_type=request_type,
     )
-    async with httpx2.AsyncClient(verify=tls.httpx_verify()) as client:
-        return await _drive_async(client, steps)
+    deps = ctx.deps
+    log = audit.RoomRequestsAuditLog(
+        claims=audit.audited_claims(
+            deps.user.model_dump(), tool_config.exclude_claims
+        ),
+        room_id=deps.room_id,
+        thread_id=deps.thread_id,
+        run_id=deps.run_id,
+    )
+    try:
+        async with httpx2.AsyncClient(
+            verify=tls.httpx_verify(),
+            timeout=sc_timeouts.HTTP_TIMEOUT,
+        ) as client:
+            created = await _drive_async(client, steps)
+    except Exception as error:
+        log.issue_filing_failed(
+            request_type=request_type, reason=audit.reason(error)
+        )
+        raise
+    _record_filed(log, created, request_type, tool_config.exclude_claims)
+    return created

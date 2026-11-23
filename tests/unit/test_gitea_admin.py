@@ -3,9 +3,13 @@ import importlib.util
 import pathlib
 from unittest import mock
 
+import httpx2
 import pytest
 
+from soliplex_concierge import config
 from soliplex_concierge import gitea_admin
+from soliplex_concierge import labels as sc_labels
+from soliplex_concierge.tools import gitea as sc_gitea
 
 # The admin skill's 'gitea_issues.py' is now a thin shim over this module; its
 # path is used by the shim smoke test at the bottom.
@@ -43,6 +47,75 @@ def _patch_client(payload):
 
     ctor = mock.Mock(return_value=client_cm)
     return mock.patch.object(gitea_admin.httpx2, "Client", ctor), client
+
+
+def _routed(payload=None, text=None, error=None):
+    response = mock.Mock()
+    response.json.return_value = payload
+    response.text = text
+    response.raise_for_status = mock.Mock(side_effect=error)
+    return response
+
+
+def _patch_routes(routes):
+    """Patch httpx2.Client so each GET answers from ``routes`` by URL.
+
+    Returns (patcher, client mock, constructor mock).
+    """
+    client = mock.Mock()
+    client.get.side_effect = lambda url, **kwargs: routes[url]
+
+    client_cm = mock.MagicMock()
+    client_cm.__enter__.return_value = client
+    client_cm.__exit__.return_value = False
+
+    ctor = mock.Mock(return_value=client_cm)
+    return mock.patch.object(gitea_admin.httpx2, "Client", ctor), client, ctor
+
+
+ASSET_URL = f"{HOST}/attachments/abc-uuid"
+PROFILE_YAML = "preferred_username: phreddy\nemail: phreddy@example.com\n"
+ISSUE = {
+    "number": 7,
+    "title": "Room access request: mkt",
+    "state": "open",
+    "user": {"login": "concierge"},
+    "html_url": f"{BASE}/7",
+    "labels": [{"name": "room-access"}],
+    "body": "- **Requested by:** Somebody Else",
+}
+
+
+def _asset(name=gitea_admin.DEFAULT_PROFILE_NAME):
+    return {"name": name, "browser_download_url": ASSET_URL}
+
+
+def _fallback_comment(name=gitea_admin.DEFAULT_PROFILE_NAME):
+    """The comment the room tool posts when Gitea refuses the attachment."""
+    steps = sc_gitea._record_user_profile(
+        f"{HOST}/api/v1/repos/{OWNER}/{REPO}",
+        HEADERS,
+        7,
+        {"preferred_username": "phreddy", "email": "phreddy@example.com"},
+        name,
+        [],
+    )
+    next(steps)  # the attachment upload
+    _method, _url, kwargs = steps.throw(httpx2.TransportError("refused"))
+    return kwargs["json"]["body"]
+
+
+def _comment(body, login="concierge"):
+    return {"user": {"login": login}, "body": body, "html_url": f"{BASE}/7#c1"}
+
+
+def _routes(assets=(), comments=(), download=None):
+    return {
+        f"{BASE}/7": _routed(ISSUE),
+        f"{BASE}/7/assets": _routed(list(assets)),
+        f"{BASE}/7/comments": _routed(list(comments)),
+        ASSET_URL: download or _routed(text=PROFILE_YAML),
+    }
 
 
 # --- HTTP helpers ---------------------------------------------------------
@@ -94,6 +167,97 @@ def test_get_issue():
 
     assert result == {"number": 7, "title": "t"}
     client.get.assert_called_once_with(f"{BASE}/7", headers=HEADERS)
+
+
+def test_list_issues_created_by():
+    patched, client = _patch_client([])
+
+    with patched:
+        gitea_admin.list_issues(
+            HOST, TOKEN, OWNER, REPO, created_by="concierge"
+        )
+
+    client.get.assert_called_once_with(
+        BASE,
+        headers=HEADERS,
+        params={"state": "open", "type": "issues", "created_by": "concierge"},
+    )
+
+
+@pytest.mark.parametrize(
+    "helper, suffix",
+    [
+        (gitea_admin.list_issue_assets, "assets"),
+        (gitea_admin.list_comments, "comments"),
+    ],
+)
+def test_issue_subresources(helper, suffix):
+    patched, client = _patch_client([{"id": 1}])
+
+    with patched:
+        result = helper(HOST, TOKEN, OWNER, REPO, 7)
+
+    assert result == [{"id": 1}]
+    client.get.assert_called_once_with(f"{BASE}/7/{suffix}", headers=HEADERS)
+
+
+def test_download_asset():
+    patched, client, ctor = _patch_routes({ASSET_URL: _routed(text="x")})
+
+    with patched:
+        result = gitea_admin.download_asset(TOKEN, ASSET_URL)
+
+    assert result == "x"
+    assert ctor.call_args.kwargs["follow_redirects"] is True
+    client.get.assert_called_once_with(ASSET_URL, headers=HEADERS)
+
+
+def test_default_profile_name_matches_the_room_tool():
+    result = gitea_admin.DEFAULT_PROFILE_NAME
+
+    assert result == config.DEFAULT_PROFILE_ATTACHMENT_NAME
+
+
+@pytest.mark.parametrize(
+    "routes, expected",
+    [
+        (
+            _routes(assets=[_asset("other.txt"), _asset()]),
+            gitea_admin.Profile("attachment", PROFILE_YAML, ASSET_URL),
+        ),
+        (
+            _routes(
+                assets=[_asset()],
+                download=_routed(error=httpx2.TransportError("no")),
+            ),
+            gitea_admin.Profile("attachment", None, ASSET_URL),
+        ),
+        (
+            _routes(
+                comments=[_comment("hello"), _comment(_fallback_comment())]
+            ),
+            gitea_admin.Profile("comment", PROFILE_YAML, f"{BASE}/7#c1"),
+        ),
+        (_routes(comments=[_comment(_fallback_comment(), "mallory")]), None),
+        (_routes(comments=[_comment(_fallback_comment("other.yaml"))]), None),
+        (_routes(), None),
+    ],
+    ids=[
+        "attachment",
+        "attachment-undownloadable",
+        "filer-comment",
+        "other-account-comment",
+        "other-name-comment",
+        "none",
+    ],
+)
+def test_get_profile(routes, expected):
+    patched, _client, _ctor = _patch_routes(routes)
+
+    with patched:
+        result = gitea_admin.get_profile(HOST, TOKEN, OWNER, REPO, ISSUE)
+
+    assert result == expected
 
 
 def test_comment_issue():
@@ -192,25 +356,90 @@ def test_main_list_empty(capsys):
     assert "no open issues" in capsys.readouterr().out
 
 
-def test_main_show(capsys):
-    patched, _client = _patch_client(
-        {
-            "number": 7,
-            "title": "New room: mkt",
-            "state": "open",
-            "user": {"login": "phreddy"},
-            "html_url": f"{BASE}/7",
-            "body": "Requested by Phreddy.",
-        }
-    )
+@pytest.mark.parametrize(
+    "routes, expected",
+    [
+        (
+            _routes(assets=[_asset()]),
+            [
+                "--- requester's profile (from their token; attachment "
+                f"{ASSET_URL}) ---",
+                "preferred_username: phreddy",
+            ],
+        ),
+        (
+            _routes(comments=[_comment(_fallback_comment())]),
+            [
+                "--- requester's profile (from their token; comment "
+                f"{BASE}/7#c1) ---",
+                "email: phreddy@example.com",
+            ],
+        ),
+        (
+            _routes(
+                assets=[_asset()],
+                download=_routed(error=httpx2.TransportError("no")),
+            ),
+            ["could not be downloaded; open " + ASSET_URL],
+        ),
+        (_routes(), ["--- requester's profile: none recorded on this issue"]),
+    ],
+    ids=["attachment", "comment", "undownloadable", "none"],
+)
+def test_main_show(capsys, routes, expected):
+    patched, _client, _ctor = _patch_routes(routes)
 
     with patched:
         rc = gitea_admin.main(["show", "7", *_CONN])
 
     out = capsys.readouterr().out
     assert rc == 0
-    assert "by: phreddy" in out
-    assert "Requested by Phreddy." in out
+    assert "by: concierge" in out
+    assert "labels: room-access" in out
+    for line in expected:
+        assert line in out
+    assert out.index("requester's profile") < out.index("--- body")
+    assert out.rstrip().endswith("- **Requested by:** Somebody Else")
+
+
+def test_main_show_without_labels_or_body(capsys):
+    routes = _routes()
+    routes[f"{BASE}/7"] = _routed({**ISSUE, "labels": [], "body": ""})
+    patched, _client, _ctor = _patch_routes(routes)
+
+    with patched:
+        rc = gitea_admin.main(["show", "7", *_CONN])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "labels: (none)" in out
+    assert out.rstrip().endswith("(no body)")
+
+
+def test_main_show_with_a_profile_name(capsys):
+    patched, _client, _ctor = _patch_routes(
+        _routes(assets=[_asset("profile.yml")])
+    )
+
+    with patched:
+        rc = gitea_admin.main(
+            ["show", "7", "--profile-name", "profile.yml", *_CONN]
+        )
+
+    assert rc == 0
+    assert "preferred_username: phreddy" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "command", [["list"], ["search", "--type", "new-room"]]
+)
+def test_main_created_by(command):
+    patched, client = _patch_client([])
+
+    with patched:
+        gitea_admin.main([*command, "--created-by", "concierge", *_CONN])
+
+    assert client.get.call_args.kwargs["params"]["created_by"] == "concierge"
 
 
 def test_main_comment(capsys):
@@ -285,7 +514,7 @@ def test_list_labels():
         mock.call(
             LABELS_URL,
             headers=HEADERS,
-            params={"page": page, "limit": gitea_admin.LABEL_PAGE_SIZE},
+            params={"page": page, "limit": sc_labels.LABEL_PAGE_SIZE},
         )
         for page in (1, 2, 3)
     ]
@@ -294,15 +523,13 @@ def test_list_labels():
 def test_list_labels_bounds_the_page_walk():
     # a server that ignored 'page' would otherwise be walked forever
     page = [{"name": "approved", "id": 1}]
-    patched, client = _patch_client_seq(
-        get=[page] * gitea_admin.MAX_LABEL_PAGES
-    )
+    patched, client = _patch_client_seq(get=[page] * sc_labels.MAX_LABEL_PAGES)
 
     with patched:
         result = gitea_admin.list_labels(HOST, TOKEN, OWNER, REPO)
 
-    assert client.get.call_count == gitea_admin.MAX_LABEL_PAGES
-    assert result == page * gitea_admin.MAX_LABEL_PAGES
+    assert client.get.call_count == sc_labels.MAX_LABEL_PAGES
+    assert result == page * sc_labels.MAX_LABEL_PAGES
 
 
 def test_create_label():
@@ -401,8 +628,8 @@ def test_init_labels_all_missing():
     with patched:
         result = gitea_admin.init_labels(HOST, TOKEN, OWNER, REPO)
 
-    assert result == {name: "created" for name in gitea_admin.LABELS}
-    assert client.post.call_count == len(gitea_admin.LABELS)
+    assert result == {name: "created" for name in sc_labels.REQUEST_LABELS}
+    assert client.post.call_count == len(sc_labels.REQUEST_LABELS)
 
 
 def test_init_labels_partial():
@@ -416,7 +643,7 @@ def test_init_labels_partial():
 
     assert result["approved"] == "exists"
     assert result["new-room"] == "created"
-    assert client.post.call_count == len(gitea_admin.LABELS) - 1
+    assert client.post.call_count == len(sc_labels.REQUEST_LABELS) - 1
 
 
 # --- decision helpers -----------------------------------------------------

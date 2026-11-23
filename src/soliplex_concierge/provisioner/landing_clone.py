@@ -8,26 +8,48 @@ Git configuration applies as usual, so an operator can set policy for the
 provisioner's commits -- e.g. by pointing ``GIT_CONFIG_GLOBAL`` at a
 mounted file: its ``user.name`` / ``user.email`` make the committer (the
 provisioner's own identity fills in whichever is unset), and its hooks or
-signing settings apply. Every git call uses literal pathspecs (room ids
-carry ':') and never prompts for credentials; the one that reaches the
-network, the push, is bounded by a timeout.
+signing settings apply.
 
-Stdlib only -- git via :mod:`subprocess`, the lock via :mod:`fcntl`.
+Every git call uses literal pathspecs (room ids carry ':') and never prompts
+for credentials.
+
+Every call is bounded (see :mod:`timeouts`):
+
+- local ones by ``data:sc_timeouts.GIT_TIMEOUT`` (limiting the
+  operator's hooks or signing)
+
+- pushs by ``data:sc_timeouts.PUSH_TIMEOUT``
+
+- waiting for the writer's lock by ``data:sc_timeouts.LOCK_TIMEOUT``.
+
+When any timeout expires, git and whatever it started are killed.
+
+External operations:
+- git via :mod:`subprocess`
+- the lock via :mod:`fcntl`
 """
 
 from __future__ import annotations
 
 import contextlib
+import datetime
 import fcntl
 import os
 import pathlib
 import shutil
+import socket
 import subprocess
+import time
+
+from soliplex_concierge.provisioner import interfaces
+from soliplex_concierge.provisioner import timeouts as sc_timeouts
 
 BRANCH = "main"
 COMMITTER_NAME = "Soliplex provisioner"
 COMMITTER_EMAIL = "provisioner@soliplex.invalid"
-PUSH_TIMEOUT = 60
+# Waiting for the lock: the first retry's delay, and the longest.
+_LOCK_POLL_FIRST = 0.05
+_LOCK_POLL_MAX = 1.0
 
 
 class LandingCloneError(Exception):
@@ -43,6 +65,24 @@ class GitFailed(LandingCloneError):
     def __init__(self, args, stderr):
         self.command, self.stderr = args, stderr
         super().__init__(f"'git {' '.join(args)}' failed: {stderr}")
+
+
+class GitTimedOut(LandingCloneError):
+    def __init__(self, args, timeout):
+        self.command, self.timeout = args, timeout
+        super().__init__(
+            f"'git {' '.join(args)}' timed out after {timeout} seconds"
+        )
+
+
+class CloneBusy(LandingCloneError, interfaces.StoreBusy):
+    def __init__(self, path, timeout, holder):
+        self.path, self.timeout, self.holder = path, timeout, holder
+        held = f" (held by {holder})" if holder else ""
+        super().__init__(
+            f"the provisioned-rooms clone at {path} stayed locked{held} "
+            f"for {timeout} seconds"
+        )
 
 
 class NothingToCommit(LandingCloneError):
@@ -86,33 +126,50 @@ def _env(extra_config: dict[str, str] | None = None) -> dict[str, str]:
 
 
 def _git(
-    path, *args, extra_config=None, timeout=None
+    path,
+    *args,
+    extra_config=None,
+    timeout=sc_timeouts.GIT_TIMEOUT,
 ) -> subprocess.CompletedProcess:
+    """Run ``git -C path <args>``
+
+    Raise :class:`GitTimedOut` (killing it, and whatever it started) when it
+    runs longer than ``timeout``.
+    """
     if shutil.which("git") is None:
         raise GitMissing()
-    return subprocess.run(
-        ["git", "-C", str(path), *args],
-        capture_output=True,
-        text=True,
-        env=_env(extra_config),
-        timeout=timeout,
-    )
+
+    try:
+        return sc_timeouts.run_bounded(
+            ["git", "-C", str(path), *args],
+            env=_env(extra_config),
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise GitTimedOut(args, timeout) from error
 
 
-def _check(path, *args, extra_config=None) -> str:
-    result = _git(path, *args, extra_config=extra_config)
+def _check(
+    path,
+    *args,
+    extra_config=None,
+    timeout=sc_timeouts.GIT_TIMEOUT,
+) -> str:
+    result = _git(path, *args, extra_config=extra_config, timeout=timeout)
+
     if result.returncode != 0:
         raise GitFailed(args, result.stderr.strip())
+
     return result.stdout
 
 
-def _committer_defaults(path) -> dict[str, str]:
+def _committer_defaults(path, timeout) -> dict[str, str]:
     """The provisioner's identity for whichever of name / email is unset."""
     defaults = {"user.name": COMMITTER_NAME, "user.email": COMMITTER_EMAIL}
     return {
         key: value
         for key, value in defaults.items()
-        if _git(path, "config", "--get", key).returncode != 0
+        if _git(path, "config", "--get", key, timeout=timeout).returncode != 0
     }
 
 
@@ -122,35 +179,79 @@ def lock_path(path: pathlib.Path) -> pathlib.Path:
 
 
 @contextlib.contextmanager
-def locked(path: pathlib.Path):
+def locked(path: pathlib.Path, *, timeout: float = sc_timeouts.LOCK_TIMEOUT):
     """Hold the exclusive writer's lock on the clone at ``path``.
 
     The lock file sits beside the clone, so it is taken before the clone
     exists and never shows in the clone's working tree.
+
+    Its holder writes who it is (host, pid, and since when) into it.
+
+    Raises :class:`CloneBusy`, naming that holder, when the lock stays taken
+    for ``timeout`` seconds.
     """
     lock = lock_path(path)
     lock.parent.mkdir(parents=True, exist_ok=True)
-    with lock.open("a") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+    with lock.open("a+") as handle:
+        _acquire(handle, path, timeout)
         try:
+            handle.seek(0)
+            handle.truncate()
+            since = datetime.datetime.now(datetime.UTC).isoformat()
+            handle.write(f"{socket.gethostname()} pid {os.getpid()} {since}")
+            handle.flush()
             yield
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def ensure_clone(path: pathlib.Path, *, origin_url: str | None = None) -> None:
+def _acquire(handle, path: pathlib.Path, timeout: float) -> None:
+    """Take ``handle``'s lock, retrying with backoff for ``timeout``."""
+    deadline = time.monotonic() + timeout
+    delay = _LOCK_POLL_FIRST
+    while True:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                handle.seek(0)
+                raise CloneBusy(path, timeout, handle.read().strip()) from None
+            time.sleep(min(delay, remaining))
+            delay = min(delay * 2, _LOCK_POLL_MAX)
+        else:
+            return
+
+
+def ensure_clone(
+    path: pathlib.Path,
+    *,
+    origin_url: str | None = None,
+    timeout: float = sc_timeouts.GIT_TIMEOUT,
+) -> None:
     """Make ``path`` a git repository on :data:`BRANCH`.
 
-    Initializes it when it is not one yet. With ``origin_url``, points
-    ``origin`` at it (adding or updating the remote).
+    Initializes it when it is not one yet.
+
+    With ``origin_url``, points ``origin`` at it (adding or updating the
+    remote).
+
+    Each git call is bounded by ``timeout`` (see :class:`GitTimedOut`).
     """
     path.mkdir(parents=True, exist_ok=True)
     if not (path / ".git").exists():
-        _check(path, "init", "--quiet", "--initial-branch", BRANCH)
+        _check(
+            path,
+            "init",
+            "--quiet",
+            "--initial-branch",
+            BRANCH,
+            timeout=timeout,
+        )
     if origin_url is not None:
-        remotes = _check(path, "remote").split()
+        remotes = _check(path, "remote", timeout=timeout).split()
         verb = "set-url" if "origin" in remotes else "add"
-        _check(path, "remote", verb, "origin", origin_url)
+        _check(path, "remote", verb, "origin", origin_url, timeout=timeout)
 
 
 def commit_room(
@@ -161,20 +262,33 @@ def commit_room(
     author_email: str,
     message: str,
     also: tuple[str, ...] = (),
+    timeout: float = sc_timeouts.GIT_TIMEOUT,
 ) -> str:
     """Commit the ``room_id`` directory of the clone at ``path``.
 
     Stages only that directory, and the paths in ``also`` (relative to the
-    clone). The requester is the author; the committer is the configured
+    clone).
+
+    The requester is the author; the committer is the configured
     ``user.name`` / ``user.email``, with the provisioner's identity for
-    whichever is unset. Returns the new commit's id; raises
-    :class:`NothingToCommit` when those paths hold no change.
+    whichever is unset.
+
+    Returns the new commit's id.
+
+    Raises :class:`NothingToCommit` when those paths hold no change.
+
+    Each git call (the commit, with its hooks and signing, among them)
+    is bounded by ``timeout`` (see :class:`GitTimedOut`).
     """
     pathspecs = (room_id, *also)
-    _check(path, "add", "--all", "--", *pathspecs)
-    staged = _git(path, "diff", "--cached", "--quiet", "--", *pathspecs)
+    _check(path, "add", "--all", "--", *pathspecs, timeout=timeout)
+    staged = _git(
+        path, "diff", "--cached", "--quiet", "--", *pathspecs, timeout=timeout
+    )
+
     if staged.returncode == 0:
         raise NothingToCommit(room_id)
+
     _check(
         path,
         "commit",
@@ -185,9 +299,10 @@ def commit_room(
         message,
         "--",
         *pathspecs,
-        extra_config=_committer_defaults(path),
+        extra_config=_committer_defaults(path, timeout),
+        timeout=timeout,
     )
-    return _check(path, "rev-parse", "HEAD").strip()
+    return _check(path, "rev-parse", "HEAD", timeout=timeout).strip()
 
 
 def push(
@@ -195,18 +310,21 @@ def push(
     *,
     branch: str = BRANCH,
     token: str | None = None,
-    timeout: float = PUSH_TIMEOUT,
+    timeout: float = sc_timeouts.PUSH_TIMEOUT,
 ) -> None:
     """Push ``branch`` of the clone at ``path`` to ``origin``.
 
     A Gitea ``token`` travels as an ``http.extraHeader`` set through the
     environment, never on the command line or in the clone's config.
-    Raises :class:`PushFailed` when the push fails, and
-    :class:`PushTimedOut` when it takes longer than ``timeout`` seconds.
+
+    Raises :class:`PushFailed` when the push fails
+    Raises :class:`PushTimedOut` when it takes longer than ``timeout`` seconds.
     """
     extra_config = {}
+
     if token is not None:
         extra_config["http.extraHeader"] = f"Authorization: token {token}"
+
     try:
         result = _git(
             path,
@@ -217,7 +335,8 @@ def push(
             extra_config=extra_config,
             timeout=timeout,
         )
-    except subprocess.TimeoutExpired as error:
+    except GitTimedOut as error:
         raise PushTimedOut(timeout) from error
+
     if result.returncode != 0:
         raise PushFailed(result.stderr.strip())

@@ -97,6 +97,8 @@ requester is still the one who asked, and may see the request.
 | `422` | | The body is not a `RoomRequest` (including an `owner` in neither form, or both, or a predicate without an owner part) |
 | `429` | `Error` | The deployment's own check refuses the request as one too many (a rate limit, or a quota of rooms); a `Retry-After` header, when present, says when to ask again |
 | `500` | `Error` | The service failed |
+| `503` | `Error` | The provisioner is busy with other rooms; a `Retry-After` header says when to ask again |
+
 
 The deployment's own check may answer with any status; those above are
 the ones the concierge's room tool understands.
@@ -126,7 +128,7 @@ The room id is quoted as one path segment (`api.room_path`); the default
 |---|---|---|
 | `200` | `RequestState` | The request's state |
 | `401` | `Error` | As for `POST /rooms` |
-| `404` | `Error` | No request for that room, or one the caller may not see |
+| `404` | `Error` | No extant request for that room, or one the caller may not see |
 | `500` | `Error` | As for `POST /rooms` |
 
 Only a request's requester and admins may see it. Anyone else gets `404`, as

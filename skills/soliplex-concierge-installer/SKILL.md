@@ -108,7 +108,7 @@ Run the bundled script from this skill's directory with `uv run`.
    `environment`, `secrets`). On a stack with an explicit filesystem
    `skill_configs` allow-list, it also adds the two skills there
    (`soliplex-concierge-room`, `soliplex-docs`), but only with
-   `--confirm-skill-whitelist`; otherwise it stops with an error,
+   `--confirm-skill-allow-list`; otherwise it stops with an error,
 4. copies the `about_soliplex` room template into `rooms/<room-id>/` (renaming
    the directory and `id:`) and wires its `room_paths` entry,
 5. downloads + copies the `soliplex-concierge-room` and `soliplex-docs`

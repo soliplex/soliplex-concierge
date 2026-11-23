@@ -16,6 +16,7 @@ import fake_parts
 import httpx2
 import pytest
 
+from soliplex_concierge import audit
 from soliplex_concierge.provisioner import api
 from soliplex_concierge.provisioner import contract
 from soliplex_concierge.provisioner import interfaces
@@ -577,6 +578,49 @@ async def test_post_room_creation_incomplete(app, script):
     assert request.incomplete == ("push the rooms repository",)
 
 
+# ---- POST /rooms: a busy store (#144) ----
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "delays, retry_after",
+    [((12.5, 60.0), "13"), ((), "30")],
+    ids=["first-delay", "default"],
+)
+async def test_post_room_store_busy(admission, caplog, delays, retry_after):
+    holder = interfaces.StoreBusy("held by other-host pid 7")
+    script = fake_parts.Script(lock_refusals=[holder])
+    provisioner = fake_parts.make_provisioner(script, busy_retry_delays=delays)
+    app = service.create_app(provisioner, admission)
+
+    response = await _post(app)
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == retry_after
+    assert response.json() == {
+        "detail": service.STORE_BUSY.format(retry_after=retry_after)
+    }
+    assert "other-host" in caplog.text
+    assert app.state.requests.get(ROOM) is None
+
+
+@pytest.mark.anyio
+async def test_post_room_creation_finds_the_store_busy(script, monkeypatch):
+    monkeypatch.setattr(provision.time, "sleep", mock.Mock())
+    holder = interfaces.StoreBusy("held by other-host pid 7")
+    script.lock_refusals = [None, holder, holder, holder]
+    app = service.create_app(
+        fake_parts.make_provisioner(script), fake_parts.FakeAdmission()
+    )
+
+    response = await _post(app)
+
+    assert response.status_code == 202
+    request = app.state.requests.get(ROOM)
+    assert request.state == api.State.FAILED
+    assert "other-host" in request.error
+
+
 # ---- GET /rooms/{room_id} ----
 
 
@@ -726,6 +770,131 @@ async def test_get_room_with_an_invalid_token(app):
     assert response.status_code == 401
 
 
+# ---- the audit trail (#152) ----
+
+
+@pytest.fixture
+def audited(caplog):
+    caplog.set_level(logging.INFO, logger="soliplex-audit")
+
+    def records():
+        return [
+            (r.getMessage(), r.outcome, r)
+            for r in caplog.records
+            if r.name == "soliplex-audit"
+        ]
+
+    return records
+
+
+@pytest.mark.anyio
+async def test_audit_refused_token(app, audited):
+    await _post(app, token="forged-token")
+
+    [(message, outcome, record)] = audited()
+    assert message == audit.AUDIT_SERVICE_TOKEN_REFUSED
+    assert outcome == "denied"
+    assert record.claims == {}
+    assert "forged-token" in record.reason
+
+
+@pytest.mark.anyio
+async def test_audit_admitted_and_provisioned(app, audited):
+    await _post(app)
+
+    [(admitted, a_outcome, a_record), (provisioned, p_outcome, p_record)] = (
+        audited()
+    )
+    assert (admitted, a_outcome) == (
+        audit.AUDIT_ROOM_REQUEST_ADMITTED,
+        "success",
+    )
+    assert a_record.claims == fake_parts.TOKENS["alice-token"]
+    assert (a_record.room_id, a_record.issue_url) == (ROOM, ISSUE_URL)
+    assert (provisioned, p_outcome) == (
+        audit.AUDIT_ROOM_PROVISIONED,
+        "success",
+    )
+    assert (p_record.room_id, p_record.state) == (ROOM, api.State.LIVE)
+    assert p_record.claims == fake_parts.TOKENS["alice-token"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "token, body, room, status, outcome",
+    [
+        ("carol-token", {}, "carol--q3-plans", 403, "denied"),
+        ("alice-token", {"slug": "../escape"}, None, 400, "denied"),
+    ],
+    ids=["not-admitted", "malformed"],
+)
+async def test_audit_refused_request(
+    app, audited, token, body, room, status, outcome
+):
+    await _post(app, token=token, **body)
+
+    [(message, recorded_outcome, record)] = audited()
+    assert message == audit.AUDIT_ROOM_REQUEST_ADMITTED
+    assert recorded_outcome == outcome
+    assert (record.room_id, record.status) == (room, status)
+
+
+@pytest.mark.anyio
+async def test_audit_failed_request_names_its_cause(app, script, audited):
+    script.failures["backend.check_access"] = RuntimeError("backend down")
+
+    await _post(app)
+
+    [(message, outcome, record)] = audited()
+    assert (message, outcome) == (audit.AUDIT_ROOM_REQUEST_ADMITTED, "error")
+    assert (record.room_id, record.status) == (ROOM, 500)
+    assert "backend down" in record.reason
+
+
+@pytest.mark.anyio
+async def test_audit_failed_creation(app, script, audited):
+    script.failures["authz.audit"] = RuntimeError("audit failed")
+
+    await _post(app)
+
+    *_, (message, outcome, record) = audited()
+    assert (message, outcome) == (audit.AUDIT_ROOM_PROVISIONED, "error")
+    assert "audit failed" in record.reason
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "pending, token, outcome, as_admin, reason",
+    [
+        (True, "alice-token", "success", False, None),
+        (True, "root-token", "success", True, None),
+        (
+            True,
+            "bob-token",
+            "denied",
+            None,
+            "neither its requester nor an admin",
+        ),
+        (False, "alice-token", "denied", None, "no such request"),
+    ],
+    ids=["requester", "admin", "someone-else", "unknown"],
+)
+async def test_audit_reads(
+    app, audited, pending, token, outcome, as_admin, reason
+):
+    if pending:
+        _pending(app)
+
+    await _get(app, token=token)
+
+    [(message, recorded_outcome, record)] = audited()
+    assert message == audit.AUDIT_ROOM_REQUEST_READ
+    assert recorded_outcome == outcome
+    assert record.room_id == ROOM
+    assert getattr(record, "as_admin", None) == as_admin
+    assert getattr(record, "reason", None) == reason
+
+
 # ---- GET /ok ----
 
 
@@ -865,6 +1034,78 @@ def test_requests_reserve_replaces_a_finished_request():
     )
 
 
+@pytest.mark.parametrize(
+    "state, finished",
+    [
+        (api.State.PENDING, None),
+        (api.State.LIVE, 100.0),
+        (api.State.INCOMPLETE, 100.0),
+        (api.State.FAILED, 100.0),
+    ],
+)
+def test_requests_update_stamps_a_finished_request(state, finished):
+    requests = service.Requests(clock=mock.Mock(return_value=100.0))
+    requests.reserve(ROOM, "alice")
+
+    requests.update(ROOM, state=state)
+
+    assert requests.get(ROOM).finished == finished
+
+
+def test_requests_update_keeps_the_first_stamp():
+    clock = mock.Mock(side_effect=[0.0, 100.0, 200.0])
+    requests = service.Requests(clock=clock)
+    requests.reserve(ROOM, "alice")  # prunes: reads the clock
+    requests.update(ROOM, state=api.State.INCOMPLETE)  # stamped at 100
+
+    requests.update(ROOM, incomplete=("push",), state=api.State.LIVE)
+
+    assert requests.get(ROOM).finished == 100.0
+    assert clock.call_count == 2
+
+
+def test_requests_reserve_prunes_expired_requests():
+    clock = mock.Mock(return_value=0.0)
+    requests = service.Requests(clock=clock)
+    requests.reserve("old--live", "alice")
+    requests.update("old--live", state=api.State.LIVE)
+    requests.reserve("old--failed", "alice")
+    requests.update("old--failed", state=api.State.FAILED)
+    requests.reserve("old--pending", "alice")
+    clock.return_value = service.REQUEST_TTL
+
+    requests.reserve(ROOM, "bob")
+
+    assert requests.get("old--live") is None
+    assert requests.get("old--failed") is None
+    assert requests.get("old--pending").state == api.State.PENDING
+    assert requests.get(ROOM).requester == "bob"
+
+
+def test_requests_reserve_keeps_unexpired_requests():
+    clock = mock.Mock(return_value=0.0)
+    requests = service.Requests(clock=clock)
+    requests.reserve("recent--live", "alice")
+    requests.update("recent--live", state=api.State.LIVE)
+    clock.return_value = service.REQUEST_TTL - 1
+
+    requests.reserve(ROOM, "bob")
+
+    assert requests.get("recent--live").state == api.State.LIVE
+
+
+def test_requests_without_a_ttl_never_prune():
+    clock = mock.Mock(return_value=0.0)
+    requests = service.Requests(ttl=None, clock=clock)
+    requests.reserve("old--live", "alice")
+    requests.update("old--live", state=api.State.LIVE)
+    clock.return_value = 10 * service.REQUEST_TTL
+
+    requests.reserve(ROOM, "bob")
+
+    assert requests.get("old--live").state == api.State.LIVE
+
+
 def test_requests_release():
     requests = service.Requests()
     requests.reserve(ROOM, "alice")
@@ -931,4 +1172,16 @@ def test_create_app():
         "the backend has not been checked yet",
     )
     assert isinstance(result.state.requests, service.Requests)
+    assert result.state.requests.ttl == service.REQUEST_TTL
+
+
+@pytest.mark.parametrize("ttl", [60.0, None])
+def test_create_app_with_a_request_ttl(ttl):
+    provisioner = fake_parts.make_provisioner(fake_parts.Script())
+
+    result = service.create_app(
+        provisioner, fake_parts.FakeAdmission(), request_ttl=ttl
+    )
+
+    assert result.state.requests.ttl == ttl
     assert isinstance(provisioner, provision.Provisioner)

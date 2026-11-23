@@ -335,9 +335,10 @@ The steps of provisioning a room, and their guarantees (see
 
 - `Provisioner(store, registrar, uploads, authz, backend, tracker=None,
   owner_claim="preferred_username", scheme=room_ids.DEFAULT_SCHEME,
-  check_request=None)` — a deployment's adapters, the claim a requester's
-  own owner derives from, the rules for its room ids, and its own check of
-  a planned request. The keywords and attributes
+  check_request=None, busy_retry_delays=BUSY_RETRY_DELAYS)` — a deployment's
+  adapters, the claim a requester's own owner derives from, the rules for
+  its room ids, its own check of a planned request, and how long creating a
+  room waits before each further try at a busy store. The keywords and attributes
   `room_id_separator`, `flatten_owner` and `lowercase_owner` are deprecated
   spellings of `scheme`'s settings, kept until after v0.16.
 - `plan_room(requester_claims, *, name, provisioner, description=None,
@@ -532,8 +533,8 @@ own message:
   block to extend.
 - `BadDockerfile()` — the `backend/Dockerfile` `uv add` block has no
   `soliplex \` line to extend.
-- `SkillWhitelistActive(kind, entries)` — `installation.yaml` has an explicit
-  `skill_configs` whitelist and `--confirm-skill-whitelist` was not given.
+- `SkillAllowListActive(kind, entries)` — `installation.yaml` has an explicit
+  `skill_configs` allow-list and `--confirm-skill-allow-list` was not given.
 
 **Published skills**
 
@@ -575,14 +576,14 @@ just "compute, don't write"; `action` is `ADDED` or `UNCHANGED`:
 - `add_dockerfile_dep(text, pin=None, with_truststore=False)` — add it to the
   `backend/Dockerfile` `uv add` block, in an older stack without
   `backend/requirements.txt`.
-- `merge_installation(text, *, confirm_skill_whitelist=False) ->
+- `merge_installation(text, *, confirm_skill_allow_list=False) ->
   (new_text, {target: action})` — surgically merge the `installation.yaml`
   entries: the three `meta.tool_configs` classes, `environment`, `secrets`,
   and the two filesystem `skill_configs` (`room_paths` is wired by
   `install_room`). The `skill_configs` targets come back `COVERED` on a
-  permissive stack; on one with an explicit whitelist they are added only
-  when `confirm_skill_whitelist` is true, and otherwise it raises
-  `SkillWhitelistActive`.
+  permissive stack; on one with an explicit allow-list they are added only
+  when `confirm_skill_allow_list` is true, and otherwise it raises
+  `SkillAllowListActive`.
 - `update_env(text, host, token)` — add the `GITEA_HOST` / `GITEA_ACCESS_TOKEN`
   lines.
 - `stack_gitea_script(pin=None, with_truststore=False) -> str` — render the
