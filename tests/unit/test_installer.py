@@ -739,7 +739,7 @@ def test_patch_room_config_without_a_version(temp_dir):
 def test_installer_version_of_the_bundle():
     result = installer.installer_version(ASSETS)
 
-    assert result == "0.7.0"
+    assert result == "0.8.0"
 
 
 @pytest.mark.parametrize(
@@ -802,7 +802,7 @@ def test_install_room_added(stack):
     assert room_action == installer.ADDED
     assert cfg["id"] == "about_concierge-test"
     assert cfg_path.read_text().startswith(
-        "# Installed by soliplex-concierge-installer 0.7.0\n"
+        "# Installed by soliplex-concierge-installer 0.8.0\n"
     )
     # the enumerated room_paths gains the new room (via install_room_from)
     assert room_paths_action == installer.ADDED

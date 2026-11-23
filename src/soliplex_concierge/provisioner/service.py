@@ -351,6 +351,9 @@ def _named_owner(
 ) -> room_ids.RoomOwner:
     """The owner an admin names, with the access rule its form gives.
 
+    An owner named by a claim and value without an owner part gets one
+    derived from the value (see :meth:`room_ids.RoomIdScheme.named_owner`).
+
     Checks only the forms themselves, which anyone may be told are
     malformed. Whether the deployment registers a named predicate is
     :func:`_check_predicate`'s question, asked only once the caller is
@@ -362,7 +365,9 @@ def _named_owner(
         rule = access_rules.predicate_rule(named.predicate)
     else:
         rule = access_rules.claim_rule(named.claim, named.value)
-    return provisioner.scheme.named_owner(named.owner, rule)
+    # The model guarantees a predicate comes with an owner part.
+    owner = named.value if named.owner is None else named.owner
+    return provisioner.scheme.named_owner(owner, rule)
 
 
 def _check_predicate(provisioner: provision.Provisioner, name: str) -> None:

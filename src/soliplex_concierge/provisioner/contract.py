@@ -304,6 +304,43 @@ async def check_admin_names_an_owner(harness: Harness) -> None:
     )
 
 
+async def check_admin_names_an_owner_by_email(harness: Harness) -> None:
+    """An admin may name an owner by email address, with or without a part.
+
+    An owner part holding the address is flattened (``@`` -> ``_``); an
+    owner named by a claim and value with no owner part gets one derived
+    from the value the same way. Either way the room id's owner part is
+    the one the address would give a requester under the default rules.
+    """
+    value = f"{_unique_owner()}@contract.invalid"
+    separator = _room_id_separator(harness)
+    scheme = room_ids.RoomIdScheme(separator=separator)
+    owner_part = scheme.named_owner(value, "$").owner
+    for what, owner in (
+        (
+            f"POST /rooms naming the owner part {value!r}, by an admin",
+            {"owner": value, "claim": "email", "value": value},
+        ),
+        (
+            f"POST /rooms naming the owner by email {value!r} alone, by an "
+            "admin",
+            {"claim": "email", "value": value},
+        ),
+    ):
+        name = _unique_name("email-owner")
+        response = await _post_room(
+            harness, harness.admin_token, name=name, owner=owner
+        )
+
+        _expect_status(response, 202, what)
+        accepted = _parse(api.Accepted, response, what)
+        _expect(
+            accepted.room_id.startswith(f"{owner_part}{separator}"),
+            f"{what}: expected a room id owned by {owner_part!r}, got "
+            f"{accepted.room_id!r}",
+        )
+
+
 async def check_accepts_and_reports(harness: Harness) -> None:
     """An admitted request answers ``202``; its requester sees its state."""
     name = _unique_name("accepts")
@@ -377,6 +414,7 @@ ALL_CHECKS: tuple[Check, ...] = (
     check_rejects_a_bad_owner,
     check_rejects_an_unknown_predicate,
     check_admin_names_an_owner,
+    check_admin_names_an_owner_by_email,
     check_accepts_and_reports,
     check_hides_requests_from_others,
     check_reports_unknown_requests,
