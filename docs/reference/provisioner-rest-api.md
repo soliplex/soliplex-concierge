@@ -99,7 +99,6 @@ requester is still the one who asked, and may see the request.
 | `500` | `Error` | The service failed |
 | `503` | `Error` | The provisioner is busy with other rooms; a `Retry-After` header says when to ask again |
 
-
 The deployment's own check may answer with any status; those above are
 the ones the concierge's room tool understands.
 
